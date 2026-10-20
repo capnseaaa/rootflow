@@ -7,8 +7,8 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 
 ## Spirits
 - **Sprout** blooms life. **Ripple** bridges water. **Pebble** breaks rocks. **Breeze** clears thorns.
-- Powers cost energy. Rest on living ground or at a home to recharge.
-- Build a home with help from two other spirits. A home spreads life around it.
+- Powers cost energy. Rest on green land or at a home to recharge.
+- Build a home with help from two other spirits. A home pulses life around it and gives the whole team a bonus.
 
 ## Controls
 - D-pad: move, B: run

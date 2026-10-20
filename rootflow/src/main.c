@@ -283,7 +283,17 @@ static const u8 home_helper[NUM_SPIRITS][2] = {
     { KIND_RIPPLE, KIND_BREEZE }, { KIND_SPROUT, KIND_STONE },
     { KIND_SPROUT, KIND_RIPPLE }, { KIND_STONE, KIND_SPROUT },
 };
+static const char *home_bonus[] = { "BONUS: BLOOMS GROW BIGGER", "BONUS: CHARGES REFILL FASTER",
+                                    "BONUS: BREAK TWO ROCKS", "BONUS: YOU WALK FASTER" };
+#define REST_TIP "REST ON GREEN LAND TO REFILL"
 static u8 home_done[NUM_SPIRITS];
+// Homes pulse life outward: ring pulse_r[k] grows every HOME_PULSE frames, up to HOME_REACH.
+#define HOME_REACH 8
+#define HOME_PULSE 360
+static s32 pulse_r[NUM_SPIRITS], pulse_timer[NUM_SPIRITS];
+// Each home's distance map is computed once, when it is built; pulses only paint rings.
+static u8 home_dist[NUM_SPIRITS][(HOME_REACH * 2 + 1) * (HOME_REACH * 2 + 1)];
+static u32 told_rest;
 static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
 static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE };
@@ -297,14 +307,14 @@ static int in_party(s32 kind) {
 }
 
 // ---------- blooms ----------
-#define BR 4                      // max bloom radius in tiles
+#define BR 5                      // max bloom radius in tiles (4 near water, +1 with Sprout's grove)
 #define BGRID (BR * 2 + 1)
 typedef struct { s32 cx, cy, r, maxr, timer, active; u8 dist[BGRID * BGRID]; } Bloom;
 #define MAX_BLOOMS 6
 static Bloom blooms[MAX_BLOOMS];
 static s32 sparkle_x, sparkle_y, sparkle_life;
 static u32 told_river, told_spring;
-static u32 regen_timer, home_timer;
+static u32 regen_timer;
 static s32 just_called = -1;   // spirit just called back from home (see handle_action)
 
 static int blocked_at(s32 x, s32 y) {
@@ -353,7 +363,9 @@ static void reset_game(void) {
     sparkle_life = 0;
     told_river = 0;
     told_spring = 0;
-    regen_timer = home_timer = 0;
+    regen_timer = 0;
+    told_rest = 0;
+    for (s32 i = 0; i < NUM_SPIRITS; i++) pulse_r[i] = pulse_timer[i] = 0;
     just_called = -1;
     for (s32 r = 0; r < 20; r++) clear_row(r);
     draw_life();
@@ -370,31 +382,48 @@ static int water_near(s32 mx, s32 my, s32 dist) {
     return 0;
 }
 
-// Distance map for a bloom: life spreads around obstacles but never across water, rock, or thorns.
-// Costs: 10 per straight step, 14 per diagonal step, so rings come out round.
-static void bloom_distances(Bloom *b) {
-    for (s32 i = 0; i < BGRID * BGRID; i++) b->dist[i] = 255;
-    b->dist[BR * BGRID + BR] = 0;
-    for (s32 pass = 0; pass < BGRID; pass++) {
-        for (s32 gy = 0; gy < BGRID; gy++)
-            for (s32 gx = 0; gx < BGRID; gx++) {
-                s32 mx = b->cx + gx - BR, my = b->cy + gy - BR;
-                u8 t = tile_at(mx, my);
-                if (t == WATER || t == ROCK || t == THORN) continue;
-                s32 best = b->dist[gy * BGRID + gx];
-                for (s32 dy = -1; dy <= 1; dy++)
-                    for (s32 dx = -1; dx <= 1; dx++) {
-                        s32 nx = gx + dx, ny = gy + dy;
-                        if ((!dx && !dy) || nx < 0 || ny < 0 || nx >= BGRID || ny >= BGRID) continue;
-                        s32 d = b->dist[ny * BGRID + nx];
+// Distance map around (cx, cy) in a (2R+1)^2 grid: life spreads around obstacles but never
+// across water, rock, or thorns. Costs: 10 per straight step, 14 per diagonal, so rings come out round.
+// Two-sweep relaxation (forward, then backward) repeated until nothing changes: same result as
+// relaxing every cell g times, at a fraction of the cost (a radius-8 pulse used to stall ~10 frames).
+#define FLOOD_MAX (HOME_REACH * 2 + 1)
+static u8 flood_open[FLOOD_MAX * FLOOD_MAX];
+static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
+    static const signed char fdx[4] = { -1, 0, 1, -1 }, fdy[4] = { -1, -1, -1, 0 };   // already-visited side
+    s32 g = R * 2 + 1;
+    for (s32 gy = 0; gy < g; gy++)
+        for (s32 gx = 0; gx < g; gx++) {
+            u8 t = tile_at(cx + gx - R, cy + gy - R);
+            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN);
+            dist[gy * g + gx] = 255;
+        }
+    dist[R * g + R] = 0;
+    for (int changed = 1; changed; ) {
+        changed = 0;
+        for (s32 dir = 1; dir >= -1; dir -= 2) {          // forward sweep, then backward sweep
+            s32 y0 = dir > 0 ? 0 : g - 1, y1 = dir > 0 ? g : -1;
+            for (s32 gy = y0; gy != y1; gy += dir)
+                for (s32 gx = y0; gx != y1; gx += dir) {
+                    s32 i = gy * g + gx;
+                    if (!flood_open[i]) continue;
+                    s32 best = dist[i];
+                    for (s32 k = 0; k < 4; k++) {
+                        s32 nx = gx + fdx[k] * dir, ny = gy + fdy[k] * dir;
+                        if (nx < 0 || ny < 0 || nx >= g || ny >= g) continue;
+                        s32 d = dist[ny * g + nx];
                         if (d == 255) continue;
-                        d += (dx && dy) ? 14 : 10;
+                        d += (fdx[k] && fdy[k]) ? 14 : 10;
                         if (d < best) best = d;
                     }
-                b->dist[gy * BGRID + gx] = best > 255 ? 255 : best;
-            }
+                    if (best < dist[i]) { dist[i] = best > 255 ? 255 : best; changed = 1; }
+                }
+        }
     }
 }
+
+// Blooms use a 9x9 grid (as before v0.4.2) unless the bloom is bigger than radius 4.
+static s32 bloom_grid_r(const Bloom *b) { return b->maxr > 4 ? BR : 4; }
+static void bloom_distances(Bloom *b) { flood_dist(b->dist, b->cx, b->cy, bloom_grid_r(b)); }
 
 static void start_bloom(s32 mx, s32 my) {
     for (s32 i = 0; i < MAX_BLOOMS; i++) {
@@ -402,7 +431,7 @@ static void start_bloom(s32 mx, s32 my) {
         Bloom *b = &blooms[i];
         b->cx = mx; b->cy = my; b->r = -1; b->timer = 0; b->active = 1;
         int wet = water_near(mx, my, 3);
-        b->maxr = wet ? 4 : 2;
+        b->maxr = (wet ? 4 : 2) + (home_done[KIND_SPROUT] ? 1 : 0);   // grove bonus
         bloom_distances(b);
         sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 40;
         if (wet && !told_river) { show_message("THE RIVER FEEDS THE ROOTS"); told_river = 1; }
@@ -451,10 +480,11 @@ static void update_blooms(void) {
         b->r++;
         s32 r = b->r;
         s32 lo = r == 0 ? -1 : 10 * (r - 1) + 5, hi = r == 0 ? 0 : 10 * r + 5;
-        for (s32 gy = 0; gy < BGRID; gy++)
-            for (s32 gx = 0; gx < BGRID; gx++) {
-                s32 d = b->dist[gy * BGRID + gx];
-                if (d > lo && d <= hi) grow_tile(b->cx + gx - BR, b->cy + gy - BR, r == b->maxr);
+        s32 R = bloom_grid_r(b), g = R * 2 + 1;
+        for (s32 gy = 0; gy < g; gy++)
+            for (s32 gx = 0; gx < g; gx++) {
+                s32 d = b->dist[gy * g + gx];
+                if (d > lo && d <= hi) grow_tile(b->cx + gx - R, b->cy + gy - R, r == b->maxr);
             }
         chime(scale[r < 8 ? r : 7], r == 0 ? 12 : 9);
         changed = 1;
@@ -465,6 +495,7 @@ static void update_blooms(void) {
 
 static void update_player(void) {
     s32 speed = HELD(KEY_B) ? 2 : 1;
+    if (home_done[KIND_BREEZE]) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
     s32 dx = 0, dy = 0;
     if (HELD(KEY_LEFT))  { dx = -speed; pdir = DIR_LEFT; }
     if (HELD(KEY_RIGHT)) { dx =  speed; pdir = DIR_RIGHT; }
@@ -511,11 +542,18 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         sparkle_at(mx, my);
     } else if (kind == KIND_STONE) {
         if (t != ROCK) return 0;
-        set_tile(mx, my, DIRT);     // broken rock leaves bare ground that can bloom
-        restorable_count++;
+        // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
+        s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
+        s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+        s32 reach = home_done[KIND_STONE] ? 2 : 1;
+        for (s32 k = 0; k < reach && tile_at(mx, my) == ROCK; k++, mx += sx, my += sy) {
+            if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
+            set_tile(mx, my, DIRT);
+            restorable_count++;
+            sparkle_at(mx, my);
+        }
         draw_life();
         chime(196, 14);
-        sparkle_at(mx, my);
     } else {
         // A gust clears up to three thorn tiles in a line.
         if (t != THORN) return 0;
@@ -539,10 +577,16 @@ static void use_ability(void) {
     if (pdir == DIR_UP)    fy -= 14;
     if (pdir == DIR_DOWN)  fy += 14;
     Spirit *s = &spirits[party[active]];
-    if (s->energy == 0) { chime(220, 6); show_message(spirit_tired[s->kind]); return; }
+    if (s->energy == 0) {
+        chime(220, 6);
+        show_message(spirit_tired[s->kind]);
+        if (msgq_len == 0) queue_message(REST_TIP);
+        return;
+    }
     if (!use_power(s->kind, fx >> 4, fy >> 4)) { chime(262, 6); return; }
     s->energy--;
     draw_active();
+    if (!told_rest) { told_rest = 1; queue_message(REST_TIP); }
 }
 
 static void party_add(s32 i) {
@@ -591,7 +635,11 @@ static void try_build_home(s32 k) {
     send_home(k);
     chime(1047, 14);
     show_message(home_built[k]);
+    queue_message(home_bonus[k]);
     sparkle_at(hx, hy);
+    pulse_r[k] = 0;
+    pulse_timer[k] = HOME_PULSE - 120;   // first pulse two seconds after building
+    flood_dist(home_dist[k], hx, hy, HOME_REACH);
     s32 all = 1;
     for (s32 i = 0; i < NUM_SPIRITS; i++) all &= home_done[i];
     if (all && !told_ending) {
@@ -677,18 +725,20 @@ static void handle_action(void) {
     if (party_count && HIT(KEY_A)) use_ability();
 }
 
-// Energy: standing on living ground slowly recharges the party; standing at a built home
-// refills it. Each home also spreads life around itself, one tile at a time.
-#define HOME_RADIUS 5
+// Energy: standing on living ground slowly recharges the party (twice as fast with Ripple's
+// spring); standing at a built home refills it. Each home also pulses life outward in rings.
 static void update_homes(void) {
     int changed = 0;
     s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4;
-    if (is_alive(tile_at(fx, fy)) && ++regen_timer >= REGEN_FRAMES) {
+    u32 regen = home_done[KIND_RIPPLE] ? REGEN_FRAMES / 2 : REGEN_FRAMES;
+    if (is_alive(tile_at(fx, fy)) && ++regen_timer >= regen) {
         regen_timer = 0;
+        int got = 0;
         for (s32 p = 0; p < party_count; p++) {
             Spirit *s = &spirits[party[p]];
-            if (s->energy < energy_max(s)) { s->energy++; changed = 1; }
+            if (s->energy < energy_max(s)) { s->energy++; got = 1; }
         }
+        if (got) { chime(1319, 5); changed = 1; }
     }
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
         if (!home_done[k]) continue;
@@ -701,24 +751,24 @@ static void update_homes(void) {
     }
     if (changed) draw_active();
 
-    if (++home_timer < 90) return;
-    home_timer = 0;
+    // Pulses: ring r turns living, ring r+1 becomes the dirt edge. Rings follow the same
+    // distance rules as blooms, so rock walls and water stop them.
     int grew = 0;
+    s32 g = HOME_REACH * 2 + 1;
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
-        if (!home_done[k]) continue;
-        for (s32 tries = 0; tries < 8; tries++) {
-            s32 x = home_site_x[k] + (s32)(rng() % (2 * HOME_RADIUS + 1)) - HOME_RADIUS;
-            s32 y = home_site_y[k] + (s32)(rng() % (2 * HOME_RADIUS + 1)) - HOME_RADIUS;
-            s32 ddx = x - home_site_x[k], ddy = y - home_site_y[k];
-            if (ddx * ddx + ddy * ddy > HOME_RADIUS * HOME_RADIUS) continue;
-            u8 t = tile_at(x, y);
-            if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DEAD_TREE) continue;
-            if (!is_alive(tile_at(x + 1, y)) && !is_alive(tile_at(x - 1, y)) &&
-                !is_alive(tile_at(x, y + 1)) && !is_alive(tile_at(x, y - 1))) continue;
-            grow_tile(x, y, 0);
-            grew = 1;
-            break;
-        }
+        if (!home_done[k] || pulse_r[k] >= HOME_REACH || ++pulse_timer[k] < HOME_PULSE) continue;
+        pulse_timer[k] = 0;
+        s32 r = ++pulse_r[k];
+        s32 hx = home_site_x[k], hy = home_site_y[k];
+        for (s32 gy = 0; gy < g; gy++)
+            for (s32 gx = 0; gx < g; gx++) {
+                s32 d = home_dist[k][gy * g + gx];
+                if (d <= 10 * (r - 1) + 5 || d > 10 * (r + 1) + 5) continue;
+                grow_tile(hx + gx - HOME_REACH, hy + gy - HOME_REACH, d > 10 * r + 5);
+            }
+        sparkle_at(hx, hy);
+        chime(scale[r & 7], 7);
+        grew = 1;
     }
     if (grew) { draw_life(); check_wake(); }
 }
