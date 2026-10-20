@@ -574,7 +574,16 @@ def make_ripple():
 
 
 def make_player():
-    return draw_sheet(SPRITES, PLAYER_ORDER, OBJ_PAL)
+    """Fallback player sheet (192x32): the original 16x16 art in tall cells, 4 frames per
+    direction (stand, walk1, walk2, walk3) built from its two frames."""
+    small = draw_sheet(SPRITES, PLAYER_ORDER, OBJ_PAL)
+    img = Image.new("P", (16 * 12, 32), 0)
+    img.putpalette(small.getpalette())
+    for d in range(3):                      # down, up, side
+        for k, src in enumerate((0, 1, 0, 1)):
+            cell = small.crop(((d * 2 + src) * 16, 0, (d * 2 + src + 1) * 16, 16))
+            img.paste(cell, ((d * 4 + k) * 16, 16))
+    return img
 
 
 def make_sprout():

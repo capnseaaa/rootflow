@@ -203,25 +203,31 @@ static void draw_life(void) {
 
 // ---------- sprites ----------
 static u16 oam_shadow[128 * 4];
-static void sprite_set(s32 id, s32 x, s32 y, u32 tile, u32 hflip, u32 pal) {
+// tile8 is in 8x8 tiles. tall = 16x32 (vertical shape, size 2), else 16x16 (square, size 1).
+static void obj_set(s32 id, s32 x, s32 y, u32 tile8, u32 hflip, u32 pal, int tall) {
     u16 *o = &oam_shadow[id * 4];
-    if (x < -16 || x > SCREEN_W || y < -16 || y > SCREEN_H) { o[0] = 0x0200; return; }
-    o[0] = (y & 0xFF);                                        // square shape
-    o[1] = (x & 0x1FF) | (1 << 14) | (hflip ? 1 << 12 : 0);   // 16x16
-    o[2] = (tile * 4) | (1 << 10) | (pal << 12);              // priority 1
+    if (x < -16 || x > SCREEN_W || y < (tall ? -32 : -16) || y > SCREEN_H) { o[0] = 0x0200; return; }
+    o[0] = (y & 0xFF) | (tall ? 2 << 14 : 0);
+    o[1] = (x & 0x1FF) | ((tall ? 2 : 1) << 14) | (hflip ? 1 << 12 : 0);
+    o[2] = tile8 | (1 << 10) | (pal << 12);                   // priority 1
+}
+// 16x16 sprite; tile is in 16x16 cells (4 tiles each).
+static void sprite_set(s32 id, s32 x, s32 y, u32 tile, u32 hflip, u32 pal) {
+    obj_set(id, x, y, tile * 4, hflip, pal, 0);
 }
 static void sprite_hide(s32 id) { oam_shadow[id * 4] = 0x0200; }
 static void oam_flush(void) {
     for (u32 i = 0; i < 128 * 4; i++) OAM[i] = oam_shadow[i];
 }
 
-// Sprite sheet tile numbers (16x16 cells)
-#define SPR_SPROUT 6
-#define SPR_SPARKLE 8
-#define SPR_RIPPLE 9
-#define SPR_ZZZ 11
-#define SPR_STONE 12
-#define SPR_BREEZE 14
+// Sprite sheet cells (16x16 cells = 4 tiles); offsets come from build_data.py.
+// The player is separate: 16x32 frames of 8 tiles from TILE_PLAYER.
+#define SPR_SPROUT (TILE_SPROUT / 4)
+#define SPR_SPARKLE (TILE_FX / 4)
+#define SPR_RIPPLE (TILE_RIPPLE / 4)
+#define SPR_ZZZ (SPR_RIPPLE + 2)
+#define SPR_STONE (TILE_PEBBLE / 4)
+#define SPR_BREEZE (TILE_BREEZE / 4)
 #define PAL_MAIN 0
 #define PAL_RIPPLE 1
 #define PAL_SLEEP 2
@@ -230,6 +236,7 @@ static void oam_flush(void) {
 #define PAL_BREEZE 5
 #define PAL_BREEZE_SLEEP 6
 #define PAL_SPROUT 7
+#define PAL_FX 8
 
 // OAM slots
 #define OAM_PLAYER  0
@@ -238,7 +245,7 @@ static void oam_flush(void) {
 #define OAM_SPARKLE 9
 
 // ---------- game state ----------
-static s32 px, py, pdir, pframe;        // player top-left (pixels), facing, anim frame
+static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
 static s32 cam_x, cam_y;
 static u32 frame;
 
@@ -507,11 +514,11 @@ static void update_player(void) {
     if (dy && !blocked_at(px, py + dy)) { py += dy; moved = 1; }
 
     if (moved) {
-        if ((frame & 7) == 0) pframe ^= 1;
+        if ((frame & 7) == 0) pstep++;
         hist_head = (hist_head + 1) & (HIST - 1);
         hist_x[hist_head] = px; hist_y[hist_head] = py;
     } else {
-        pframe = 0;
+        pstep = 0;
     }
 }
 
@@ -800,8 +807,13 @@ static void animate_water(void) {
 }
 
 static void draw_sprites(void) {
-    static const u8 base_tile[4] = { 0, 2, 4, 4 };   // down, up, left, right
-    sprite_set(OAM_PLAYER, px - cam_x, py - cam_y, base_tile[pdir] + pframe, pdir == DIR_LEFT, PAL_MAIN);
+    // Player sheet: per direction (down, up, side) 4 frames: stand, walk1, walk2, walk3.
+    // Walking plays 1, 2, 3, 2. Left is the side frames mirrored. The sprite is 16x32 with the
+    // feet in the bottom 16 pixels, so it is drawn 16 pixels above the feet cell.
+    static const u8 dir_block[4] = { 0, 1, 2, 2 };   // down, up, left, right
+    static const u8 walk_seq[4] = { 1, 2, 3, 2 };
+    u32 f = dir_block[pdir] * 4 + (pstep ? walk_seq[pstep & 3] : 0);
+    obj_set(OAM_PLAYER, px - cam_x, py - cam_y - 16, TILE_PLAYER + f * 8, pdir == DIR_LEFT, PAL_MAIN, 1);
 
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
@@ -821,7 +833,7 @@ static void draw_sprites(void) {
     if (sparkle_life > 0) {
         sparkle_life--;
         sprite_set(OAM_SPARKLE, sparkle_x - cam_x, sparkle_y - cam_y - (40 - sparkle_life) / 4,
-                   SPR_SPARKLE, (frame >> 3) & 1, PAL_MAIN);
+                   SPR_SPARKLE, (frame >> 3) & 1, PAL_FX);
     } else {
         sprite_hide(OAM_SPARKLE);
     }
@@ -840,6 +852,7 @@ int main(void) {
         PAL_OBJ[80 + i] = obj_pal_breeze[i];
         PAL_OBJ[96 + i] = obj_pal_breeze_sleep[i];
         PAL_OBJ[112 + i] = obj_pal_sprout[i];
+        PAL_OBJ[128 + i] = obj_pal_fx[i];
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate

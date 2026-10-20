@@ -46,9 +46,14 @@ def tile_words(img, ox, oy):
 
 def strip_16x16(img):
     """Each 16x16 cell becomes 4 tiles in order TL, TR, BL, BR."""
+    return strip_cells(img, 16)
+
+
+def strip_cells(img, cell_h):
+    """Each 16 x cell_h cell becomes 8x8 tiles in row-major order (the GBA's 1D sprite layout)."""
     words = []
     for i in range(img.width // 16):
-        for ty in (0, 8):
+        for ty in range(0, cell_h, 8):
             for tx in (0, 8):
                 words += tile_words(img, i * 16 + tx, ty)
     return words
@@ -204,6 +209,15 @@ def main():
     breeze = Image.open(os.path.join(ART, "breeze_sprite.png"))
     for im in (terrain, player, sprout, fx, ripple, pebble, breeze):
         assert im.mode == "P", "PNGs must be indexed color"
+    # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
+    assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
+    # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
+    sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
+              ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16)]
+    sprite_words, tile_defs = [], []
+    for name, img, cell_h in sheets:
+        tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
+        sprite_words += strip_cells(img, cell_h)
     pal_ripple = palette_of(ripple)
     pal_pebble = palette_of(pebble)
     pal_breeze = palette_of(breeze)
@@ -223,6 +237,8 @@ def main():
     out.append(c_array("unsigned short", "bg_pal", palette_of(terrain), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal", palette_of(player), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_sprout", palette_of(sprout), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_fx", palette_of(fx), fmt="0x{:04X}"))
+    out.append("\n".join(tile_defs))
     out.append(c_array("unsigned int", "terrain_tiles", strip_16x16(terrain)))
     out.append(c_array("unsigned short", "obj_pal_ripple", pal_ripple, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_ripple_sleep", gray, fmt="0x{:04X}"))
@@ -230,10 +246,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_pebble_sleep", sleep_palette(pal_pebble), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_breeze", pal_breeze, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_breeze_sleep", sleep_palette(pal_breeze), fmt="0x{:04X}"))
-    out.append(c_array("unsigned int", "sprite_tiles",
-                       strip_16x16(player) + strip_16x16(sprout) + strip_16x16(fx)
-                       + strip_16x16(ripple) + strip_16x16(pebble)
-                       + strip_16x16(breeze)))
+    out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(c_array("unsigned char", "start_map", make_map(), per_line=32, fmt="{}"))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)

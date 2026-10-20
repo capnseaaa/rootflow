@@ -103,7 +103,7 @@ def main():
     img.alpha_composite(strip, (0, SIZE - 15))
 
     for spr, pos in [(cell(sprout, 0), (48, 94)),
-                     (cell(player, 0), (64, 94)),
+                     (player.crop((0, 0, 16, 32)), (64, 78)),   # 16x32 frame, feet at y 94..109
                      (cell(ripple, SPR_RIPPLE), (110, 112)),
                      (cell(fx, 0), (56, 80)),
                      (cell(fx, 0), (78, 104))]:

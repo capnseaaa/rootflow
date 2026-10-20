@@ -1,0 +1,15 @@
+# Walk animation check: stand, walk right, left, up. Screenshots a0..a7.
+30 0 a0.ppm
+12 16
+1 16 a1.ppm
+8 16
+1 16 a2.ppm
+8 16
+1 16 a3.ppm
+8 16
+1 16 a4.ppm
+20 32
+1 32 a5.ppm
+20 64
+1 64 a6.ppm
+10 0 a7.ppm
