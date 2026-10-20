@@ -1,5 +1,5 @@
 # reach and greet Sprout (same path as v0.1)
-68 16
+63 16
 144 64
 24 16
 2 1

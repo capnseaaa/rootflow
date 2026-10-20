@@ -1,0 +1,172 @@
+# Perk checks after v4 (all four homes). Peeks: px (walk), world row 12 (rocks), Pebble energy (regen), blooms[0].maxr (bloom).
+# v0.4 full playthrough: v2 path, rest, Pebble, spring, Breeze, all four homes, ending.
+# Lines with !addr=val are test-setup teleports (addresses from: arm-none-eabi-nm build/rootflow.elf).
+# reach and greet Sprout (same path as v0.1)
+63 16
+144 64
+24 16
+2 1
+20 0
+# walk right to column 16, then down to row 23
+72 16
+224 128
+10 0 v1_asleep_far.ppm
+# step left next to the sleeping water spirit
+16 32
+40 0 v2_asleep.ppm
+# bloom beside it
+2 1
+60 0 v3_woke.ppm
+# greet it
+2 1
+20 0 v4_joined.ppm
+# walk right to the river bank and build two bridge planks
+80 16
+2 1
+20 0
+16 16
+2 1
+20 0 v5_bridge.ppm
+# cross the river
+48 16
+# swap to Sprout and bloom the far bank
+2 4
+10 0
+2 1
+70 0 v6_farbank.ppm
+# rest on living ground: charges come back (Sprout 1->3, Ripple 1->3)
+620 0 w1_rested.ppm
+96 64
+1 16
+2 1
+60 0
+30 16
+2 1
+20 0
+# test setup: teleport in front of the rock wall at (27,7), facing up (random trees can block the walk)
+0 0 !0300000c=431,03000014=118
+1 64
+2 1
+30 0
+# one step into the spring, away from the home site, and bloom
+20 64
+2 4
+10 0
+2 1
+80 0 w2_spring_bloom.ppm
+0 0 @0300000c,03000014,0300006c,03000090,03000094
+# walk up to Breeze and greet it
+60 64
+2 1
+20 0 w3_breeze_joined.ppm
+# step down beside the home site and build Ripple's spring (costs Sprout 1, Pebble 1)
+32 128
+2 1
+30 0 w4_home_built.ppm
+0 0 @0300000c,03000014,03000094,0300009c
+# let the home spread life for a while
+900 0 w5_home_spread.ppm
+# call Ripple back from its home (it rejoins with max 2 charges)
+2 1
+20 0 w6_called_back.ppm
+# test setup: teleport above the thorn wall at (5,24)
+0 0 !0300000c=80,03000014=384
+30 0
+# swap Ripple -> Sprout -> Pebble -> Breeze
+2 4
+2 0
+2 4
+2 0
+2 4
+10 0
+# face the thorns and gust
+1 128
+2 1
+30 0 w7_gust.ppm
+0 0 @0300000c,03000014,03000090
+# walk through the gap into the thorn grove
+30 128
+# swap Breeze -> Ripple -> Sprout, face left, bloom near the home site
+2 4
+2 0
+2 4
+10 0
+1 32
+2 1
+60 0 w8_grove_bloom.ppm
+# build Sprout's grove (costs Ripple 1, Breeze 1)
+# test setup: teleport onto the site's edge (random trees can block the short walk)
+0 0 !0300000c=55,03000014=438
+10 0
+0 0 @0300000c,03000014,03000090,03000094
+2 1
+30 0 w9_grove_built.ppm
+0 0 @03000094,0300009c
+900 0 w10_grove_spread.ppm
+# call Sprout back from its grove
+2 1
+20 0
+0 0 @03000080,03000084,03000088,0300008c,03000090,03000094
+# test setup: teleport beside Pebble's home site (29,10)
+0 0 !0300000c=440,03000014=150
+30 0
+# Sprout blooms the site, then build Pebble's cairn (costs Sprout 1, Ripple 1)
+1 16
+2 1
+60 0
+6 16
+2 1
+30 0 w11_cairn_built.ppm
+# call Pebble back, rest on living ground to recharge
+2 0
+2 1
+20 0
+620 0
+0 0 @03000080,03000084,03000088,0300008c,03000090,03000094
+# test setup: teleport beside Breeze's home site (4,11)
+0 0 !0300000c=40,03000014=170
+30 0
+2 4
+2 0
+2 4
+2 0
+2 4
+10 0
+1 16
+2 1
+60 0
+4 16
+2 1
+30 0 w12_nook_built.ppm
+0 0 @0300009c
+150 0 w13_ending1.ppm
+150 0 w14_ending2.ppm
+150 0 w15_ending3.ppm
+# --- perk checks (all four homes built) ---
+# Breeze's nook: walking 40 frames moves 1.5 px per frame (30 px in 20 frames before any obstacle)
+0 0 !0300000c=96,03000014=288
+10 0
+0 0 @0300000c
+20 16
+0 0 @0300000c
+# Pebble's cairn: one A breaks both rocks at (28,12) and (29,12)
+0 0 !0300000c=432,03000014=182
+10 0
+0 0 @030013c4
+1 16
+2 1
+20 0 p1_two_rocks.ppm
+0 0 @030013c4,0300005c
+# Ripple's spring: on living ground a charge returns in 150 frames, not 300
+0 0 !0300005c=0,030000b4=0
+160 0
+0 0 @0300005c
+# Sprout's grove: a dry bloom reaches radius 3, not 2 (R, R: Pebble -> Ripple -> Sprout)
+2 256
+2 0
+2 256
+10 0
+1 32
+2 1
+0 0 @03000234,03000090
+60 0 p2_big_bloom.ppm

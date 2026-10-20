@@ -10,4 +10,6 @@ if [ -d "$MGBA/lib" ]; then
 else
     gcc harness.c -o harness -lmgba
 fi
-./harness ../rootflow.gba "$(basename "$1")"
+# Step by game loops, not emulator frames: pass the address of the game's frame counter.
+FRAME=$(arm-none-eabi-nm ../build/rootflow.elf | awk '$3 == "frame" { print $1 }')
+./harness ../rootflow.gba "$(basename "$1")" "$FRAME"

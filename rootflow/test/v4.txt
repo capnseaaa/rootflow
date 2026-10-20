@@ -1,7 +1,7 @@
 # v0.4 full playthrough: v2 path, rest, Pebble, spring, Breeze, all four homes, ending.
 # Lines with !addr=val are test-setup teleports (addresses from: arm-none-eabi-nm build/rootflow.elf).
 # reach and greet Sprout (same path as v0.1)
-68 16
+63 16
 144 64
 24 16
 2 1
@@ -42,8 +42,9 @@
 30 16
 2 1
 20 0
-17 16
-170 64
+# test setup: teleport in front of the rock wall at (27,7), facing up (random trees can block the walk)
+0 0 !0300000c=431,03000014=118
+1 64
 2 1
 30 0
 # one step into the spring, away from the home site, and bloom
@@ -92,9 +93,10 @@
 1 32
 2 1
 60 0 w8_grove_bloom.ppm
-# walk onto the site and build Sprout's grove (costs Ripple 1, Breeze 1)
-24 32
-24 128
+# build Sprout's grove (costs Ripple 1, Breeze 1)
+# test setup: teleport onto the site's edge (random trees can block the short walk)
+0 0 !0300000c=55,03000014=438
+10 0
 0 0 @0300000c,03000014,03000090,03000094
 2 1
 30 0 w9_grove_built.ppm

@@ -1,5 +1,7 @@
 // Headless runner: plays a ROM with a scripted input file and saves screenshots.
 // Script lines: <frames> <keys> [screenshot.ppm | @addr,addr (print) | !addr=val,addr=val (write)]
+// A line "&addr" names the game's frame counter. From then on, one script frame = one game loop
+// (the emulator runs until the counter changes), so boot time and slow frames do not shift a script.
 // Key bits: A=1 B=2 SELECT=4 START=8 RIGHT=16 LEFT=32 UP=64 DOWN=128
 #include <mgba/core/core.h>
 #include <mgba/core/config.h>
@@ -24,7 +26,7 @@ static void save_ppm(const char* path, color_t* buf, unsigned w, unsigned h) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 3) { puts("usage: harness rom script"); return 1; }
+    if (argc < 3) { puts("usage: harness rom script [frame_counter_addr]"); return 1; }
     mLogSetDefaultLogger(&logger);
     struct mCore* core = mCoreFind(argv[1]);
     if (!core || !core->init(core)) { puts("core init failed"); return 1; }
@@ -38,11 +40,18 @@ int main(int argc, char** argv) {
 
     FILE* s = fopen(argv[2], "r");
     char line[256];
+    unsigned frame_addr = argc > 3 ? strtoul(argv[3], NULL, 16) : 0;   // optional: game frame counter
     while (fgets(line, sizeof line, s)) {
+        if (line[0] == '&') { frame_addr = strtoul(line + 1, NULL, 16); continue; }
         int frames; unsigned keys; char shot[200] = "";
         if (line[0] == '#' || sscanf(line, "%d %u %199s", &frames, &keys, shot) < 2) continue;
         core->setKeys(core, keys);
-        for (int i = 0; i < frames; i++) core->runFrame(core);
+        for (int i = 0; i < frames; i++) {
+            if (!frame_addr) { core->runFrame(core); continue; }
+            uint32_t f0 = core->busRead32(core, frame_addr);
+            for (int guard = 0; guard < 240 && core->busRead32(core, frame_addr) == f0; guard++)
+                core->runFrame(core);
+        }
         if (shot[0] == '@') {   // @addr,addr: print 32-bit values from memory
             char* q = shot + 1;
             while (*q) {
