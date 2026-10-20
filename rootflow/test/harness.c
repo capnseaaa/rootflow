@@ -1,5 +1,5 @@
 // Headless runner: plays a ROM with a scripted input file and saves screenshots.
-// Script lines: <frames> <keys> [screenshot.ppm]
+// Script lines: <frames> <keys> [screenshot.ppm | @addr,addr (print) | !addr=val,addr=val (write)]
 // Key bits: A=1 B=2 SELECT=4 START=8 RIGHT=16 LEFT=32 UP=64 DOWN=128
 #include <mgba/core/core.h>
 #include <mgba/core/config.h>
@@ -51,6 +51,14 @@ int main(int argc, char** argv) {
                 if (*q == ',') q++;
             }
             puts("");
+        } else if (shot[0] == '!') {   // !addr=val,addr=val: write 32-bit values (test setup)
+            char* q = shot + 1;
+            while (*q) {
+                unsigned a = strtoul(q, &q, 16);
+                if (*q == '=') q++;
+                core->busWrite32(core, a, (int32_t)strtol(q, &q, 10));
+                if (*q == ',') q++;
+            }
         } else if (shot[0]) save_ppm(shot, buf, w, h);
     }
     puts("ok");

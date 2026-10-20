@@ -1,7 +1,8 @@
 // Rootflow spirit toy (GBA).
 // Walk the dead valley, find the sprout spirit, and bloom life into the land.
 // D-pad: move   B: run   A: greet / use spirit   SELECT: swap spirit   START: reset
-// Spirits: Sprout blooms life, Ripple bridges water, Pebble breaks rocks.
+// Spirits: Sprout blooms life, Ripple bridges water, Pebble breaks rocks, Breeze clears thorns.
+// Powers cost energy. Spirits can be housed at home sites; a home spreads life around it.
 
 #include "data.h"
 
@@ -49,7 +50,8 @@ typedef signed int     s32;
 #define TEXT_SB   26
 #define MAP_SB    28
 
-enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE };
+enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
+       THORN, HOMESITE };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -114,7 +116,7 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 }
 
 static int is_solid(u8 t) {
-    return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK;
+    return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN;
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE;
@@ -124,7 +126,8 @@ static void load_world(void) {
     restorable_count = 0;
     for (s32 i = 0; i < MAP_W * MAP_H; i++) {
         world[i] = start_map[i];
-        if (world[i] != WATER && world[i] != ROCK) restorable_count++;
+        u8 t = world[i];
+        if (t != WATER && t != ROCK && t != THORN && t != HOMESITE) restorable_count++;
     }
     for (s32 y = 0; y < MAP_H; y++)
         for (s32 x = 0; x < MAP_W; x++)
@@ -162,6 +165,29 @@ static void show_message(const char *s) {
     msg_timer = 150;
 }
 
+// Messages that wait their turn (lore, endings). Shown when the current message ends.
+#define MSGQ 4
+static const char *msg_queue[MSGQ];
+static u32 msgq_len;
+static void queue_message(const char *s) {
+    if (msg_timer == 0 && msgq_len == 0) { show_message(s); return; }
+    if (msgq_len < MSGQ) msg_queue[msgq_len++] = s;
+}
+// A repeating prompt ("A: ..."). It never pushes queued messages aside.
+static void prompt(const char *s) {
+    if (msgq_len == 0 && msg_timer < 100) show_message(s);
+}
+static void update_message(void) {
+    if (msg_timer && --msg_timer == 0) {
+        clear_row(19);
+        if (msgq_len) {
+            show_message(msg_queue[0]);
+            for (u32 i = 1; i < msgq_len; i++) msg_queue[i - 1] = msg_queue[i];
+            msgq_len--;
+        }
+    }
+}
+
 static void draw_life(void) {
     char buf[12] = "LIFE    % ";
     u32 p = life_percent();
@@ -192,42 +218,79 @@ static void oam_flush(void) {
 #define SPR_RIPPLE 9
 #define SPR_ZZZ 11
 #define SPR_STONE 12
+#define SPR_BREEZE 14
 #define PAL_MAIN 0
 #define PAL_RIPPLE 1
 #define PAL_SLEEP 2
 #define PAL_STONE 3
 #define PAL_STONE_SLEEP 4
+#define PAL_BREEZE 5
+#define PAL_BREEZE_SLEEP 6
 
 // OAM slots
 #define OAM_PLAYER  0
 #define OAM_SPIRIT  1   // 1..NUM_SPIRITS
-#define OAM_ZZZ     4   // 4..4+NUM_SPIRITS-1
-#define OAM_SPARKLE 7
+#define OAM_ZZZ     5   // 5..5+NUM_SPIRITS-1
+#define OAM_SPARKLE 9
 
 // ---------- game state ----------
 static s32 px, py, pdir, pframe;        // player top-left (pixels), facing, anim frame
 static s32 cam_x, cam_y;
 static u32 frame;
 
-#define HIST 64
+#define HIST 128   // power of two; the last follower trails 18*NUM_SPIRITS entries
 static s32 hist_x[HIST], hist_y[HIST], hist_head;
 static const signed char bob[16] = { 0, 1, 1, 2, 2, 2, 1, 1, 0, -1, -1, -2, -2, -2, -1, -1 };
 
 // ---------- spirits ----------
-enum { SP_ASLEEP, SP_AWAKE, SP_JOINED };
-enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE };
-typedef struct { s32 x, y, state, kind; } Spirit;
-#define NUM_SPIRITS 3
-static Spirit spirits[NUM_SPIRITS];
+enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME };
+enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE };
+// housed: the spirit has a home. While it travels with you its power is weaker (fewer charges).
+typedef struct { s32 x, y, state, kind, energy, housed; } Spirit;
+#define NUM_SPIRITS 4
+#define ENERGY_MAX 3
+#define ENERGY_MAX_HOUSED 2
+#define REGEN_FRAMES 300          // one charge back per 5 s while standing on living ground
+static Spirit spirits[NUM_SPIRITS];   // index == kind
 static s32 party[NUM_SPIRITS], party_count, active;   // party holds spirit indexes in join order
-static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE" };
-static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK" };
+static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE" };
+static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK",
+                                      "BREEZE: CLEAR THORNS" };
 static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! SELECT: SWAP",
-                                       "PEBBLE JOINED! SELECT: SWAP" };
+                                       "PEBBLE JOINED! SELECT: SWAP", "BREEZE JOINED! SELECT: SWAP" };
+static const char *spirit_tired[] = { "SPROUT IS TIRED", "RIPPLE IS TIRED", "PEBBLE IS TIRED",
+                                      "BREEZE IS TIRED" };
+static const char *home_built[] = { "SPROUT'S GROVE IS BUILT!", "RIPPLE'S SPRING IS BUILT!",
+                                    "PEBBLE'S CAIRN IS BUILT!", "BREEZE'S NOOK IS BUILT!" };
+static const char *home_prompt[] = { "A: BUILD SPROUT'S GROVE", "A: BUILD RIPPLE'S SPRING",
+                                     "A: BUILD PEBBLE'S CAIRN", "A: BUILD BREEZE'S NOOK" };
+static const char *home_hint[] = { "A HOME SITE FOR SPROUT", "A HOME SITE FOR RIPPLE",
+                                   "A HOME SITE FOR PEBBLE", "A HOME SITE FOR BREEZE" };
+static const char *home_needs[] = { "NEEDS RIPPLE AND BREEZE", "NEEDS SPROUT AND PEBBLE",
+                                    "NEEDS SPROUT AND RIPPLE", "NEEDS PEBBLE AND SPROUT" };
+static const char *go_home[] = { "A: SPROUT GOES HOME", "A: RIPPLE GOES HOME", "A: PEBBLE GOES HOME",
+                                 "A: BREEZE GOES HOME" };
+static const char *call_back[] = { "A: CALL SPROUT BACK", "A: CALL RIPPLE BACK", "A: CALL PEBBLE BACK",
+                                   "A: CALL BREEZE BACK" };
+static const char *called_back[] = { "SPROUT JOINS. MAX 2 USES", "RIPPLE JOINS. MAX 2 USES",
+                                     "PEBBLE JOINS. MAX 2 USES", "BREEZE JOINS. MAX 2 USES" };
+// Building a home for kind k spends one charge from each of these two helpers.
+static const u8 home_helper[NUM_SPIRITS][2] = {
+    { KIND_RIPPLE, KIND_BREEZE }, { KIND_SPROUT, KIND_STONE },
+    { KIND_SPROUT, KIND_RIPPLE }, { KIND_STONE, KIND_SPROUT },
+};
+static u8 home_done[NUM_SPIRITS];
+static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
-static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE };
-static const u8 spirit_pal[] = { PAL_MAIN, PAL_RIPPLE, PAL_STONE };
-static const u8 spirit_sleep_pal[] = { PAL_MAIN, PAL_SLEEP, PAL_STONE_SLEEP };
+static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE };
+static const u8 spirit_pal[] = { PAL_MAIN, PAL_RIPPLE, PAL_STONE, PAL_BREEZE };
+static const u8 spirit_sleep_pal[] = { PAL_MAIN, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP };
+
+static s32 energy_max(const Spirit *s) { return s->housed ? ENERGY_MAX_HOUSED : ENERGY_MAX; }
+static int in_party(s32 kind) {
+    for (s32 p = 0; p < party_count; p++) if (party[p] == kind) return 1;
+    return 0;
+}
 
 // ---------- blooms ----------
 #define BR 4                      // max bloom radius in tiles
@@ -237,6 +300,8 @@ typedef struct { s32 cx, cy, r, maxr, timer, active; u8 dist[BGRID * BGRID]; } B
 static Bloom blooms[MAX_BLOOMS];
 static s32 sparkle_x, sparkle_y, sparkle_life;
 static u32 told_river, told_spring;
+static u32 regen_timer, home_timer;
+static s32 just_called = -1;   // spirit just called back from home (see handle_action)
 
 static int blocked_at(s32 x, s32 y) {
     // feet box: x+3..x+12, y+10..y+15
@@ -248,31 +313,50 @@ static int blocked_at(s32 x, s32 y) {
 }
 
 static void draw_active(void) {
-    for (s32 c = 20; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = 0;
+    for (s32 c = 16; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = 0;
     if (party_count == 0) return;
-    const char *n = spirit_name[spirits[party[active]].kind];
+    Spirit *s = &spirits[party[active]];
+    const char *n = spirit_name[s->kind];
     s32 len = 0; while (n[len]) len++;
-    put_text(30 - len - 2, 0, " ");
-    put_text(30 - len - 1, 0, n);
+    char num[2] = { (char)('0' + s->energy), 0 };
+    put_text(30 - len - 4, 0, " ");
+    put_text(30 - len - 3, 0, n);
+    put_text(27, 0, " ");
+    put_text(28, 0, num);
     put_text(29, 0, " ");
+}
+
+// Field by field: a struct literal makes gcc call memset, and there is no libc.
+static void spirit_init(s32 kind, s32 mx, s32 my, s32 state) {
+    Spirit *s = &spirits[kind];
+    s->x = mx * 16; s->y = my * 16; s->state = state; s->kind = kind;
+    s->energy = ENERGY_MAX; s->housed = 0;
 }
 
 static void reset_game(void) {
     load_world();
     px = PLAYER_START_X * 16; py = PLAYER_START_Y * 16; pdir = DIR_DOWN;
-    spirits[0] = (Spirit){ SPIRIT_SPOT_X * 16, SPIRIT_SPOT_Y * 16, SP_AWAKE, KIND_SPROUT };
-    spirits[1] = (Spirit){ RIPPLE_SPOT_X * 16, RIPPLE_SPOT_Y * 16, SP_ASLEEP, KIND_RIPPLE };
-    spirits[2] = (Spirit){ STONE_SPOT_X * 16, STONE_SPOT_Y * 16, SP_ASLEEP, KIND_STONE };
+    spirit_init(KIND_SPROUT, SPIRIT_SPOT_X, SPIRIT_SPOT_Y, SP_AWAKE);
+    spirit_init(KIND_RIPPLE, RIPPLE_SPOT_X, RIPPLE_SPOT_Y, SP_ASLEEP);
+    spirit_init(KIND_STONE, STONE_SPOT_X, STONE_SPOT_Y, SP_ASLEEP);
+    spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
+    for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
+    told_ending = 0;
+    msgq_len = 0;
     party_count = 0; active = 0;
     for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
     for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;
     sparkle_life = 0;
     told_river = 0;
     told_spring = 0;
+    regen_timer = home_timer = 0;
+    just_called = -1;
     for (s32 r = 0; r < 20; r++) clear_row(r);
     draw_life();
     draw_active();
-    show_message("FIND THE SPIRIT");
+    show_message("VAEL TOOK THE WATER.");
+    queue_message("THE SPIRITS LOST THEIR HOMES.");
+    queue_message("FIND THE SPIRIT");
 }
 
 static int water_near(s32 mx, s32 my, s32 dist) {
@@ -282,7 +366,7 @@ static int water_near(s32 mx, s32 my, s32 dist) {
     return 0;
 }
 
-// Distance map for a bloom: life spreads around obstacles but never across open water or rock.
+// Distance map for a bloom: life spreads around obstacles but never across water, rock, or thorns.
 // Costs: 10 per straight step, 14 per diagonal step, so rings come out round.
 static void bloom_distances(Bloom *b) {
     for (s32 i = 0; i < BGRID * BGRID; i++) b->dist[i] = 255;
@@ -292,7 +376,7 @@ static void bloom_distances(Bloom *b) {
             for (s32 gx = 0; gx < BGRID; gx++) {
                 s32 mx = b->cx + gx - BR, my = b->cy + gy - BR;
                 u8 t = tile_at(mx, my);
-                if (t == WATER || t == ROCK) continue;
+                if (t == WATER || t == ROCK || t == THORN) continue;
                 s32 best = b->dist[gy * BGRID + gx];
                 for (s32 dy = -1; dy <= 1; dy++)
                     for (s32 dx = -1; dx <= 1; dx++) {
@@ -406,67 +490,231 @@ static void update_spirits(void) {
     }
 }
 
+static void sparkle_at(s32 mx, s32 my) { sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 30; }
+
+// Returns 1 if the power did something (and so costs a charge).
+static int use_power(s32 kind, s32 mx, s32 my) {
+    u8 t = tile_at(mx, my);
+    int in_map = mx >= 0 && my >= 0 && mx < MAP_W && my < MAP_H;
+    if (!in_map) return 0;
+    if (kind == KIND_SPROUT) {
+        if (t == WATER || t == ROCK || t == BRIDGE || t == THORN) return 0;
+        start_bloom(mx, my);
+    } else if (kind == KIND_RIPPLE) {
+        if (t != WATER) return 0;
+        set_tile(mx, my, BRIDGE);
+        chime(392, 12);
+        sparkle_at(mx, my);
+    } else if (kind == KIND_STONE) {
+        if (t != ROCK) return 0;
+        set_tile(mx, my, DIRT);     // broken rock leaves bare ground that can bloom
+        restorable_count++;
+        draw_life();
+        chime(196, 14);
+        sparkle_at(mx, my);
+    } else {
+        // A gust clears up to three thorn tiles in a line.
+        if (t != THORN) return 0;
+        s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
+        s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+        for (s32 k = 0; k < 3 && tile_at(mx, my) == THORN; k++, mx += sx, my += sy) {
+            set_tile(mx, my, DEAD);
+            restorable_count++;
+            sparkle_at(mx, my);
+        }
+        draw_life();
+        chime(880, 10);
+    }
+    return 1;
+}
+
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
     if (pdir == DIR_RIGHT) fx += 14;
     if (pdir == DIR_UP)    fy -= 14;
     if (pdir == DIR_DOWN)  fy += 14;
-    s32 mx = fx >> 4, my = fy >> 4;
-    u8 t = tile_at(mx, my);
-    int in_map = mx >= 0 && my >= 0 && mx < MAP_W && my < MAP_H;
+    Spirit *s = &spirits[party[active]];
+    if (s->energy == 0) { chime(220, 6); show_message(spirit_tired[s->kind]); return; }
+    if (!use_power(s->kind, fx >> 4, fy >> 4)) { chime(262, 6); return; }
+    s->energy--;
+    draw_active();
+}
 
-    s32 kind = spirits[party[active]].kind;
-    if (kind == KIND_SPROUT) {
-        if (!in_map || t == WATER || t == ROCK || t == BRIDGE) { chime(262, 6); return; }
-        start_bloom(mx, my);
-    } else if (kind == KIND_RIPPLE) {
-        if (!in_map || t != WATER) { chime(262, 6); return; }
-        set_tile(mx, my, BRIDGE);
-        chime(392, 12);
-        sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 30;
-    } else {
-        if (!in_map || t != ROCK) { chime(262, 6); return; }
-        set_tile(mx, my, DIRT);     // broken rock leaves bare ground that can bloom
-        restorable_count++;
-        draw_life();
-        chime(196, 14);
-        sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 30;
+static void party_add(s32 i) {
+    party[party_count++] = i;
+    active = party_count - 1;
+    spirits[i].state = SP_JOINED;
+    draw_active();
+}
+
+static void party_remove(s32 i) {
+    s32 n = 0;
+    for (s32 p = 0; p < party_count; p++) if (party[p] != i) party[n++] = party[p];
+    party_count = n;
+    if (active >= party_count) active = party_count ? party_count - 1 : 0;
+    draw_active();
+}
+
+// Living tiles in the 5x5 around a home site.
+static s32 life_around(s32 mx, s32 my) {
+    s32 n = 0;
+    for (s32 y = my - 2; y <= my + 2; y++)
+        for (s32 x = mx - 2; x <= mx + 2; x++)
+            if (is_alive(tile_at(x, y))) n++;
+    return n;
+}
+
+static void send_home(s32 k) {
+    Spirit *s = &spirits[k];
+    party_remove(k);
+    s->state = SP_HOME;
+    s->x = home_site_x[k] * 16; s->y = home_site_y[k] * 16;
+    s->energy = ENERGY_MAX_HOUSED;
+}
+
+static void try_build_home(s32 k) {
+    s32 hx = home_site_x[k], hy = home_site_y[k];
+    const u8 *h = home_helper[k];
+    if (life_around(hx, hy) < 4) { chime(262, 6); show_message("BLOOM THE LAND HERE FIRST"); return; }
+    if (!in_party(h[0]) || !in_party(h[1]) || spirits[h[0]].energy == 0 || spirits[h[1]].energy == 0) {
+        chime(262, 6); show_message(home_needs[k]); return;
+    }
+    spirits[h[0]].energy--;
+    spirits[h[1]].energy--;
+    home_done[k] = 1;
+    spirits[k].housed = 1;
+    send_home(k);
+    chime(1047, 14);
+    show_message(home_built[k]);
+    sparkle_at(hx, hy);
+    s32 all = 1;
+    for (s32 i = 0; i < NUM_SPIRITS; i++) all &= home_done[i];
+    if (all && !told_ending) {
+        told_ending = 1;
+        queue_message("EVERY SPIRIT HAS A HOME.");
+        queue_message("BUT THE RIVER STILL RUNS LOW.");
+        queue_message("VAEL'S DAM LIES NORTH...");
     }
 }
 
-static void handle_action(void) {
-    // Spirits not yet in the party react when the player is close.
-    for (s32 i = 0; i < NUM_SPIRITS; i++) {
-        Spirit *s = &spirits[i];
-        if (s->state == SP_JOINED) continue;
-        s32 dx = s->x - px, dy = s->y - py;
-        if (dx * dx + dy * dy >= 28 * 28) continue;
-        if (s->state == SP_ASLEEP) {
-            // Only a hint; A still uses your spirit so you can bloom beside it.
-            if (msg_timer == 0) show_message("IT SLEEPS. BLOOM NEAR IT");
-            continue;
-        }
-        if (msg_timer < 100) show_message("A: GREET THE SPIRIT");
-        if (HIT(KEY_A)) {
-            s->state = SP_JOINED;
-            party[party_count++] = i;
-            active = party_count - 1;
-            // start the newcomer's trail where it stands
-            chime(784, 12);
-            show_message(spirit_joined[s->kind]);
-            draw_active();
-        }
-        return;
-    }
+static int near_px(s32 x, s32 y, s32 r) {
+    s32 dx = x - px, dy = y - py;
+    return dx * dx + dy * dy < r * r;
+}
 
+static void handle_action(void) {
     if (party_count > 1 && HIT(KEY_SELECT)) {
         active = (active + 1) % party_count;
         chime(active ? 659 : 523, 8);
         show_message(spirit_skill[spirits[party[active]].kind]);
         draw_active();
     }
+
+    // Spirits not in the party react when the player is close.
+    for (s32 i = 0; i < NUM_SPIRITS; i++) {
+        Spirit *s = &spirits[i];
+        if (s->state == SP_JOINED || !near_px(s->x, s->y, 28)) continue;
+        if (s->state == SP_ASLEEP) {
+            // Only a hint; A still uses your spirit so you can bloom beside it.
+            if (msg_timer == 0) show_message("IT SLEEPS. BLOOM NEAR IT");
+            continue;
+        }
+        if (s->state == SP_HOME) {
+            prompt(call_back[i]);
+            if (HIT(KEY_A)) { party_add(i); chime(784, 12); show_message(called_back[i]); just_called = i; }
+            return;
+        }
+        prompt("A: GREET THE SPIRIT");
+        if (HIT(KEY_A)) {
+            party_add(i);
+            chime(784, 12);
+            show_message(spirit_joined[s->kind]);
+        }
+        return;
+    }
+
+    // Home sites: build one, or send a housed spirit back to it. A site only takes the
+    // A button when the action can happen; otherwise A still uses your spirit (so you can
+    // bloom the land around a site).
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (!near_px(home_site_x[k] * 16, home_site_y[k] * 16, 24)) {
+            if (just_called == k) just_called = -1;
+            continue;
+        }
+        if (!in_party(k)) {
+            if (!home_done[k] && msg_timer == 0) show_message(home_hint[k]);
+            break;
+        }
+        if (home_done[k]) {
+            // Only the active spirit can be sent home, so A near a home still uses the others.
+            // A spirit you just called back stays until you walk away from its home.
+            if (party[active] != k || just_called == k) break;
+            prompt(go_home[k]);
+            if (HIT(KEY_A)) { send_home(k); chime(659, 10); }
+            return;
+        }
+        if (life_around(home_site_x[k], home_site_y[k]) < 4) {
+            if (msg_timer == 0) show_message("BLOOM THE LAND HERE FIRST");
+            break;
+        }
+        const u8 *h = home_helper[k];
+        if (!in_party(h[0]) || !in_party(h[1]) || !spirits[h[0]].energy || !spirits[h[1]].energy) {
+            if (msg_timer == 0) show_message(home_needs[k]);
+            break;
+        }
+        prompt(home_prompt[k]);
+        if (HIT(KEY_A)) try_build_home(k);
+        return;
+    }
+
     if (party_count && HIT(KEY_A)) use_ability();
+}
+
+// Energy: standing on living ground slowly recharges the party; standing at a built home
+// refills it. Each home also spreads life around itself, one tile at a time.
+#define HOME_RADIUS 5
+static void update_homes(void) {
+    int changed = 0;
+    s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4;
+    if (is_alive(tile_at(fx, fy)) && ++regen_timer >= REGEN_FRAMES) {
+        regen_timer = 0;
+        for (s32 p = 0; p < party_count; p++) {
+            Spirit *s = &spirits[party[p]];
+            if (s->energy < energy_max(s)) { s->energy++; changed = 1; }
+        }
+    }
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (!home_done[k]) continue;
+        s32 dx = fx - home_site_x[k], dy = fy - home_site_y[k];
+        if (dx * dx + dy * dy > 4) continue;
+        for (s32 p = 0; p < party_count; p++) {
+            Spirit *s = &spirits[party[p]];
+            if (s->energy < energy_max(s)) { s->energy = energy_max(s); changed = 1; }
+        }
+    }
+    if (changed) draw_active();
+
+    if (++home_timer < 90) return;
+    home_timer = 0;
+    int grew = 0;
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (!home_done[k]) continue;
+        for (s32 tries = 0; tries < 8; tries++) {
+            s32 x = home_site_x[k] + (s32)(rng() % (2 * HOME_RADIUS + 1)) - HOME_RADIUS;
+            s32 y = home_site_y[k] + (s32)(rng() % (2 * HOME_RADIUS + 1)) - HOME_RADIUS;
+            s32 ddx = x - home_site_x[k], ddy = y - home_site_y[k];
+            if (ddx * ddx + ddy * ddy > HOME_RADIUS * HOME_RADIUS) continue;
+            u8 t = tile_at(x, y);
+            if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DEAD_TREE) continue;
+            if (!is_alive(tile_at(x + 1, y)) && !is_alive(tile_at(x - 1, y)) &&
+                !is_alive(tile_at(x, y + 1)) && !is_alive(tile_at(x, y - 1))) continue;
+            grow_tile(x, y, 0);
+            grew = 1;
+            break;
+        }
+    }
+    if (grew) { draw_life(); check_wake(); }
 }
 
 // The first step into the hidden spring gets a message.
@@ -533,6 +781,8 @@ int main(void) {
         PAL_OBJ[32 + i] = obj_pal_sleep[i];
         PAL_OBJ[48 + i] = obj_pal3[i];
         PAL_OBJ[64 + i] = obj_pal3_sleep[i];
+        PAL_OBJ[80 + i] = obj_pal4[i];
+        PAL_OBJ[96 + i] = obj_pal4_sleep[i];
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate
@@ -570,10 +820,11 @@ int main(void) {
         update_spirits();
         handle_action();
         check_spring();
+        update_homes();
         update_blooms();
         update_camera();
         draw_sprites();
 
-        if (msg_timer && --msg_timer == 0) clear_row(19);
+        update_message();
     }
 }

@@ -54,7 +54,8 @@ OBJ_PAL = [
 
 # Metatile order matters: the game refers to these by index.
 META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
-        "tree", "dead_tree", "rock", "water", "water_b", "bridge"]
+        "tree", "dead_tree", "rock", "water", "water_b", "bridge",
+        "thorn", "homesite"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 OBJ2_PAL = [
@@ -212,12 +213,44 @@ def bridge(rng):
     return px
 
 
+def thorn(rng):
+    px = dead(rng)
+    # tangled dead brambles: a few wandering strands with thorn tips
+    for k in range(7):
+        x, y = rng.randrange(1, 14), 15
+        while y > 0:
+            c = 12 if k % 2 else 15
+            px[y][x] = c
+            px[y][x + 1] = 15 if c == 12 else 12
+            if rng.random() < 0.25:
+                px[y][max(0, x - 1)] = 14
+            y -= 1
+            x = max(0, min(14, x + rng.choice([-1, 0, 1])))
+    return px
+
+
+def homesite(rng):
+    px = dirt(rng)
+    # a ring of small cream stones marks where a spirit could live
+    for y in range(16):
+        for x in range(16):
+            d = (x - 7.5) ** 2 + (y - 7.5) ** 2
+            if 30 <= d < 42 and (x + y) % 3 != 0:
+                px[y][x] = 14
+            elif 42 <= d < 50 and (x + y) % 3 != 0:
+                px[y][x] = 15
+    px[7][7] = px[8][8] = 8
+    px[7][8] = px[8][7] = 6
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
         dead(rng), dead_crack(rng), dirt(rng), grass(rng, tufts=0),
         grass(rng, tufts=5), grass(rng, tufts=1, flowers=3), tree(rng),
         dead_tree(rng), rock(rng), water(rng, 0), water(rng, 1), bridge(rng),
+        thorn(rng), homesite(rng),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
@@ -491,6 +524,43 @@ SPRITES3 = {
 SPRITES3["stone1"] = ["." * 16] + SPRITES3["stone0"][:-1]   # bob frame: one pixel lower
 SPRITE3_ORDER = ["stone0", "stone1"]
 
+# ---- wind spirit palette (OBJ bank 5). The game builds a gray copy for sleep. ----
+OBJ4_PAL = [
+    (255, 0, 255),    # 0 transparent
+    (28, 36, 32),     # 1 outline / eyes
+    (244, 250, 255),  # 2 white
+    (190, 228, 240),  # 3 pale cyan
+    (120, 188, 210),  # 4 teal
+] + [(0, 0, 0)] * 11
+
+# Wind spirit "Breeze": a small cloud puff with a curling tail, drawn with OBJ4_PAL.
+SPRITES4 = {
+    "breeze0": [
+        "................",
+        "................",
+        "......111.......",
+        "....11222111....",
+        "...1222222221...",
+        "..122222222221..",
+        ".1222122221221..",
+        ".1223122221321..",
+        ".1333333333331..",
+        "..13333333331...",
+        "...11444411.....",
+        "......1111.444..",
+        "...........44...",
+        "................",
+        "................",
+        "................",
+    ],
+}
+SPRITES4["breeze1"] = ["." * 16] + SPRITES4["breeze0"][:-1]
+SPRITE4_ORDER = ["breeze0", "breeze1"]
+
+
+def make_sprites4():
+    return draw_sheet(SPRITES4, SPRITE4_ORDER, OBJ4_PAL)
+
 
 def make_sprites3():
     return draw_sheet(SPRITES3, SPRITE3_ORDER, OBJ3_PAL)
@@ -517,15 +587,34 @@ def draw_sheet(sheet, order, pal):
     return img
 
 
+def append_new_metatiles(path):
+    """terrain.png exists but predates newer META entries: add only the missing
+    tiles on the right, keeping every existing pixel (and hand edits) as is."""
+    old = Image.open(path)
+    have = old.width // 16
+    if have >= len(META):
+        return
+    new = make_terrain()
+    out = Image.new("P", (16 * len(META), 16))
+    out.putpalette(old.getpalette())
+    out.paste(old, (0, 0))
+    out.paste(new.crop((have * 16, 0, len(META) * 16, 16)), (have * 16, 0))
+    out.save(path)
+    print("appended", len(META) - have, "metatiles to", path)
+
+
 def main():
     os.makedirs(ART, exist_ok=True)
     force = "--force" in sys.argv
     for name, fn in (("terrain.png", make_terrain), ("sprites.png", make_sprites),
-                     ("sprites2.png", make_sprites2), ("sprites3.png", make_sprites3)):
+                     ("sprites2.png", make_sprites2), ("sprites3.png", make_sprites3),
+                     ("sprites4.png", make_sprites4)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)
             print("wrote", path)
+        elif name == "terrain.png":
+            append_new_metatiles(path)
 
 
 if __name__ == "__main__":
