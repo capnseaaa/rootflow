@@ -1,0 +1,61 @@
+# reach and greet Sprout (same path as v0.1)
+68 16
+144 64
+24 16
+2 1
+20 0
+# walk right to column 16, then down to row 23
+72 16
+224 128
+10 0 v1_asleep_far.ppm
+# step left next to the sleeping water spirit
+16 32
+40 0 v2_asleep.ppm
+# bloom beside it
+2 1
+60 0 v3_woke.ppm
+# greet it
+2 1
+20 0 v4_joined.ppm
+# walk right to the river bank and build two bridge planks
+80 16
+2 1
+20 0
+16 16
+2 1
+20 0 v5_bridge.ppm
+# cross the river
+48 16
+# swap to Sprout and bloom the far bank
+2 4
+10 0
+2 1
+70 0 v6_farbank.ppm
+# --- v0.3: the stone spirit and the hidden spring ---
+# walk north up the far bank toward the sleeping stone spirit
+96 64
+10 0 v7_pebble_asleep.ppm
+# bloom beside it (Sprout is active)
+1 16
+2 1
+60 0 v8_pebble_woke.ppm
+# walk over and greet it
+30 16
+2 1
+20 0 v9_pebble_joined.ppm
+# line up with column 27 and walk north to the rock wall
+17 16
+170 64
+10 0 v10_wall.ppm
+# break the rock in front (Pebble is active)
+2 1
+30 0 v11_broken.ppm
+# step through into the hidden spring
+40 64
+20 0 v12_spring.ppm
+# swap to Sprout (Pebble -> Sprout) and bloom beside the spring
+2 4
+10 0
+2 1
+70 0 v13_spring_bloom.ppm
+0 0 @0300000c,03000014,03000060,03000020

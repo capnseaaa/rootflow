@@ -1,0 +1,13 @@
+build/
+*.o
+*.elf
+*.ppm
+rootflow/test/harness
+release/
+third_party/
+.DS_Store
+CLAUDE.md
+.claude/
+rootflow/*.gba
+rootflow/src/data.h
+__pycache__/

@@ -1,0 +1,25 @@
+# start screen
+30 0 s1_start.ppm
+# walk right 4 tiles, then up 9 tiles toward the spirit
+68 16
+144 64
+24 16
+10 0 s2_near.ppm
+# greet
+2 1
+20 0 s3_joined.ppm
+# face left and bloom
+2 32
+2 0
+2 1
+50 0 s4_bloom.ppm
+# walk down and bloom again
+40 128
+2 1
+50 0
+# head right toward the river
+80 16
+2 1
+60 0 s5_river.ppm
+# run down with spirit following
+60 130 s6_follow.ppm
