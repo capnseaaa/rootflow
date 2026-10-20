@@ -196,11 +196,13 @@ def sleep_palette(pal):
 
 def main():
     terrain = Image.open(os.path.join(ART, "terrain.png"))
-    sprites = Image.open(os.path.join(ART, "sprites.png"))
+    player = Image.open(os.path.join(ART, "player.png"))
+    sprout = Image.open(os.path.join(ART, "sprout.png"))
+    fx = Image.open(os.path.join(ART, "fx.png"))       # drawn with player.png's palette (bank 0)
     sprites2 = Image.open(os.path.join(ART, "sprites2.png"))
     sprites3 = Image.open(os.path.join(ART, "sprites3.png"))
     sprites4 = Image.open(os.path.join(ART, "sprites4.png"))
-    for im in (terrain, sprites, sprites2, sprites3, sprites4):
+    for im in (terrain, player, sprout, fx, sprites2, sprites3, sprites4):
         assert im.mode == "P", "PNGs must be indexed color"
     pal2 = palette_of(sprites2)
     pal3 = palette_of(sprites3)
@@ -219,7 +221,8 @@ def main():
     out.append(c_array("unsigned char", "home_site_y", [y for _, y in HOME_SITES], fmt="{}"))
     out.append(f'static const char FONT_CHARS[] = "{FONT_CHARS}";')
     out.append(c_array("unsigned short", "bg_pal", palette_of(terrain), fmt="0x{:04X}"))
-    out.append(c_array("unsigned short", "obj_pal", palette_of(sprites), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal", palette_of(player), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_sprout", palette_of(sprout), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "terrain_tiles", strip_16x16(terrain)))
     out.append(c_array("unsigned short", "obj_pal2", pal2, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_sleep", gray, fmt="0x{:04X}"))
@@ -228,7 +231,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal4", pal4, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal4_sleep", sleep_palette(pal4), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles",
-                       strip_16x16(sprites) + strip_16x16(sprites2) + strip_16x16(sprites3)
+                       strip_16x16(player) + strip_16x16(sprout) + strip_16x16(fx)
+                       + strip_16x16(sprites2) + strip_16x16(sprites3)
                        + strip_16x16(sprites4)))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(c_array("unsigned char", "start_map", make_map(), per_line=32, fmt="{}"))

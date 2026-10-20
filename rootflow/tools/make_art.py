@@ -427,8 +427,11 @@ SPRITES = {
         "................",
     ],
 }
-SPRITE_ORDER = ["down0", "down1", "up0", "up1", "side0", "side1",
-                "spirit0", "spirit1", "sparkle"]
+# The main sheet is split into three files: the player, Sprout, and effects.
+# player.png and fx.png share OBJ bank 0; Sprout has its own bank (7).
+PLAYER_ORDER = ["down0", "down1", "up0", "up1", "side0", "side1"]
+SPROUT_ORDER = ["spirit0", "spirit1"]
+FX_ORDER = ["sparkle"]
 
 # Water spirit "Ripple" and the sleep bubble, drawn with OBJ2_PAL.
 SPRITES2 = {
@@ -570,8 +573,36 @@ def make_sprites2():
     return draw_sheet(SPRITES2, SPRITE2_ORDER, OBJ2_PAL)
 
 
-def make_sprites():
-    return draw_sheet(SPRITES, SPRITE_ORDER, OBJ_PAL)
+def make_player():
+    return draw_sheet(SPRITES, PLAYER_ORDER, OBJ_PAL)
+
+
+def make_sprout():
+    return draw_sheet(SPRITES, SPROUT_ORDER, OBJ_PAL)
+
+
+def make_fx():
+    return draw_sheet(SPRITES, FX_ORDER, OBJ_PAL)
+
+
+def split_old_sheet():
+    """Older builds kept the player, Sprout, and the sparkle in one sprites.png.
+    Cut it into player.png, sprout.png, and fx.png, keeping every pixel and the palette."""
+    old_path = os.path.join(ART, "sprites.png")
+    if not os.path.exists(old_path):
+        return
+    old = Image.open(old_path)
+    start = 0
+    for name, order in (("player.png", PLAYER_ORDER), ("sprout.png", SPROUT_ORDER), ("fx.png", FX_ORDER)):
+        path = os.path.join(ART, name)
+        if not os.path.exists(path):
+            part = old.crop((start * 16, 0, (start + len(order)) * 16, 16))
+            part.putpalette(old.getpalette())
+            part.save(path)
+            print("split", name, "from sprites.png")
+        start += len(order)
+    os.remove(old_path)
+    print("removed", old_path)
 
 
 def draw_sheet(sheet, order, pal):
@@ -606,7 +637,10 @@ def append_new_metatiles(path):
 def main():
     os.makedirs(ART, exist_ok=True)
     force = "--force" in sys.argv
-    for name, fn in (("terrain.png", make_terrain), ("sprites.png", make_sprites),
+    if not force:
+        split_old_sheet()
+    for name, fn in (("terrain.png", make_terrain), ("player.png", make_player),
+                     ("sprout.png", make_sprout), ("fx.png", make_fx),
                      ("sprites2.png", make_sprites2), ("sprites3.png", make_sprites3),
                      ("sprites4.png", make_sprites4)):
         path = os.path.join(ART, name)

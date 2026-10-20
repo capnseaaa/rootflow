@@ -229,6 +229,7 @@ static void oam_flush(void) {
 #define PAL_STONE_SLEEP 4
 #define PAL_BREEZE 5
 #define PAL_BREEZE_SLEEP 6
+#define PAL_SPROUT 7
 
 // OAM slots
 #define OAM_PLAYER  0
@@ -286,8 +287,8 @@ static u8 home_done[NUM_SPIRITS];
 static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
 static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE };
-static const u8 spirit_pal[] = { PAL_MAIN, PAL_RIPPLE, PAL_STONE, PAL_BREEZE };
-static const u8 spirit_sleep_pal[] = { PAL_MAIN, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP };
+static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE };
+static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP };
 
 static s32 energy_max(const Spirit *s) { return s->housed ? ENERGY_MAX_HOUSED : ENERGY_MAX; }
 static int in_party(s32 kind) {
@@ -788,6 +789,7 @@ int main(void) {
         PAL_OBJ[64 + i] = obj_pal3_sleep[i];
         PAL_OBJ[80 + i] = obj_pal4[i];
         PAL_OBJ[96 + i] = obj_pal4_sleep[i];
+        PAL_OBJ[112 + i] = obj_pal_sprout[i];
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate
