@@ -13,7 +13,7 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 ## Controls
 - D-pad: move, B: run
 - A: greet a spirit / use the active spirit's power
-- SELECT: swap spirit, START: reset
+- R / L: next / previous spirit (SELECT also works), START: reset
 
 ## Build
 Needs `arm-none-eabi-gcc` and Python 3 with Pillow.

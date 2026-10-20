@@ -1,0 +1,46 @@
+# L/R spirit swap check (v0.4.1): v2 path, then R, R, L, L. Prints 'active' after each.
+# reach and greet Sprout (same path as v0.1)
+68 16
+144 64
+24 16
+2 1
+20 0
+# walk right to column 16, then down to row 23
+72 16
+224 128
+10 0 v1_asleep_far.ppm
+# step left next to the sleeping water spirit
+16 32
+40 0 v2_asleep.ppm
+# bloom beside it
+2 1
+60 0 v3_woke.ppm
+# greet it
+2 1
+20 0 v4_joined.ppm
+# walk right to the river bank and build two bridge planks
+80 16
+2 1
+20 0
+16 16
+2 1
+20 0 v5_bridge.ppm
+# cross the river
+48 16
+# swap to Sprout and bloom the far bank
+2 4
+10 0
+2 1
+70 0 v6_farbank.ppm
+2 256
+30 0 lr1_r.ppm
+0 0 @03000090
+2 256
+30 0
+0 0 @03000090
+2 512
+30 0 lr2_l.ppm
+0 0 @03000090
+2 512
+30 0
+0 0 @03000090

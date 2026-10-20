@@ -1,6 +1,7 @@
 // Rootflow spirit toy (GBA).
 // Walk the dead valley, find the sprout spirit, and bloom life into the land.
-// D-pad: move   B: run   A: greet / use spirit   SELECT: swap spirit   START: reset
+// D-pad: move   B: run   A: greet / use spirit   R / L: next / previous spirit   START: reset
+// (SELECT also swaps to the next spirit, as in v0.4.)
 // Spirits: Sprout blooms life, Ripple bridges water, Pebble breaks rocks, Breeze clears thorns.
 // Powers cost energy. Spirits can be housed at home sites; a home spreads life around it.
 
@@ -42,6 +43,8 @@ typedef signed int     s32;
 #define KEY_LEFT   0x0020
 #define KEY_UP     0x0040
 #define KEY_DOWN   0x0080
+#define KEY_R      0x0100
+#define KEY_L      0x0200
 
 #define SCREEN_W 240
 #define SCREEN_H 160
@@ -256,8 +259,8 @@ static s32 party[NUM_SPIRITS], party_count, active;   // party holds spirit inde
 static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE" };
 static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK",
                                       "BREEZE: CLEAR THORNS" };
-static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! SELECT: SWAP",
-                                       "PEBBLE JOINED! SELECT: SWAP", "BREEZE JOINED! SELECT: SWAP" };
+static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! R: SWAP",
+                                       "PEBBLE JOINED! R: SWAP", "BREEZE JOINED! R: SWAP" };
 static const char *spirit_tired[] = { "SPROUT IS TIRED", "RIPPLE IS TIRED", "PEBBLE IS TIRED",
                                       "BREEZE IS TIRED" };
 static const char *home_built[] = { "SPROUT'S GROVE IS BUILT!", "RIPPLE'S SPRING IS BUILT!",
@@ -604,8 +607,10 @@ static int near_px(s32 x, s32 y, s32 r) {
 }
 
 static void handle_action(void) {
-    if (party_count > 1 && HIT(KEY_SELECT)) {
-        active = (active + 1) % party_count;
+    // R (or SELECT) swaps to the next spirit, L to the previous one.
+    s32 step = HIT(KEY_R | KEY_SELECT) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
+    if (party_count > 1 && step) {
+        active = (active + step) % party_count;
         chime(active ? 659 : 523, 8);
         show_message(spirit_skill[spirits[party[active]].kind]);
         draw_active();
