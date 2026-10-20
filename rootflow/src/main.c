@@ -833,12 +833,12 @@ int main(void) {
     for (u32 i = 0; i < 16; i++) {
         PAL_BG[i] = bg_pal[i];
         PAL_OBJ[i] = obj_pal[i];
-        PAL_OBJ[16 + i] = obj_pal2[i];
-        PAL_OBJ[32 + i] = obj_pal_sleep[i];
-        PAL_OBJ[48 + i] = obj_pal3[i];
-        PAL_OBJ[64 + i] = obj_pal3_sleep[i];
-        PAL_OBJ[80 + i] = obj_pal4[i];
-        PAL_OBJ[96 + i] = obj_pal4_sleep[i];
+        PAL_OBJ[16 + i] = obj_pal_ripple[i];
+        PAL_OBJ[32 + i] = obj_pal_ripple_sleep[i];
+        PAL_OBJ[48 + i] = obj_pal_pebble[i];
+        PAL_OBJ[64 + i] = obj_pal_pebble_sleep[i];
+        PAL_OBJ[80 + i] = obj_pal_breeze[i];
+        PAL_OBJ[96 + i] = obj_pal_breeze_sleep[i];
         PAL_OBJ[112 + i] = obj_pal_sprout[i];
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white

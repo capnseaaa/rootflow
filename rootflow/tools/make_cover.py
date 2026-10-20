@@ -1,6 +1,6 @@
 """Compose the cover image (art/cover.png) from the game's own art.
 
-Uses terrain.png, player.png, sprout.png, fx.png, sprites2.png, and the 5x7 font, so the
+Uses terrain.png, player_sprite.png, sprout_sprite.png, fx_sprite.png, ripple_sprite.png, and the 5x7 font, so the
 cover follows any hand edits to the art. Output is 640x640 (160x160 x4).
 """
 import math
@@ -19,7 +19,7 @@ SCALE = 4
 GRID = SIZE // 16   # metatiles per side
 
 DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE = range(12)
-SPR_RIPPLE = 0      # cell in sprites2.png
+SPR_RIPPLE = 0      # cell in ripple_sprite.png
 
 CREAM = (240, 226, 182)
 OUTLINE = (28, 36, 32)
@@ -85,10 +85,10 @@ def draw_text(img, text, y, scale, color):
 
 def main():
     terrain = rgba(os.path.join(ART, "terrain.png"))
-    player = rgba(os.path.join(ART, "player.png"))
-    sprout = rgba(os.path.join(ART, "sprout.png"))
-    fx = rgba(os.path.join(ART, "fx.png"))
-    sprites2 = rgba(os.path.join(ART, "sprites2.png"))
+    player = rgba(os.path.join(ART, "player_sprite.png"))
+    sprout = rgba(os.path.join(ART, "sprout_sprite.png"))
+    fx = rgba(os.path.join(ART, "fx_sprite.png"))
+    ripple = rgba(os.path.join(ART, "ripple_sprite.png"))
 
     img = Image.new("RGBA", (SIZE, SIZE), OUTLINE + (255,))
     for y, row in enumerate(make_map()):
@@ -104,7 +104,7 @@ def main():
 
     for spr, pos in [(cell(sprout, 0), (48, 94)),
                      (cell(player, 0), (64, 94)),
-                     (cell(sprites2, SPR_RIPPLE), (110, 112)),
+                     (cell(ripple, SPR_RIPPLE), (110, 112)),
                      (cell(fx, 0), (56, 80)),
                      (cell(fx, 0), (78, 104))]:
         img.alpha_composite(spr, pos)

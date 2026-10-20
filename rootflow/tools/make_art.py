@@ -58,7 +58,7 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "thorn", "homesite"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
-OBJ2_PAL = [
+RIPPLE_PAL = [
     (255, 0, 255),    # 0 transparent
     (28, 36, 32),     # 1 outline
     (168, 212, 240),  # 2 light blue
@@ -428,13 +428,13 @@ SPRITES = {
     ],
 }
 # The main sheet is split into three files: the player, Sprout, and effects.
-# player.png and fx.png share OBJ bank 0; Sprout has its own bank (7).
+# player_sprite.png and fx_sprite.png share OBJ bank 0; Sprout has its own bank (7).
 PLAYER_ORDER = ["down0", "down1", "up0", "up1", "side0", "side1"]
 SPROUT_ORDER = ["spirit0", "spirit1"]
 FX_ORDER = ["sparkle"]
 
-# Water spirit "Ripple" and the sleep bubble, drawn with OBJ2_PAL.
-SPRITES2 = {
+# Water spirit "Ripple" and the sleep bubble, drawn with RIPPLE_PAL.
+RIPPLE_SPRITES = {
     "ripple0": [
         "................",
         ".......11.......",
@@ -490,10 +490,10 @@ SPRITES2 = {
         "................",
     ],
 }
-SPRITE2_ORDER = ["ripple0", "ripple1", "zzz"]
+RIPPLE_ORDER = ["ripple0", "ripple1", "zzz"]
 
 # ---- stone spirit palette (OBJ bank 3). The game builds a gray copy for sleep. ----
-OBJ3_PAL = [
+PEBBLE_PAL = [
     (255, 0, 255),    # 0 transparent
     (28, 36, 32),     # 1 outline / eyes
     (196, 184, 164),  # 2 stone light
@@ -503,8 +503,8 @@ OBJ3_PAL = [
     (106, 196, 106),  # 6 moss mid
 ] + [(0, 0, 0)] * 9
 
-# Stone spirit "Pebble": a round boulder with a moss cap, drawn with OBJ3_PAL.
-SPRITES3 = {
+# Stone spirit "Pebble": a round boulder with a moss cap, drawn with PEBBLE_PAL.
+PEBBLE_SPRITES = {
     "stone0": [
         "................",
         "................",
@@ -524,11 +524,11 @@ SPRITES3 = {
         "................",
     ],
 }
-SPRITES3["stone1"] = ["." * 16] + SPRITES3["stone0"][:-1]   # bob frame: one pixel lower
-SPRITE3_ORDER = ["stone0", "stone1"]
+PEBBLE_SPRITES["stone1"] = ["." * 16] + PEBBLE_SPRITES["stone0"][:-1]   # bob frame: one pixel lower
+PEBBLE_ORDER = ["stone0", "stone1"]
 
 # ---- wind spirit palette (OBJ bank 5). The game builds a gray copy for sleep. ----
-OBJ4_PAL = [
+BREEZE_PAL = [
     (255, 0, 255),    # 0 transparent
     (28, 36, 32),     # 1 outline / eyes
     (244, 250, 255),  # 2 white
@@ -536,8 +536,8 @@ OBJ4_PAL = [
     (120, 188, 210),  # 4 teal
 ] + [(0, 0, 0)] * 11
 
-# Wind spirit "Breeze": a small cloud puff with a curling tail, drawn with OBJ4_PAL.
-SPRITES4 = {
+# Wind spirit "Breeze": a small cloud puff with a curling tail, drawn with BREEZE_PAL.
+BREEZE_SPRITES = {
     "breeze0": [
         "................",
         "................",
@@ -557,20 +557,20 @@ SPRITES4 = {
         "................",
     ],
 }
-SPRITES4["breeze1"] = ["." * 16] + SPRITES4["breeze0"][:-1]
-SPRITE4_ORDER = ["breeze0", "breeze1"]
+BREEZE_SPRITES["breeze1"] = ["." * 16] + BREEZE_SPRITES["breeze0"][:-1]
+BREEZE_ORDER = ["breeze0", "breeze1"]
 
 
-def make_sprites4():
-    return draw_sheet(SPRITES4, SPRITE4_ORDER, OBJ4_PAL)
+def make_breeze():
+    return draw_sheet(BREEZE_SPRITES, BREEZE_ORDER, BREEZE_PAL)
 
 
-def make_sprites3():
-    return draw_sheet(SPRITES3, SPRITE3_ORDER, OBJ3_PAL)
+def make_pebble():
+    return draw_sheet(PEBBLE_SPRITES, PEBBLE_ORDER, PEBBLE_PAL)
 
 
-def make_sprites2():
-    return draw_sheet(SPRITES2, SPRITE2_ORDER, OBJ2_PAL)
+def make_ripple():
+    return draw_sheet(RIPPLE_SPRITES, RIPPLE_ORDER, RIPPLE_PAL)
 
 
 def make_player():
@@ -585,15 +585,28 @@ def make_fx():
     return draw_sheet(SPRITES, FX_ORDER, OBJ_PAL)
 
 
+def rename_old_sheets():
+    """Older builds used other names for the sprite sheets. Rename them to <name>_sprite.png."""
+    for old, new in (("sprites2.png", "ripple_sprite.png"), ("sprites3.png", "pebble_sprite.png"),
+                     ("sprites4.png", "breeze_sprite.png"), ("ripple.png", "ripple_sprite.png"),
+                     ("pebble.png", "pebble_sprite.png"), ("breeze.png", "breeze_sprite.png"),
+                     ("player.png", "player_sprite.png"), ("sprout.png", "sprout_sprite.png"),
+                     ("fx.png", "fx_sprite.png")):
+        old_path, new_path = os.path.join(ART, old), os.path.join(ART, new)
+        if os.path.exists(old_path) and not os.path.exists(new_path):
+            os.rename(old_path, new_path)
+            print("renamed", old, "->", new)
+
+
 def split_old_sheet():
     """Older builds kept the player, Sprout, and the sparkle in one sprites.png.
-    Cut it into player.png, sprout.png, and fx.png, keeping every pixel and the palette."""
+    Cut it into player_sprite.png, sprout_sprite.png, and fx_sprite.png, keeping every pixel and the palette."""
     old_path = os.path.join(ART, "sprites.png")
     if not os.path.exists(old_path):
         return
     old = Image.open(old_path)
     start = 0
-    for name, order in (("player.png", PLAYER_ORDER), ("sprout.png", SPROUT_ORDER), ("fx.png", FX_ORDER)):
+    for name, order in (("player_sprite.png", PLAYER_ORDER), ("sprout_sprite.png", SPROUT_ORDER), ("fx_sprite.png", FX_ORDER)):
         path = os.path.join(ART, name)
         if not os.path.exists(path):
             part = old.crop((start * 16, 0, (start + len(order)) * 16, 16))
@@ -638,11 +651,12 @@ def main():
     os.makedirs(ART, exist_ok=True)
     force = "--force" in sys.argv
     if not force:
+        rename_old_sheets()
         split_old_sheet()
-    for name, fn in (("terrain.png", make_terrain), ("player.png", make_player),
-                     ("sprout.png", make_sprout), ("fx.png", make_fx),
-                     ("sprites2.png", make_sprites2), ("sprites3.png", make_sprites3),
-                     ("sprites4.png", make_sprites4)):
+    for name, fn in (("terrain.png", make_terrain), ("player_sprite.png", make_player),
+                     ("sprout_sprite.png", make_sprout), ("fx_sprite.png", make_fx),
+                     ("ripple_sprite.png", make_ripple), ("pebble_sprite.png", make_pebble),
+                     ("breeze_sprite.png", make_breeze)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)
