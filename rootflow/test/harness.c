@@ -1,5 +1,6 @@
 // Headless runner: plays a ROM with a scripted input file and saves screenshots.
 // Script lines: <frames> <keys> [screenshot.ppm | @addr,addr (print) | !addr=val,addr=val (write)]
+// A line "^" power-cycles the console (save memory survives, like a real cart).
 // A line "&addr" names the game's frame counter. From then on, one script frame = one game loop
 // (the emulator runs until the counter changes), so boot time and slow frames do not shift a script.
 // Key bits: A=1 B=2 SELECT=4 START=8 RIGHT=16 LEFT=32 UP=64 DOWN=128
@@ -43,6 +44,7 @@ int main(int argc, char** argv) {
     unsigned frame_addr = argc > 3 ? strtoul(argv[3], NULL, 16) : 0;   // optional: game frame counter
     while (fgets(line, sizeof line, s)) {
         if (line[0] == '&') { frame_addr = strtoul(line + 1, NULL, 16); continue; }
+        if (line[0] == '^') { core->reset(core); continue; }   // power cycle; save memory stays
         int frames; unsigned keys; char shot[200] = "";
         if (line[0] == '#' || sscanf(line, "%d %u %199s", &frames, &keys, shot) < 2) continue;
         core->setKeys(core, keys);
