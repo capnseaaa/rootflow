@@ -1,0 +1,262 @@
+# v0.5 rewards: chests, Vael pumps, fruit, seeds, pause panel, reset. Starts from the end of v4.
+# v0.4 full playthrough: v2 path, rest, Pebble, spring, Breeze, all four homes, ending.
+# Lines with !addr=val are test-setup teleports (addresses from: arm-none-eabi-nm build/rootflow.elf).
+# reach and greet Sprout (same path as v0.1)
+63 16
+144 64
+24 16
+2 1
+20 0
+# walk right to column 16, then down to row 23
+72 16
+224 128
+10 0 v1_asleep_far.ppm
+# step left next to the sleeping water spirit
+16 32
+40 0 v2_asleep.ppm
+# bloom beside it
+2 1
+60 0 v3_woke.ppm
+# greet it
+2 1
+20 0 v4_joined.ppm
+# walk right to the river bank and build two bridge planks
+80 16
+2 1
+20 0
+16 16
+2 1
+20 0 v5_bridge.ppm
+# cross the river
+48 16
+# swap to Sprout and bloom the far bank
+2 4
+10 0
+2 1
+70 0 v6_farbank.ppm
+# rest on living ground: charges come back (Sprout 1->3, Ripple 1->3)
+620 0 w1_rested.ppm
+96 64
+1 16
+2 1
+60 0
+30 16
+2 1
+20 0
+# test setup: teleport in front of the rock wall at (27,7), facing up (random trees can block the walk)
+0 0 !$px=431,$py=118
+1 64
+2 1
+30 0
+# one step into the spring, away from the home site, and bloom
+20 64
+2 4
+10 0
+2 1
+80 0 w2_spring_bloom.ppm
+0 0 @$px,$py,$spirits+92,$active,$party_count
+# walk up to Breeze and greet it
+60 64
+2 1
+20 0 w3_breeze_joined.ppm
+# step down beside the home site and build Ripple's spring (costs Sprout 1, Pebble 1)
+32 128
+2 1
+30 0 w4_home_built.ppm
+0 0 @$px,$py,$party_count,$home_done
+# let the home spread life for a while
+900 0 w5_home_spread.ppm
+# call Ripple back from its home (it rejoins with max 2 charges)
+2 1
+20 0 w6_called_back.ppm
+# test setup: teleport above the thorn wall at (5,24)
+0 0 !$px=80,$py=384
+30 0
+# swap Ripple -> Sprout -> Pebble -> Breeze
+2 4
+2 0
+2 4
+2 0
+2 4
+10 0
+# face the thorns and gust
+1 128
+2 1
+30 0 w7_gust.ppm
+0 0 @$px,$py,$active
+# walk through the gap into the thorn grove
+30 128
+# swap Breeze -> Ripple -> Sprout, face left, bloom near the home site
+2 4
+2 0
+2 4
+10 0
+1 32
+2 1
+60 0 w8_grove_bloom.ppm
+# build Sprout's grove (costs Ripple 1, Breeze 1)
+# test setup: teleport onto the site's edge (random trees can block the short walk)
+0 0 !$px=55,$py=438
+10 0
+0 0 @$px,$py,$active,$party_count
+2 1
+30 0 w9_grove_built.ppm
+0 0 @$party_count,$home_done
+900 0 w10_grove_spread.ppm
+# call Sprout back from its grove
+2 1
+20 0
+# --- v0.5: Stone Hollow (south exit) for Pebble's cairn ---
+# test setup: teleport to the valley's south exit, then walk through it
+0 0 !$px=240,$py=480
+10 0
+20 128
+30 0 w11_hollow.ppm
+0 0 @$cur_area,$px,$py
+# test setup: stand above the boulder ring around Pebble's site, facing down
+0 0 !$px=256,$py=170
+10 0
+1 128
+# R: Sprout (slot 3) -> Pebble (slot 0); break the ring
+2 256
+10 0
+2 1
+30 0 w12_ring_broken.ppm
+0 0 @$maps+2448
+# walk in; R x3: Pebble -> Breeze -> Ripple -> Sprout; bloom by the site
+30 128
+2 256
+2 0
+2 256
+2 0
+2 256
+10 0
+1 128
+2 1
+60 0 w13_hollow_bloom.ppm
+# test setup: stand next to the site; build Pebble's cairn (costs Sprout 1, Ripple 1)
+0 0 !$px=256,$py=224
+10 0
+2 1
+30 0 w14_cairn_built.ppm
+0 0 @$home_done
+# call Pebble back; standing at a home refills the party
+2 0
+2 1
+30 0
+# --- Windy Steppe (east exit) for Breeze's nook ---
+# test setup: walk north out of the hollow, then teleport to the valley's east exit and walk through
+0 0 !$px=240,$py=2
+10 0
+20 64
+30 0
+0 0 @$cur_area
+0 0 !$px=494,$py=320
+10 0
+20 16
+30 0 w15_steppe.ppm
+0 0 @$cur_area,$px,$py,$party,$party+4,$party+8,$party+12,$active
+# test setup: stand above Breeze's thorn ring, facing down; R: Pebble (slot 3) -> Breeze (slot 0); gust
+0 0 !$px=320,$py=170
+10 0
+1 128
+2 256
+10 0
+2 1
+30 0 w16_gust.ppm
+# walk in; R x2: Breeze -> Ripple -> Sprout; bloom by the site
+30 128
+2 256
+2 0
+2 256
+10 0
+1 128
+2 1
+60 0 w17_steppe_bloom.ppm
+# test setup: stand next to the site; build Breeze's nook (costs Pebble 1, Sprout 1)
+0 0 !$px=320,$py=224
+10 0
+2 1
+30 0 w18_nook_built.ppm
+0 0 @$home_done
+150 0 w19_ending1.ppm
+150 0 w20_ending2.ppm
+150 0 w21_ending3.ppm
+# --- rewards (Windy Steppe) ---
+# call Breeze back from its nook (it becomes active)
+2 0
+2 1
+20 0
+# test setup: stand below the thorn-walled chest corner, facing up; gust the wall open
+0 0 !$px=448,$py=122
+10 0
+1 64
+2 1
+20 0
+40 64
+2 1
+30 0 r1_steppe_chest.ppm
+0 0 @$bonus_charge
+# test setup: a fruit tree at (10,24) and flowers at (8,24) beside the pump at (9,25)
+0 0 !$maps+1800=393221
+0 0 !$px=144,$py=378
+10 0
+1 128
+2 1
+20 0 r2_steppe_lore.ppm
+1 16
+2 1
+20 0
+1 32
+2 1
+20 0
+0 0 @$fruit,$seeds
+# --- the valley: pump by the river, chest in the thorn grove ---
+0 0 !$px=2,$py=320
+10 0
+10 32
+20 0
+0 0 @$cur_area
+0 0 !$px=288,$py=74
+10 0
+1 128
+2 1
+20 0 r3_valley_lore.ppm
+0 0 !$px=80,$py=458
+10 0
+1 128
+2 1
+20 0 r4_valley_chest.ppm
+# --- Stone Hollow: pump, and the chest behind a double rock wall ---
+0 0 !$px=240,$py=480
+10 0
+20 128
+20 0
+0 0 @$cur_area
+0 0 !$px=80,$py=74
+10 0
+1 128
+2 1
+20 0 r5_hollow_lore.ppm
+# Pebble (party slot 2) breaks both walls in one hit (cairn bonus)
+0 0 !$active=2,$px=416,$py=362
+10 0
+1 128
+2 1
+20 0
+40 128
+2 1
+30 0 r6_hollow_chest.ppm
+0 0 @$stone,$fruit,$seeds,$pulse_div,$bonus_charge
+# pause panel
+200 0
+2 8
+5 0 r7_pause.ppm
+2 0
+2 8
+5 0
+# L + R + START: new game
+2 768
+2 776
+10 0 r8_reset.ppm
+0 0 @$stone,$fruit,$seeds,$cur_area,$party_count,$px,$py
