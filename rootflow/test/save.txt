@@ -4,6 +4,9 @@
 # (Ripple bridges it); Breeze in Stone Hollow inside a boulder pocket (Pebble breaks in); all four homes.
 # Lines with !$name=val are test setup (teleports, picking the active party slot).
 # reach and greet Sprout (same path as v0.1)
+# title screen: one frame of START starts a new game
+10 0
+1 8
 63 16
 144 64
 24 16
@@ -220,6 +223,9 @@
 0 0 @$px,$py,$stone
 # power cycle: the game should load the save
 ^
+# the title screen after a power cycle: START picks CONTINUE
+10 0
+1 8
 60 0 s2_loaded.ppm
 0 0 @$px,$py,$cur_area,$home_done,$stone,$party_count,$active
 # new game, then power cycle again: the save is still there
@@ -228,5 +234,8 @@
 20 0 s3_newgame.ppm
 0 0 @$home_done,$cur_area
 ^
+# the title screen after a power cycle: START picks CONTINUE
+10 0
+1 8
 60 0 s4_loaded_again.ppm
 0 0 @$px,$py,$cur_area,$home_done,$stone

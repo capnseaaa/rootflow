@@ -4,6 +4,9 @@
 # (Ripple bridges it); Breeze in Stone Hollow inside a boulder pocket (Pebble breaks in); all four homes.
 # Lines with !$name=val are test setup (teleports, picking the active party slot).
 # reach and greet Sprout (same path as v0.1)
+# title screen: one frame of START starts a new game
+10 0
+1 8
 63 16
 144 64
 24 16

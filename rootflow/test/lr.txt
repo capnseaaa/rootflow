@@ -1,5 +1,8 @@
 # L/R spirit swap check (v0.4.1): v2 path, then R, R, L, L. Prints 'active' after each.
 # reach and greet Sprout (same path as v0.1)
+# title screen: one frame of START starts a new game
+10 0
+1 8
 63 16
 144 64
 24 16

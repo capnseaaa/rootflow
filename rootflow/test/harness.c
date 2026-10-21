@@ -1,5 +1,6 @@
 // Headless runner: plays a ROM with a scripted input file and saves screenshots.
 // Script lines: <frames> <keys> [screenshot.ppm | @addr,addr (print) | !addr=val,addr=val (write)]
+// Set HARNESS_WAV=path to record the game's sound (stereo, 32768 Hz) to a WAV file.
 // A line "^" power-cycles the console (save memory survives, like a real cart).
 // A line "&addr" names the game's frame counter. From then on, one script frame = one game loop
 // (the emulator runs until the counter changes), so boot time and slow frames do not shift a script.
@@ -7,6 +8,7 @@
 #include <mgba/core/core.h>
 #include <mgba/core/config.h>
 #include <mgba/core/log.h>
+#include <mgba/core/blip_buf.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -26,6 +28,36 @@ static void save_ppm(const char* path, color_t* buf, unsigned w, unsigned h) {
     fclose(f);
 }
 
+static long drain_audio(struct mCore* core, FILE* wav) {
+    blip_t* l = core->getAudioChannel(core, 0);
+    blip_t* r = core->getAudioChannel(core, 1);
+    long total = 0;
+    short buf[2048 * 2];
+    int n;
+    while ((n = blip_samples_avail(l)) > 0) {
+        if (n > 2048) n = 2048;
+        blip_read_samples(l, buf, n, 1);
+        blip_read_samples(r, buf + 1, n, 1);
+        fwrite(buf, sizeof(short), n * 2, wav);
+        total += n;
+    }
+    return total;
+}
+
+static void finish_wav(FILE* wav, long samples) {
+    unsigned data = samples * 4, rate = 32768;
+    unsigned char h[44] = { 'R','I','F','F', 0,0,0,0, 'W','A','V','E', 'f','m','t',' ', 16,0,0,0, 1,0, 2,0,
+                            0,0,0,0, 0,0,0,0, 4,0, 16,0, 'd','a','t','a', 0,0,0,0 };
+    unsigned riff = 36 + data, byterate = rate * 4;
+    for (int k = 0; k < 4; k++) {
+        h[4 + k] = riff >> (8 * k); h[24 + k] = rate >> (8 * k);
+        h[28 + k] = byterate >> (8 * k); h[40 + k] = data >> (8 * k);
+    }
+    fseek(wav, 0, SEEK_SET);
+    fwrite(h, 1, 44, wav);
+    fclose(wav);
+}
+
 int main(int argc, char** argv) {
     if (argc < 3) { puts("usage: harness rom script [frame_counter_addr]"); return 1; }
     mLogSetDefaultLogger(&logger);
@@ -39,6 +71,19 @@ int main(int argc, char** argv) {
     if (!mCoreLoadFile(core, argv[1])) { puts("load failed"); return 1; }
     core->reset(core);
 
+    // optional sound recording
+    const char* wav_path = getenv("HARNESS_WAV");
+    FILE* wav = NULL;
+    long wav_samples = 0;
+    if (wav_path) {
+        wav = fopen(wav_path, "wb");
+        char header[44] = { 0 };
+        fwrite(header, 1, 44, wav);                  // filled in at the end
+        core->setAudioBufferSize(core, 2048);
+        blip_set_rates(core->getAudioChannel(core, 0), core->frequency(core), 32768);
+        blip_set_rates(core->getAudioChannel(core, 1), core->frequency(core), 32768);
+    }
+
     FILE* s = fopen(argv[2], "r");
     char line[256];
     unsigned frame_addr = argc > 3 ? strtoul(argv[3], NULL, 16) : 0;   // optional: game frame counter
@@ -49,10 +94,10 @@ int main(int argc, char** argv) {
         if (line[0] == '#' || sscanf(line, "%d %u %199s", &frames, &keys, shot) < 2) continue;
         core->setKeys(core, keys);
         for (int i = 0; i < frames; i++) {
-            if (!frame_addr) { core->runFrame(core); continue; }
+            if (!frame_addr) { { core->runFrame(core); if (wav) wav_samples += drain_audio(core, wav); } continue; }
             uint32_t f0 = core->busRead32(core, frame_addr);
             for (int guard = 0; guard < 240 && core->busRead32(core, frame_addr) == f0; guard++)
-                core->runFrame(core);
+                { core->runFrame(core); if (wav) wav_samples += drain_audio(core, wav); }
         }
         if (shot[0] == '@') {   // @addr,addr: print 32-bit values from memory
             char* q = shot + 1;
@@ -72,6 +117,7 @@ int main(int argc, char** argv) {
             }
         } else if (shot[0]) save_ppm(shot, buf, w, h);
     }
+    if (wav) finish_wav(wav, wav_samples);
     puts("ok");
     core->deinit(core);
     return 0;

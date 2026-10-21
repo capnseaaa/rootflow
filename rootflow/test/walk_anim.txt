@@ -1,4 +1,7 @@
 # Walk animation check: stand, walk right, left, up. Screenshots a0..a7.
+# title screen: one frame of START starts a new game
+10 0
+1 8
 30 0 a0.ppm
 12 16
 1 16 a1.ppm
