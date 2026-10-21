@@ -188,13 +188,18 @@ static void set_ground_palette(s32 a) {
 }
 
 // ---------- text (BG0) ----------
-static u16 glyph_entry(char c) {
+// Text palette banks: 1 = HUD and messages (white on slate), 2 = menu windows (dark on cream).
+static u16 glyph_bank(char c, u32 bank) {
     for (u32 i = 0; FONT_CHARS[i]; i++)
-        if (FONT_CHARS[i] == c) return (1 + i) | (1 << 12);   // palette bank 1
-    return 1 | (1 << 12);
+        if (FONT_CHARS[i] == c) return (1 + i) | (bank << 12);
+    return 1 | (bank << 12);
 }
+static u16 glyph_entry(char c) { return glyph_bank(c, 1); }
 static void put_text(s32 col, s32 row, const char *s) {
     for (; *s && col < 30; s++, col++) SCREENBLOCK(TEXT_SB)[row * 32 + col] = glyph_entry(*s);
+}
+static void put_text_win(s32 col, s32 row, const char *s) {
+    for (; *s && col < 30; s++, col++) SCREENBLOCK(TEXT_SB)[row * 32 + col] = glyph_bank(*s, 2);
 }
 static void clear_row(s32 row) {
     for (s32 c = 0; c < 32; c++) SCREENBLOCK(TEXT_SB)[row * 32 + c] = 0;
@@ -1170,45 +1175,9 @@ static void draw_sprites(void) {
     }
 }
 
-// ---------- pause panel (START) ----------
-static int paused;
-static void panel_line(s32 row, const char *label, u32 a, s32 of, const char *label2, u32 b, s32 of2) {
-    char buf[24], *p = buf;
-    for (s32 i = 0; i < 22; i++) buf[i] = ' ';
-    buf[22] = 0;
-    p = buf + 1;
-    str_cat(&p, label);
-    p = fmt_num(p, a);
-    if (of >= 0) { *p++ = '/'; p = fmt_num(p, of); }
-    if (of == -2) *p++ = '%';   // -2: a percentage
-    if (label2) {
-        p = buf + 12;
-        str_cat(&p, label2);
-        p = fmt_num(p, b);
-        if (of2 >= 0) { *p++ = '/'; p = fmt_num(p, of2); }
-        if (of2 == -2) *p++ = '%';
-    }
-    put_text(4, row, buf);
-}
-static void draw_panel(void) {
-    put_text(4, 5, "                      ");
-    put_text(4, 6, "        PAUSED        ");
-    put_text(4, 7, "                      ");
-    panel_line(8, "STONE  ", stone, -1, "FRUIT  ", fruit, -1);
-    panel_line(9, "SEEDS  ", seeds, -1, "RELICS ", count_set(chest_open, NUM_CHESTS), NUM_CHESTS);
-    panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 0, 0, -1);
-    panel_line(11, "VALLEY ", life_percent_of(0), -2, "STEPPE ", life_percent_of(1), -2);
-    panel_line(12, "HOLLOW ", life_percent_of(2), -2, 0, 0, -1);
-    put_text(4, 13, " HOLD SELECT: BUILD   ");
-    put_text(4, 14, " A: SAVE GAME         ");
-    put_text(4, 15, " L+R+START: NEW GAME  ");
-    put_text(4, 16, "                      ");
-}
-static void close_panel(void) {
-    for (s32 r = 5; r <= 16; r++) clear_row(r);
-}
+static int paused;   // the START menu is open
 
-// ---------- saving (manual: A in the pause panel) ----------
+// ---------- saving (manual: SAVE in the START menu) ----------
 // Battery-backed SRAM at 0x0E000000, read and written one byte at a time. The "SRAM_V113" tag
 // tells emulators (and the R36) which save type this ROM uses; they store it as a .srm file.
 #define SRAM ((volatile u8*)0x0E000000)
@@ -1278,6 +1247,157 @@ static int load_game(void) {
     return 1;
 }
 
+// ---------- START menu (Emerald style) ----------
+// A window on the right lists the options; A opens one in a window on the left, B goes back.
+enum { M_SPIRITS, M_BAG, M_WORLD, M_SAVE, M_EXIT, NUM_MENU };
+static const char *menu_item[NUM_MENU] = { "SPIRITS", "BAG", "WORLD", "SAVE", "EXIT" };
+static s32 menu_cursor, menu_page = -1;   // page -1: only the option list
+static const char *home_name[NUM_SPIRITS] = { "GROVE", "SPRING", "CAIRN", "NOOK" };
+
+static void draw_window(s32 x0, s32 y0, s32 x1, s32 y1) {
+    for (s32 y = y0; y <= y1; y++)
+        for (s32 x = x0; x <= x1; x++) {
+            char c = ' ';
+            if (y == y0) c = x == x0 ? '[' : x == x1 ? ']' : '^';
+            else if (y == y1) c = x == x0 ? '{' : x == x1 ? '}' : '_';
+            else if (x == x0) c = '(';
+            else if (x == x1) c = ')';
+            SCREENBLOCK(TEXT_SB)[y * 32 + x] = glyph_bank(c, 2);
+        }
+}
+
+// Build "LABEL....N" lines: a label, then a number (with "/of" or "%") ending at column w.
+static char line[24];
+static const char *num_line(const char *label, u32 v, s32 of, s32 w) {
+    char num[12], *q = num;
+    q = fmt_num(q, v);
+    if (of >= 0) { *q++ = '/'; q = fmt_num(q, of); }
+    if (of == -2) *q++ = '%';
+    *q = 0;
+    s32 n = q - num, i = 0;
+    for (; label[i] && i < w; i++) line[i] = label[i];
+    for (; i < w - n; i++) line[i] = ' ';
+    for (s32 k = 0; k < n; k++) line[i++] = num[k];
+    line[i] = 0;
+    return line;
+}
+
+static void draw_menu_list(void) {
+    draw_window(19, 1, 29, 13);
+    for (s32 i = 0; i < NUM_MENU; i++) {
+        put_text_win(21, 3 + i * 2, i == menu_cursor ? ">" : " ");
+        put_text_win(22, 3 + i * 2, menu_item[i]);
+    }
+}
+
+static void draw_page(void) {
+    draw_window(0, 1, 18, 15);
+    s32 r = 2;
+    if (menu_page == M_SPIRITS) {
+        put_text_win(2, r++, "SPIRITS");
+        r++;
+        for (s32 k = 0; k < NUM_SPIRITS; k++) {
+            Spirit *sp = &spirits[k];
+            if (sp->state == SP_ASLEEP) { put_text_win(2, r, "???"); r += 3; continue; }
+            if (sp->state == SP_HOME) {
+                put_text_win(2, r, spirit_name[k]);
+                put_text_win(11, r, "AT HOME");
+            } else {
+                put_text_win(2, r, num_line(spirit_name[k], sp->energy, energy_max(sp), 16));
+            }
+            r++;
+            if (home_done[k]) {
+                char *p = line;
+                str_cat(&p, "  ");
+                str_cat(&p, home_name[k]);
+                str_cat(&p, " LV ");
+                p = fmt_num(p, home_level[k]);
+                *p = 0;
+                put_text_win(2, r, line);
+            } else {
+                put_text_win(2, r, "  NO HOME YET");
+            }
+            r += 2;
+        }
+    } else if (menu_page == M_BAG) {
+        put_text_win(2, r++, "BAG");
+        r++;
+        put_text_win(2, r++, num_line("STONE", stone, -1, 16));
+        put_text_win(2, r++, num_line("FRUIT", fruit, -1, 16));
+        put_text_win(2, r++, num_line("SEEDS", seeds, -1, 16));
+        r++;
+        put_text_win(2, r++, num_line("RELICS", count_set(chest_open, NUM_CHESTS), NUM_CHESTS, 16));
+        r += 2;
+        put_text_win(2, r++, "HOLD SELECT TO");
+        put_text_win(2, r++, "BUILD WITH THEM.");
+    } else if (menu_page == M_WORLD) {
+        put_text_win(2, r++, "WORLD");
+        r++;
+        put_text_win(2, r++, num_line("VALLEY", life_percent_of(0), -2, 16));
+        put_text_win(2, r++, num_line("STEPPE", life_percent_of(1), -2, 16));
+        put_text_win(2, r++, num_line("HOLLOW", life_percent_of(2), -2, 16));
+        r++;
+        put_text_win(2, r++, num_line("LORE FOUND", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 16));
+        r++;
+        put_text_win(2, r++, "YOU ARE IN");
+        put_text_win(2, r++, area_name[cur_area]);
+    } else if (menu_page == M_SAVE) {
+        put_text_win(2, r++, "SAVE");
+        r++;
+        put_text_win(2, r++, "SAVE THE GAME?");
+        r++;
+        put_text_win(2, r++, "A: SAVE");
+        put_text_win(2, r++, "B: BACK");
+        r += 2;
+        put_text_win(2, r++, "NEW GAME:");
+        put_text_win(2, r++, "HOLD L+R, START");
+    }
+}
+
+static void close_menu(void) {
+    for (s32 r = 1; r <= 18; r++) clear_row(r);
+    paused = 0;
+    menu_page = -1;
+}
+
+static void open_menu(void) {
+    paused = 1;
+    menu_page = -1;
+    draw_menu_list();
+    chime(784, 6);
+}
+
+// Called every frame while the menu is open.
+static void update_menu(void) {
+    if (HIT(KEY_START)) { close_menu(); return; }
+    if (menu_page < 0) {
+        s32 old = menu_cursor;
+        if (HIT(KEY_DOWN)) menu_cursor = (menu_cursor + 1) % NUM_MENU;
+        if (HIT(KEY_UP)) menu_cursor = (menu_cursor + NUM_MENU - 1) % NUM_MENU;
+        if (old != menu_cursor) { draw_menu_list(); chime(659, 4); }
+        if (HIT(KEY_B)) { close_menu(); return; }
+        if (HIT(KEY_A)) {
+            if (menu_cursor == M_EXIT) { close_menu(); return; }
+            menu_page = menu_cursor;
+            draw_page();
+            chime(784, 6);
+        }
+        return;
+    }
+    if (HIT(KEY_B)) {
+        for (s32 r = 1; r <= 18; r++) clear_row(r);
+        menu_page = -1;
+        draw_menu_list();
+        chime(523, 4);
+        return;
+    }
+    if (menu_page == M_SAVE && HIT(KEY_A)) {
+        save_game();
+        chime(1047, 12);
+        show_message("GAME SAVED.");
+    }
+}
+
 int main(void) {
     REG_DISPCNT = 0x0080;   // forced blank while loading
 
@@ -1295,6 +1415,11 @@ int main(void) {
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate
+    // menu windows (bank 2): dark text on cream, gold border
+    PAL_BG[32 + 1] = (7) | (7 << 5) | (8 << 10);
+    PAL_BG[32 + 2] = (31) | (31 << 5) | (29 << 10);
+    PAL_BG[32 + 3] = (29) | (24 << 5) | (13 << 10);
+    PAL_BG[32 + 4] = (22) | (16 << 5) | (7 << 10);
 
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
     copy32(CHARBLOCK(1), font_tiles, sizeof(font_tiles) / 4);
@@ -1324,12 +1449,9 @@ int main(void) {
         frame++;
         rng_state += keys_now;
 
-        if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { paused = 0; reset_game(); continue; }
-        if (HIT(KEY_START)) { paused ^= 1; if (paused) draw_panel(); else close_panel(); }
-        if (paused) {
-            if (HIT(KEY_A)) { save_game(); chime(1047, 12); show_message("GAME SAVED."); }
-            continue;
-        }
+        if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { close_menu(); reset_game(); continue; }
+        if (!paused && HIT(KEY_START)) { open_menu(); continue; }
+        if (paused) { update_menu(); update_message(); continue; }
 
         update_player();
         update_spirits();

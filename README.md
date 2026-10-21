@@ -25,7 +25,7 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - A: greet a spirit / use the active spirit's power
 - R / L: next / previous spirit
 - Hold SELECT: build. SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it
-- START: pause (materials, relics, lore). In the pause panel, A saves.
+- START: menu (Spirits, Bag, World, Save). Save from SAVE.
 - L + R + START: new game (your save stays until you save again)
 
 ## Build

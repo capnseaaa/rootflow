@@ -124,13 +124,31 @@ FONT = {
     "'": "00100 00100 01000 00000 00000 00000 00000",
     " ": "00000 00000 00000 00000 00000 00000 00000",
 }
-FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'+/-,"
+# Window pieces (8x8, colors: 2 window, 3 gold, 4 dark gold, 0 clear) for the Emerald-style menu,
+# plus the cursor arrow (1 = text color). Each is a character in FONT_CHARS.
+TL = ["00444444", "04333333", "43333333", "43344444", "43342222", "43342222", "43342222", "43342222"]
+WINDOW8 = {
+    "[": TL,
+    "]": [r[::-1] for r in TL],
+    "{": TL[::-1],
+    "}": [r[::-1] for r in TL[::-1]],
+    "^": ["44444444", "33333333", "33333333", "44444444"] + ["22222222"] * 4,
+    "_": ["22222222"] * 4 + ["44444444", "33333333", "33333333", "44444444"],
+    "(": ["43342222"] * 8,
+    ")": ["22224334"] * 8,
+    ">": ["22222222", "21222222", "21122222", "21112222", "21122222", "21222222", "22222222", "22222222"],
+}
+FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'+/-,[]{}^_()>"
 
 
 def font_words():
     """Tile 0 is transparent. Glyph tiles: color 2 background, color 1 text."""
     words = [0] * 8
     for ch in FONT_CHARS:
+        if ch in WINDOW8:
+            for row in WINDOW8[ch]:
+                words.append(sum(int(c) << (4 * x) for x, c in enumerate(row)))
+            continue
         rows = FONT[ch].split()
         for y in range(8):
             w = 0
