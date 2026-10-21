@@ -18,7 +18,8 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - D-pad: move, B: run
 - A: greet a spirit / use the active spirit's power
 - R / L: next / previous spirit (SELECT also works)
-- START: pause (materials, relics, lore). L + R + START: new game
+- START: pause (materials, relics, lore). In the pause panel, A saves.
+- L + R + START: new game (your save stays until you save again)
 
 ## Build
 Needs `arm-none-eabi-gcc` and Python 3 with Pillow.

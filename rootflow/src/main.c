@@ -1058,12 +1058,82 @@ static void draw_panel(void) {
     panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 0, 0, -1);
     panel_line(11, "VALLEY ", life_percent_of(0), -2, "STEPPE ", life_percent_of(1), -2);
     panel_line(12, "HOLLOW ", life_percent_of(2), -2, 0, 0, -1);
-    put_text(4, 13, "                      ");
+    put_text(4, 13, " A: SAVE GAME         ");
     put_text(4, 14, " L+R+START: NEW GAME  ");
     put_text(4, 15, "                      ");
 }
 static void close_panel(void) {
     for (s32 r = 5; r <= 15; r++) clear_row(r);
+}
+
+// ---------- saving (manual: A in the pause panel) ----------
+// Battery-backed SRAM at 0x0E000000, read and written one byte at a time. The "SRAM_V113" tag
+// tells emulators (and the R36) which save type this ROM uses; they store it as a .srm file.
+#define SRAM ((volatile u8*)0x0E000000)
+#define REG_WAITCNT REG16(0x04000204)
+__attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
+#define SAVE_MAGIC 0x31534652u   // "RFS1"
+
+// Everything that makes up a game in progress, in save order.
+static const struct { void *p; u32 n; } save_fields[] = {
+    { &px, 4 }, { &py, 4 }, { &pdir, 4 }, { &cur_area, 4 },
+    { maps, sizeof(maps) }, { restorable, sizeof(restorable) },
+    { spirits, sizeof(spirits) }, { party, sizeof(party) }, { &party_count, 4 }, { &active, 4 },
+    { home_done, sizeof(home_done) }, { pulse_r, sizeof(pulse_r) }, { pulse_timer, sizeof(pulse_timer) },
+    { &stone, 4 }, { &fruit, 4 }, { &seeds, 4 },
+    { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked) },
+    { &bonus_charge, 4 }, { &pulse_div, 4 },
+    { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
+};
+#define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
+
+static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
+static u32 sram_get32(u32 at) {
+    u32 v = 0;
+    for (u32 k = 0; k < 4; k++) v |= (u32)SRAM[at + k] << (8 * k);
+    return v;
+}
+
+static void save_game(void) {
+    u32 at = 4, sum = 0x5A5A;
+    for (u32 f = 0; f < NUM_SAVE_FIELDS; f++) {
+        const u8 *b = save_fields[f].p;
+        for (u32 i = 0; i < save_fields[f].n; i++, at++) { SRAM[at] = b[i]; sum += b[i]; }
+    }
+    sram_put32(at, sum);
+    sram_put32(0, SAVE_MAGIC);       // written last: a cut-off save never looks valid
+}
+
+// Returns 1 and restores the game if SRAM holds a valid save.
+static int load_game(void) {
+    if (sram_get32(0) != SAVE_MAGIC) return 0;
+    u32 at = 4, sum = 0x5A5A;
+    for (u32 f = 0; f < NUM_SAVE_FIELDS; f++)
+        for (u32 i = 0; i < save_fields[f].n; i++) sum += SRAM[at++];
+    if (sram_get32(at) != sum) return 0;
+    at = 4;
+    for (u32 f = 0; f < NUM_SAVE_FIELDS; f++) {
+        u8 *b = save_fields[f].p;
+        for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
+    }
+    // rebuild what is not saved
+    for (s32 k = 0; k < NUM_SPIRITS; k++)
+        if (home_done[k]) {
+            use_area(home_site_area[k]);
+            flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);
+        }
+    use_area(cur_area);
+    for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
+    for (s32 p = 0; p < party_count; p++) { spirits[party[p]].x = px; spirits[party[p]].y = py; }
+    for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;
+    sparkle_life = 0; msgq_len = 0; regen_timer = 0; just_called = -1; pstep = 0;
+    set_ground_palette(cur_area);
+    draw_area();
+    for (s32 r = 0; r < 20; r++) clear_row(r);
+    draw_life();
+    draw_active();
+    show_message("WELCOME BACK!");
+    return 1;
 }
 
 int main(void) {
@@ -1095,7 +1165,8 @@ int main(void) {
     REG_BG1CNT = 2 | (0 << 2) | (MAP_SB << 8) | (3 << 14);  // map: priority 2, 64x64 tiles
 
     sound_init();
-    reset_game();
+    REG_WAITCNT = (REG_WAITCNT & ~3) | 3;   // SRAM: 8 wait states
+    if (!load_game()) reset_game();
     update_camera();
 
     REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12);
@@ -1113,7 +1184,10 @@ int main(void) {
 
         if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { paused = 0; reset_game(); continue; }
         if (HIT(KEY_START)) { paused ^= 1; if (paused) draw_panel(); else close_panel(); }
-        if (paused) continue;
+        if (paused) {
+            if (HIT(KEY_A)) { save_game(); chime(1047, 12); show_message("GAME SAVED."); }
+            continue;
+        }
 
         update_player();
         update_spirits();
