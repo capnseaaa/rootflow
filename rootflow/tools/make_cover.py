@@ -66,17 +66,20 @@ def make_map():
     return m
 
 
-def draw_text(img, text, y, scale, color):
-    """Centered 5x7 text with a 1-pixel drop shadow (in text pixels)."""
-    w = len(text) * 6 * scale - scale
-    x0 = (SIZE - w) // 2
-    for dx, dy, col in [(scale, scale, OUTLINE), (0, 0, color)]:
+def draw_text(img, text, y, scale, color, left=0, width=SIZE, step=None, shadow=True):
+    """5x7 text centered between left and left+width, with a drop shadow (in text pixels).
+    step = pixels from one letter to the next (default 6 * scale)."""
+    step = step or 6 * scale
+    w = len(text) * step - (step - 5 * scale)
+    x0 = left + (width - w) // 2
+    passes = [(scale, scale, OUTLINE), (0, 0, color)] if shadow else [(0, 0, color)]
+    for dx, dy, col in passes:
         for i, ch in enumerate(text):
             rows = FONT[ch].split()
             for ry, row in enumerate(rows):
                 for rx, bit in enumerate(row):
                     if bit == "1":
-                        bx = x0 + i * 6 * scale + rx * scale + dx
+                        bx = x0 + i * step + rx * scale + dx
                         by = y + ry * scale + dy
                         for py in range(scale):
                             for qx in range(scale):
@@ -115,6 +118,53 @@ def main():
     img = img.convert("RGB").resize((SIZE * SCALE, SIZE * SCALE), Image.NEAREST)
     img.save(OUT)
     print("wrote", OUT)
+    make_box(terrain, player, sprout, fx, ripple)
+
+
+STRIPE = 26                       # width of the box's side stripe (logical pixels)
+STRIPE_GRAY = (198, 200, 206)
+STRIPE_DARK = (104, 108, 118)
+
+
+def make_box(terrain, player, sprout, fx, ripple):
+    """Square box-style cover (art/box_cover.png): a gray side stripe with sideways text,
+    and the valley scene with the title. No console-maker logos or ratings."""
+    pebble = rgba(os.path.join(ART, "pebble_sprite.png"))
+    breeze = rgba(os.path.join(ART, "breeze_sprite.png"))
+    scene = Image.new("RGBA", (SIZE, SIZE), OUTLINE + (255,))
+    for y, row in enumerate(make_map()):
+        for x, t in enumerate(row):
+            scene.alpha_composite(cell(terrain, t), (x * 16, y * 16))
+    for spr, pos in [(cell(sprout, 0), (46, 94)),
+                     (player.crop((0, 0, 16, 32)), (64, 78)),
+                     (cell(ripple, SPR_RIPPLE), (110, 112)),
+                     (cell(pebble, 0), (88, 66)),
+                     (cell(breeze, 0), (30, 70)),
+                     (cell(fx, 0), (56, 80)),
+                     (cell(fx, 0), (80, 102))]:
+        scene.alpha_composite(spr, pos)
+
+    box = Image.new("RGBA", (SIZE, SIZE), STRIPE_GRAY + (255,))
+    panel_w = SIZE - STRIPE
+    box.alpha_composite(scene.crop((12, 0, 12 + panel_w, SIZE)), (STRIPE, 0))
+    band = Image.new("RGBA", (panel_w, 34), OUTLINE + (200,))
+    box.alpha_composite(band, (STRIPE, 8))
+    strip = Image.new("RGBA", (panel_w, 13), OUTLINE + (200,))
+    box.alpha_composite(strip, (STRIPE, SIZE - 15))
+    draw_text(box, "ROOTFLOW", 12, 3, CREAM, left=STRIPE, width=panel_w, step=16)
+    draw_text(box, "SMALL ROOTS. BIG CHANGE.", SIZE - 12, 1, GREEN, left=STRIPE, width=panel_w, step=5)
+
+    # The stripe: a darker edge line and sideways text reading bottom to top.
+    for y in range(SIZE):
+        box.putpixel((STRIPE - 1, y), STRIPE_DARK + (255,))
+        box.putpixel((STRIPE - 2, y), (232, 234, 238, 255))
+    label = Image.new("RGBA", (SIZE, STRIPE), (0, 0, 0, 0))
+    draw_text(label, "GBA  HOMEBREW", (STRIPE - 14) // 2, 2, STRIPE_DARK, shadow=False)
+    box.alpha_composite(label.rotate(90, expand=True), (0, 0))
+
+    out = os.path.join(ART, "box_cover.png")
+    box.convert("RGB").resize((SIZE * SCALE, SIZE * SCALE), Image.NEAREST).save(out)
+    print("wrote", out)
 
 
 if __name__ == "__main__":

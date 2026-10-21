@@ -12,7 +12,7 @@ python3 tools/make_cover.py
 rm -rf release
 mkdir -p release/gba/downloaded_images
 cp rootflow.gba release/gba/rootflow.gba
-cp art/cover.png release/gba/downloaded_images/rootflow.png
+cp art/box_cover.png release/gba/downloaded_images/rootflow.png   # square box-style cover for the game list
 cat > release/gamelist-entry.xml <<XML
 	<game>
 		<path>./rootflow.gba</path>
