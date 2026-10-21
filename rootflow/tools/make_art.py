@@ -603,54 +603,110 @@ def grove_top(rng, level):
         for y in range(12, 16):
             for x in range(6, 10):
                 px[y][x] = 6
-    else:               # a full canopy with blossoms
-        blob(px, 7.5, 8, 7.5, 7.5, 6)
-        blob(px, 7, 7, 5.5, 5, 7, edge=None)
-        dots(px, [(3, 6), (6, 3), (10, 4), (12, 8), (8, 9), (4, 11), (11, 12)], 13)
-        dots(px, [(4, 6), (7, 3), (11, 4), (12, 9), (9, 9), (5, 11), (11, 13)], 14)
+    else:               # the tree house's canopy: full, round, in bloom
+        blob(px, 7.5, 8.5, 7.5, 7.5, 6)
+        for y in range(16):
+            for x in range(16):
+                if ((x - 6) / 5) ** 2 + ((y - 6.5) / 4.5) ** 2 < 1:
+                    px[y][x] = 7                        # lit side
+                if ((x - 5) / 2.5) ** 2 + ((y - 4.5) / 2) ** 2 < 1:
+                    px[y][x] = 8                        # highlight
+        for x, y in ((3, 8), (9, 3), (12, 7), (6, 11), (10, 12), (4, 4), (12, 11)):
+            dots(px, [(x, y), (x + 1, y), (x, y + 1)], 13)
+            dots(px, [(x + 1, y + 1)], 14)               # blossoms
         for y in range(13, 16):
-            px[y][7] = px[y][8] = 12
+            for x in range(5, 11):
+                px[y][x] = 12                           # the trunk starts
+        px[15][5] = px[15][10] = 15
     return px
 
 
 def grove_base(rng, level):
-    px = home_pad(rng)
-    dots(px, [(2, 9), (13, 9), (3, 12), (12, 12)], 8)          # sprouts
-    if level == 2:
-        dots(px, [(2, 7), (13, 7), (1, 11), (14, 11)], 13)     # flowers
-        dots(px, [(3, 14), (12, 14)], 14)                       # mushrooms
-        dots(px, [(3, 15), (12, 15)], 12)
+    if level == 1:
+        px = home_pad(rng)
+        dots(px, [(2, 9), (13, 9), (3, 12), (12, 12)], 8)          # sprouts
+        return px
+    px = grass(rng)     # the tree house's trunk: bark, a round door, roots
+    for y in range(0, 13):
+        for x in range(4, 12):
+            px[y][x] = 12 if (x + y // 3) % 4 else 4               # bark
+        px[y][4] = px[y][11] = 15
+    for y in range(13, 16):                                        # roots spreading out
+        for x, dx in ((4, -1), (11, 1)):
+            xx = x + dx * (y - 12)
+            if 0 <= xx < 16:
+                px[y][xx] = 12
+                if 0 <= xx - dx < 16:
+                    px[y][xx - dx] = 15
+        for x in range(5, 11):
+            px[y][x] = 12 if y < 15 else 15
+    for y in range(4, 12):                                         # round door with a frame
+        for x in range(5, 11):
+            d = ((x - 7.5) / 2.5) ** 2 + ((y - 7.5) / 3.5) ** 2
+            if d < 1:
+                px[y][x] = 15 if d < 0.65 else 5
+    px[8][9] = 14                                                  # door knob
+    dots(px, [(2, 12), (13, 12), (1, 14), (14, 14)], 13)           # flowers by the roots
+    dots(px, [(2, 13), (13, 13)], 6)
     return px
 
 
 def spring_top(rng, level):
     px = water(rng, 0)
-    for y in range(6, 16):                                     # stone spout column
-        for x in range(5, 11):
-            px[y][x] = 15 if x in (5, 10) else (14 if x < 8 else 5)
-    for x in range(4, 12):
-        px[6][x] = 15
-    px[7][7] = px[7][8] = 10                                   # spout mouth
-    if level == 1:
-        dots(px, [(7, 9), (8, 11), (7, 13)], 11)               # drip
-    else:                                                      # a water arc to both sides
-        arc = [(7, 1), (8, 1), (6, 1), (9, 1), (5, 2), (10, 2), (4, 3), (11, 3), (3, 4), (12, 4), (3, 5), (12, 5),
-               (2, 6), (13, 6), (2, 7), (13, 7)]
-        dots(px, arc, 11)
-        dots(px, [(x, y + 1) for x, y in arc], 10)
+    if level == 1:      # a dome shaped like a water drop
+        for y in range(1, 16):
+            for x in range(16):
+                if y < 6:
+                    w = (y - 1) * 1.05                         # the drop's point
+                else:                                          # its round body
+                    w = max(0.0, 42.25 - (y - 9.5) ** 2) ** 0.5
+                if abs(x - 7.5) <= w:
+                    px[y][x] = 10
+                    if abs(x - 7.5) > w - 1 or y == 1:
+                        px[y][x] = 15
+        for y in range(5, 15):
+            for x in range(4, 8):
+                if px[y][x] == 10 and (x + y) % 5 == 0:
+                    px[y][x] = 11                              # ripples on the dome
+        dots(px, [(5, 6), (5, 7), (6, 5)], 11)                 # shine
+        for y in range(11, 16):                                # doorway
+            for x in range(6, 10):
+                px[y][x] = 9 if y > 11 else 15
+        dots(px, [(10, 9), (11, 11)], 9)
+    else:               # a stone arch with a waterfall pouring through it
+        for y in range(16):
+            for x in range(16):
+                if x < 3 or x > 12 or y < 3:
+                    px[y][x] = 3 if (x * 3 + y * 5) % 7 else 2   # stones
+        for x in range(16):
+            px[3][x] = 15 if 3 <= x <= 12 else px[3][x]
+        for y in range(3, 16):
+            px[y][3] = px[y][12] = 15
+        for y in range(4, 16):                                 # the falling water
+            for x in range(4, 12):
+                px[y][x] = 11 if (x + y * 2) % 5 == 0 else (10 if (x + y) % 3 else 9)
+        dots(px, [(1, 1), (6, 0), (11, 1), (14, 4), (1, 9)], 14)   # wet glints
+        dots(px, [(0, 12), (15, 12), (2, 14), (13, 14)], 8)       # moss
     return px
 
 
 def spring_base(rng, level):
-    px = home_pad(rng)
-    for y in range(5, 13):                                     # a little pool
-        for x in range(3, 13):
-            d = ((x - 7.5) / 4.5) ** 2 + ((y - 8.5) / 3.5) ** 2
+    px = grass(rng)
+    # a round stone basin rim around a pool (both levels)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 7.2) ** 2 + ((y - 8) / 6.8) ** 2
             if d < 1:
-                px[y][x] = 9 if d > 0.5 else 10
+                px[y][x] = 14 if d > 0.7 else (10 if d > 0.35 else 9)
+            if 0.88 <= d < 1:
+                px[y][x] = 15
+    dots(px, [(5, 6), (6, 6), (9, 10)], 11)                    # ripples
     if level == 2:
-        dots(px, [(4, 7), (5, 7), (11, 9), (10, 9)], 7)        # lily pads
-        dots(px, [(5, 6), (11, 8)], 13)                        # lily flowers
+        for cx, cy in ((4, 9), (11, 6), (10, 11)):              # lily pads
+            dots(px, [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx + 1, cy + 1)], 7)
+            dots(px, [(cx + 1, cy)], 6)
+        dots(px, [(7, 7), (8, 7), (7, 8), (8, 8)], 13)          # a lotus
+        dots(px, [(7, 6), (8, 9)], 14)
     return px
 
 

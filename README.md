@@ -31,7 +31,8 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - At 5 hearts you can bond one spirit as your lifelong companion. Choose carefully: it cannot be undone.
 
 ## Sound
-- A chiptune for the title and for each area (melody and bass), with chimes for actions.
+- A chiptune for the title and for each area (melody and bass).
+- Recorded sound effects for powers, homes, chests, gifts, pumps, and the menu (CC0; see `rootflow/sfx/CREDITS.md`). Blooms and home pulses keep their rising chimes.
 
 ## Controls
 - D-pad: move. Hold B: run. Tap B facing a spirit: give a gift

@@ -7,6 +7,7 @@
 
 #include "data.h"
 #include "music.h"
+#include "sfx.h"
 
 typedef unsigned char  u8;
 typedef unsigned short u16;
@@ -97,10 +98,36 @@ static void vsync(void) {
 #define REG_SND3FREQ  REG16(0x04000074)
 #define WAVE_RAM      ((volatile u16*)0x04000090)
 
+// ---------- sound effects: recorded samples on DirectSound A (timer 0 + DMA 1), from sfx.h ----------
+#define REG32(a) (*(volatile u32*)(a))
+#define REG_TM0CNT_L  REG16(0x04000100)
+#define REG_TM0CNT_H  REG16(0x04000102)
+#define REG_DMA1SAD   REG32(0x040000BC)
+#define REG_DMA1DAD   REG32(0x040000C0)
+#define REG_DMA1CNT_H REG16(0x040000C6)
+#define SNDH_BASE     (0x0002 | (1 << 2) | (1 << 8) | (1 << 9))
+static u32 sfx_frames;   // frames until the playing sample ends
+static void sfx_stop(void) {
+    REG_DMA1CNT_H = 0;
+    REG_SNDCNT_H = SNDH_BASE | 0x0800;   // empty the FIFO so it goes quiet at once
+}
+static void sfx_play(u32 id) {
+    sfx_stop();
+    REG_DMA1SAD = (u32)sfx_data[id];
+    REG_DMA1DAD = 0x040000A0;            // FIFO A
+    REG_DMA1CNT_H = 0xB640;              // on, refill when the FIFO asks, repeat, 32-bit, fixed destination
+    sfx_frames = sfx_len[id] * 60 / SFX_RATE + 2;
+}
+static void sfx_tick(void) {
+    if (sfx_frames && --sfx_frames == 0) sfx_stop();
+}
+
 static void sound_init(void) {
     REG_SNDCNT_X = 0x0080;   // master on
     REG_SNDCNT_L = 0x7777;   // channels 1-3 on both sides, full volume
-    REG_SNDCNT_H = 0x0002;   // PSG at 100%
+    REG_SNDCNT_H = SNDH_BASE | 0x0800;   // PSG at 100%, DMA sound A at 100% on both sides, reset its FIFO
+    REG_TM0CNT_L = 65536 - 16777216 / SFX_RATE;   // timer 0 ticks once per sample
+    REG_TM0CNT_H = 0x0080;
     REG_SND1SWEEP = 0x0008;  // sweep off
     // Channel 3 plays the bass from a 32-sample wave. Write it into the bank that is not playing.
     REG_SND3SEL = 0x0040;
@@ -134,6 +161,7 @@ static void music_play(s32 s) {
     for (s32 v = 0; v < 2; v++) { voice_pos[v] = 0; voice_left[v] = 0; }
 }
 static void music_tick(void) {
+    sfx_tick();
     if (song < 0) return;
     for (s32 v = 0; v < 2; v++) {
         if (voice_left[v]) { voice_left[v]--; continue; }
@@ -600,6 +628,7 @@ static void start_bloom(s32 mx, s32 my) {
         b->maxr = (wet ? 4 : 2) + home_level[KIND_SPROUT] + boosted(KIND_SPROUT) + (bonded == KIND_SPROUT);
         bloom_distances(b);
         sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 40;
+        sfx_play(SFX_BLOOM);
         if (wet && !told_river) { show_message("THE RIVER FEEDS THE ROOTS"); told_river = 1; }
         return;
     }
@@ -634,6 +663,7 @@ static void check_wake(void) {
                 if (is_alive(tile_at(x, y)) && s->state == SP_ASLEEP) {
                     s->state = SP_AWAKE;
                     show_message("A SPIRIT WOKE UP!");
+                    sfx_play(SFX_WAKE);
                 }
     }
 }
@@ -772,7 +802,7 @@ static void complete_quest(s32 k) {
     if (quest[k] != 1) return;
     quest[k] = 2;
     unlocked[k] = 1;
-    chime(1319, 14);
+    sfx_play(SFX_QUEST);
     queue_message("QUEST DONE!");
     queue_message(quest_reward[k]);
     add_fp(k, 30);
@@ -798,7 +828,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             set_tile(mx, my, w == WATER ? BRIDGE : DRY_BRIDGE);
             sparkle_at(mx, my);
         }
-        chime(392, 12);
+        sfx_play(SFX_BRIDGE);
     } else if (kind == KIND_STONE) {
         if (t != ROCK) return 0;
         // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
@@ -813,7 +843,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             sparkle_at(mx, my);
         }
         draw_life();
-        chime(196, 14);
+        sfx_play(SFX_ROCK);
     } else {
         // A gust clears up to three thorn tiles in a line.
         if (t != THORN) return 0;
@@ -827,7 +857,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             if (quest[KIND_BREEZE] == 1 && ++thorn_quest >= 30) complete_quest(KIND_BREEZE);
         }
         draw_life();
-        chime(880, 10);
+        sfx_play(SFX_GUST);
     }
     return 1;
 }
@@ -873,7 +903,7 @@ static void open_chest(s32 i, s32 mx, s32 my) {
     }
     if (i == 2) pulse_div = 2;
     if (i == 3) stone += 6;
-    chime(1319, 14);
+    sfx_play(SFX_CHEST);
     sparkle_at(mx, my);
     show_message("YOU FOUND A RELIC!");
     queue_message(chest_reward[i]);
@@ -907,14 +937,14 @@ static int interact(s32 mx, s32 my) {
     if (t == VAEL_PUMP) {
         if (!party_count) { show_message("IT'S TOO STRONG ALONE."); return 1; }
         Spirit *sp = &spirits[party[active]];
-        if (sp->energy == 0) { chime(220, 6); show_message(spirit_tired[sp->kind]); return 1; }
+        if (sp->energy == 0) { sfx_play(SFX_FAIL); show_message(spirit_tired[sp->kind]); return 1; }
         sp->energy--;
         draw_active();
         set_tile(mx, my, DEAD);
         pump_on[cur_area] = 0;
         stone += 3;
         add_fp(sp->kind, 5);
-        chime(196, 14);
+        sfx_play(SFX_PUMP_OFF);
         sparkle_at(mx, my);
         show_message("YOU SHUT DOWN THE PUMP!");
         queue_message("+3 STONE OF SCRAP");
@@ -949,7 +979,7 @@ static int interact(s32 mx, s32 my) {
     if (t == TREE && !(picked[cur_area][bit >> 3] & (1 << (bit & 7)))) {
         picked[cur_area][bit >> 3] |= 1 << (bit & 7);
         fruit++;
-        chime(784, 8);
+        sfx_play(SFX_GIFT);
         sparkle_at(mx, my);
         show_message("+1 FRUIT");
         return 1;
@@ -957,14 +987,14 @@ static int interact(s32 mx, s32 my) {
     if (t == FLOWERBED) {
         set_tile(mx, my, FLOWERBED_EMPTY);
         seeds++;
-        chime(880, 8);
+        sfx_play(SFX_GIFT);
         show_message("+1 SEED");
         return 1;
     }
     if (t == FRUIT_TREE) {
         set_tile(mx, my, FRUIT_TREE_BARE);
         fruit++;
-        chime(784, 8);
+        sfx_play(SFX_GIFT);
         sparkle_at(mx, my);
         show_message("+1 FRUIT");
         return 1;
@@ -972,14 +1002,14 @@ static int interact(s32 mx, s32 my) {
     if (t == BENCH) {
         for (s32 p = 0; p < party_count; p++) spirits[party[p]].energy = energy_max(&spirits[party[p]]);
         draw_active();
-        chime(659, 10);
+        sfx_play(SFX_JOIN);
         show_message("YOU REST. CHARGES REFILLED.");
         return 1;
     }
     if (t == FLOWERS) {
         set_tile(mx, my, GRASS);
         seeds++;
-        chime(880, 8);
+        sfx_play(SFX_GIFT);
         show_message("+1 SEED");
         return 1;
     }
@@ -996,12 +1026,12 @@ static void use_ability(void) {
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
     if (s->energy == 0 && !(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) {
-        chime(220, 6);
+        sfx_play(SFX_FAIL);
         show_message(spirit_tired[s->kind]);
         if (msgq_len == 0) queue_message(REST_TIP);
         return;
     }
-    if (!use_power(s->kind, fx >> 4, fy >> 4)) { chime(262, 6); return; }
+    if (!use_power(s->kind, fx >> 4, fy >> 4)) { sfx_play(SFX_FAIL); return; }
     if (!(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) s->energy--;   // a bonded Sprout blooms for free
     add_fp(s->kind, 2);
     draw_active();
@@ -1053,16 +1083,16 @@ static void place_home_tiles(s32 k) {
 static void try_build_home(s32 k) {
     s32 hx = home_site_x[k], hy = home_site_y[k];
     const u8 *h = home_helper[k];
-    if (life_around(hx, hy) < 4) { chime(262, 6); show_message("BLOOM THE LAND HERE FIRST"); return; }
+    if (life_around(hx, hy) < 4) { sfx_play(SFX_FAIL); show_message("BLOOM THE LAND HERE FIRST"); return; }
     if (!in_party(h[0]) || !in_party(h[1]) || spirits[h[0]].energy == 0 || spirits[h[1]].energy == 0) {
-        chime(262, 6); show_message(home_needs[k]); return;
+        sfx_play(SFX_FAIL); show_message(home_needs[k]); return;
     }
     spirits[h[0]].energy--;
     spirits[h[1]].energy--;
     home_done[k] = 1;
     spirits[k].housed = 1;
     send_home(k);
-    chime(1047, 14);
+    sfx_play(SFX_HOME);
     show_message(home_built[k]);
     queue_message(home_bonus[k]);
     sparkle_at(hx, hy);
@@ -1141,20 +1171,20 @@ static void check_sprout_quest(void) {
 static void upgrade_home(void) {
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
         if (home_site_area[k] != cur_area || !near_px(home_site_x[k] * 16, home_site_y[k] * 16, 28)) continue;
-        if (!home_done[k]) { chime(262, 6); show_message("BUILD THIS HOME FIRST"); return; }
-        if (home_level[k] >= 2) { chime(262, 6); show_message("THIS HOME IS FULLY GROWN"); return; }
-        if (!can_pay(B_UPGRADE)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
+        if (!home_done[k]) { sfx_play(SFX_FAIL); show_message("BUILD THIS HOME FIRST"); return; }
+        if (home_level[k] >= 2) { sfx_play(SFX_FAIL); show_message("THIS HOME IS FULLY GROWN"); return; }
+        if (!can_pay(B_UPGRADE)) { sfx_play(SFX_FAIL); show_message("NOT ENOUGH MATERIALS"); return; }
         pay(B_UPGRADE, -1);
         home_level[k] = 2;
         place_home_tiles(k);
         add_fp(k, 20);
         flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);   // pulses go on to 12
-        chime(1319, 14);
+        sfx_play(SFX_HOME);
         sparkle_at(home_site_x[k], home_site_y[k]);
         show_message("THE HOME GREW STRONGER!");
         return;
     }
-    chime(262, 6);
+    sfx_play(SFX_FAIL);
     show_message("STAND BY A HOME TO UPGRADE");
 }
 
@@ -1175,20 +1205,20 @@ static void build_mode(void) {
                                         : (t == GRASS || t == GRASS_TUFT || t == FLOWERS) && can_pay(build_item);
     if (HIT(KEY_A)) {
         if (build_item == B_UPGRADE) { upgrade_home(); return; }
-        if (!(t == GRASS || t == GRASS_TUFT || t == FLOWERS)) { chime(262, 6); show_message("BUILD ON GREEN LAND"); return; }
-        if (!can_pay(build_item)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
+        if (!(t == GRASS || t == GRASS_TUFT || t == FLOWERS)) { sfx_play(SFX_FAIL); show_message("BUILD ON GREEN LAND"); return; }
+        if (!can_pay(build_item)) { sfx_play(SFX_FAIL); show_message("NOT ENOUGH MATERIALS"); return; }
         pay(build_item, -1);
         set_tile(mx, my, build_tile[build_item]);
-        chime(659, 10);
+        sfx_play(SFX_BUILD);
         sparkle_at(mx, my);
         if (build_item == B_BED) check_sprout_quest();
     }
     if (HIT(KEY_B)) {
         s32 b = build_of_tile(t);
-        if (b < 0) { chime(262, 6); return; }
+        if (b < 0) { sfx_play(SFX_FAIL); return; }
         pay(b, 1);                                  // materials come back
         set_tile(mx, my, GRASS);
-        chime(392, 8);
+        sfx_play(SFX_REMOVE);
         show_message("REMOVED. MATERIALS BACK.");
     }
 }
@@ -1257,7 +1287,7 @@ static void update_pumps(void) {
         for (s32 i = 0; i < NUM_AREAS; i++) {
             s32 a = (start + i) % NUM_AREAS;
             if (pump_on[a] || !spawn_pump(a)) continue;
-            chime(147, 15);
+            sfx_play(SFX_PUMP_ON);
             queue_message("A VAEL PUMP STARTED UP:");
             queue_message(area_name[a]);
             break;
@@ -1310,12 +1340,12 @@ static void try_gift(void) {
             str_cat(&p, " WANTS ");
             str_cat(&p, favorite_name[favorite[k]]);
             *p = 0;
-            chime(262, 6);
+            sfx_play(SFX_FAIL);
             show_message(num_msg);
             return;
         }
         (*have)--;
-        chime(1047, 10);
+        sfx_play(SFX_GIFT);
         show_message(loves_msg[k]);
         sparkle_at((sp->x + 8) >> 4, (sp->y + 8) >> 4);
         add_fp(k, 10);
@@ -1336,7 +1366,7 @@ static void handle_action(void) {
     s32 step = HIT(KEY_R) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
     if (party_count > 1 && step) {
         active = (active + step) % party_count;
-        chime(active ? 659 : 523, 8);
+        sfx_play(SFX_MENU_MOVE);
         show_message(spirit_skill[spirits[party[active]].kind]);
         draw_active();
     }
@@ -1352,13 +1382,13 @@ static void handle_action(void) {
         }
         if (s->state == SP_HOME) {
             prompt(call_back[i]);
-            if (HIT(KEY_A)) { party_add(i); chime(784, 12); show_message(called_back[i]); just_called = i; }
+            if (HIT(KEY_A)) { party_add(i); sfx_play(SFX_JOIN); show_message(called_back[i]); just_called = i; }
             return;
         }
         prompt("A: GREET THE SPIRIT");
         if (HIT(KEY_A)) {
             party_add(i);
-            chime(784, 12);
+            sfx_play(SFX_JOIN);
             show_message(spirit_joined[s->kind]);
         }
         return;
@@ -1458,7 +1488,7 @@ static void check_spring(void) {
     s32 mx = (px + 8) >> 4, my = (py + 12) >> 4;
     if (mx >= POCKET_X0 && mx <= POCKET_X1 && my >= POCKET_Y0 && my <= POCKET_Y1) {
         show_message("A HIDDEN SPRING!");
-        chime(1047, 12);
+        sfx_play(SFX_WAKE);
         told_spring = 1;
     }
 }
@@ -1674,7 +1704,7 @@ static void bond_with(s32 k) {
         active = 0;
         draw_active();
     }
-    chime(1319, 14);
+    sfx_play(SFX_QUEST);
     show_message("A BOND FOR LIFE!");
 }
 
@@ -1793,7 +1823,7 @@ static void open_menu(void) {
     paused = 1;
     menu_page = -1;
     draw_menu_list();
-    chime(784, 6);
+    sfx_play(SFX_MENU_OPEN);
 }
 
 // Called every frame while the menu is open.
@@ -1803,13 +1833,13 @@ static void update_menu(void) {
         s32 old = menu_cursor;
         if (HIT(KEY_DOWN)) menu_cursor = (menu_cursor + 1) % NUM_MENU;
         if (HIT(KEY_UP)) menu_cursor = (menu_cursor + NUM_MENU - 1) % NUM_MENU;
-        if (old != menu_cursor) { draw_menu_list(); chime(659, 4); }
+        if (old != menu_cursor) { draw_menu_list(); sfx_play(SFX_MENU_MOVE); }
         if (HIT(KEY_B)) { close_menu(); return; }
         if (HIT(KEY_A)) {
             if (menu_cursor == M_EXIT) { close_menu(); return; }
             menu_page = menu_cursor;
             draw_page();
-            chime(784, 6);
+            sfx_play(SFX_MENU_OPEN);
         }
         return;
     }
@@ -1817,31 +1847,31 @@ static void update_menu(void) {
         s32 old = spirit_cursor;
         if (HIT(KEY_DOWN)) spirit_cursor = (spirit_cursor + 1) % NUM_SPIRITS;
         if (HIT(KEY_UP)) spirit_cursor = (spirit_cursor + NUM_SPIRITS - 1) % NUM_SPIRITS;
-        if (old != spirit_cursor) { draw_page(); chime(659, 4); }
+        if (old != spirit_cursor) { draw_page(); sfx_play(SFX_MENU_MOVE); }
         if (HIT(KEY_A) && spirits[spirit_cursor].state != SP_ASLEEP) {
-            menu_page = 10 + spirit_cursor; draw_page(); chime(784, 6); return;
+            menu_page = 10 + spirit_cursor; draw_page(); sfx_play(SFX_MENU_OPEN); return;
         }
     } else if (menu_page >= 10 && menu_page < 10 + NUM_SPIRITS) {
         s32 k = menu_page - 10;
-        if (HIT(KEY_A) && bonded < 0 && hearts(k) >= 5) { menu_page = 20 + k; draw_page(); chime(784, 6); return; }
-        if (HIT(KEY_B)) { menu_page = M_SPIRITS; draw_page(); chime(523, 4); return; }
+        if (HIT(KEY_A) && bonded < 0 && hearts(k) >= 5) { menu_page = 20 + k; draw_page(); sfx_play(SFX_MENU_OPEN); return; }
+        if (HIT(KEY_B)) { menu_page = M_SPIRITS; draw_page(); sfx_play(SFX_MENU_BACK); return; }
         return;
     } else if (menu_page >= 20 && menu_page < 20 + NUM_SPIRITS) {
         s32 k = menu_page - 20;
         if (HIT(KEY_A)) { bond_with(k); menu_page = 10 + k; draw_page(); return; }
-        if (HIT(KEY_B)) { menu_page = 10 + k; draw_page(); chime(523, 4); return; }
+        if (HIT(KEY_B)) { menu_page = 10 + k; draw_page(); sfx_play(SFX_MENU_BACK); return; }
         return;
     }
     if (HIT(KEY_B)) {
         for (s32 r = 1; r <= 18; r++) clear_row(r);
         menu_page = -1;
         draw_menu_list();
-        chime(523, 4);
+        sfx_play(SFX_MENU_BACK);
         return;
     }
     if (menu_page == M_SAVE && HIT(KEY_A)) {
         save_game();
-        chime(1047, 12);
+        sfx_play(SFX_SAVE);
         show_message("GAME SAVED.");
     }
 }
@@ -1874,7 +1904,7 @@ static void title_screen(int has_save) {
         pan += dir;                                    // drift slowly across the valley and back
         if (pan >= (WORLD_PX - SCREEN_W) * 2 || pan <= 0) dir = -dir;
         if (has_save) {
-            if (HIT(KEY_UP | KEY_DOWN)) { choice ^= 1; chime(659, 4); }
+            if (HIT(KEY_UP | KEY_DOWN)) { choice ^= 1; sfx_play(SFX_MENU_MOVE); }
             draw_window(9, 11, 20, 16);
             put_text_win(11, 12, choice == 0 ? ">" : " ");
             put_text_win(12, 12, "CONTINUE");
@@ -1885,7 +1915,7 @@ static void title_screen(int has_save) {
         }
         if (HIT(KEY_START | KEY_A)) break;
     }
-    chime(1047, 10);
+    sfx_play(SFX_MENU_OPEN);
     for (s32 r = 0; r < 20; r++) clear_row(r);
     if (!has_save || choice == 1) {
         reset_game();                     // a new game (a save stays until you save over it)
