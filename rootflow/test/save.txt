@@ -197,8 +197,18 @@
 150 0 w22_ending3.ppm
 # --- save ---
 0 0 @$px,$py,$cur_area,$home_done,$stone,$party_count,$active
+# START menu: down to SAVE (3 presses), A opens it, A saves, START closes
 2 8
 5 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 1
+5 0
+2 0
 2 1
 10 0 s1_saved.ppm
 2 0

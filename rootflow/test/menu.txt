@@ -1,0 +1,236 @@
+# v0.8 START menu (Emerald style): visit every page, save from SAVE, close with EXIT. Starts after v4.
+# v0.7 full playthrough. Sprout and Ripple in the valley; Pebble in the Windy Steppe past a dry riverbed
+# (Ripple bridges it); Breeze in Stone Hollow inside a boulder pocket (Pebble breaks in); all four homes.
+# Lines with !$name=val are test setup (teleports, picking the active party slot).
+# reach and greet Sprout (same path as v0.1)
+63 16
+144 64
+24 16
+2 1
+20 0
+# walk right to column 16, then down to row 23
+72 16
+224 128
+10 0 v1_asleep_far.ppm
+# step left next to the sleeping water spirit
+16 32
+40 0 v2_asleep.ppm
+# bloom beside it
+2 1
+60 0 v3_woke.ppm
+# greet it
+2 1
+20 0 v4_joined.ppm
+# walk right to the river bank and build two bridge planks
+80 16
+2 1
+20 0
+16 16
+2 1
+20 0 v5_bridge.ppm
+# cross the river
+48 16
+# swap to Sprout and bloom the far bank
+2 256
+10 0
+2 1
+70 0 v6_farbank.ppm
+# rest on living ground: charges come back (Sprout 1->3, Ripple 1->3)
+620 0 w1_rested.ppm
+# --- the Windy Steppe: Ripple bridges the dry riverbed ---
+# test setup: teleport to the valley's east exit and walk through
+0 0 !$px=494,$py=320
+10 0
+20 16
+20 0 w2_steppe.ppm
+0 0 @$cur_area,$px,$py
+# test setup: stand west of the dry river on row 21; Ripple (slot 1) bridges both channels
+0 0 !$px=192,$py=330,$active=1
+10 0
+1 16
+2 1
+20 0
+16 16
+2 1
+20 0 w3_dry_bridge.ppm
+0 0 @$maps+1024+684,$maps+1024+680
+# test setup: stand beside the sleeping Pebble (it hides among the boulders); Sprout (slot 0) blooms
+0 0 !$px=416,$py=378,$active=0
+10 0 w4_pebble_asleep.ppm
+1 16
+2 1
+60 0 w5_pebble_woke.ppm
+2 1
+20 0 w6_pebble_joined.ppm
+0 0 @$spirits+64,$party_count,$active
+# --- Stone Hollow: Pebble breaks into Breeze's boulder pocket ---
+# test setup: walk west out of the steppe, then teleport to the valley's south exit and walk through
+0 0 !$px=2,$py=320
+10 0
+10 32
+20 0
+0 0 !$px=240,$py=480
+10 0
+20 128
+20 0 w7_hollow.ppm
+0 0 @$cur_area
+# test setup: stand east of the pocket, facing its wall; Pebble (slot 2) breaks in
+0 0 !$px=112,$py=410,$active=2
+10 0
+1 32
+2 1
+20 0 w8_pocket_open.ppm
+# step in; Sprout (slot 0) blooms beside the sleeping Breeze
+16 32
+0 0 !$active=0
+1 32
+2 1
+60 0 w9_breeze_woke.ppm
+# test setup: stand next to Breeze and greet it
+0 0 !$px=72,$py=410
+10 0
+2 1
+20 0 w10_breeze_joined.ppm
+0 0 @$spirits+92,$party_count,$active,$spirits+16,$spirits+44,$spirits+72
+# --- Pebble's cairn (Stone Hollow) ---
+# test setup: stand above the boulder ring, facing down; Pebble (slot 2) breaks in
+0 0 !$px=256,$py=170,$active=2
+10 0
+1 128
+2 1
+20 0 w11_ring_broken.ppm
+30 128
+# Sprout (slot 0) blooms by the site
+0 0 !$active=0
+1 128
+2 1
+60 0 w12_hollow_bloom.ppm
+# test setup: stand next to the site; build the cairn (costs Sprout 1, Ripple 1), then call Pebble back
+0 0 !$px=256,$py=224
+10 0
+2 1
+30 0 w13_cairn_built.ppm
+2 0
+2 1
+30 0
+0 0 @$home_done,$party,$party+4,$party+8,$party+12,$party_count
+# --- Breeze's nook (Windy Steppe) ---
+# test setup: walk north to the valley, teleport to the east exit, walk through
+0 0 !$px=240,$py=2
+10 0
+20 64
+20 0
+0 0 !$px=494,$py=320
+10 0
+20 16
+20 0
+# test setup: stand above the thorn ring; Breeze (slot 2) gusts it open
+0 0 !$px=320,$py=170,$active=2
+10 0
+1 128
+2 1
+20 0 w14_gust.ppm
+30 128
+0 0 !$active=0
+1 128
+2 1
+60 0
+# test setup: stand next to the site; build the nook (costs Pebble 1, Sprout 1), then call Breeze back
+0 0 !$px=320,$py=224
+10 0
+2 1
+30 0 w15_nook_built.ppm
+2 0
+2 1
+30 0
+0 0 @$home_done,$party,$party+4,$party+8,$party+12,$party_count
+# --- Ripple's spring and the spring chest (valley) ---
+# test setup: walk west into the valley, stand below the spring's rock wall; Pebble (slot 2) breaks it
+0 0 !$px=2,$py=320
+10 0
+10 32
+20 0
+0 0 !$px=431,$py=118,$active=2
+10 0
+1 64
+2 1
+20 0
+80 64
+2 1
+30 0 w16_spring_chest.ppm
+0 0 @$stone
+# Sprout (slot 0) blooms beside the spring
+0 0 !$active=0
+1 128
+2 1
+80 0
+# test setup: stand next to the site; build Ripple's spring (costs Sprout 1, Pebble 1), call Ripple back
+0 0 !$px=432,$py=74
+10 0
+2 1
+30 0 w17_spring_built.ppm
+2 0
+2 1
+30 0
+0 0 @$home_done,$party,$party+4,$party+8,$party+12,$party_count
+# --- Sprout's grove (valley, behind the thorns) ---
+# test setup: stand above the thorn wall at (5,24); Breeze (slot 2) gusts; walk in
+0 0 !$px=80,$py=384,$active=2
+10 0
+1 128
+2 1
+20 0
+30 128
+0 0 !$active=0
+1 32
+2 1
+60 0 w18_grove_bloom.ppm
+# test setup: stand next to the site; build the grove (costs Ripple 1, Breeze 1)
+0 0 !$px=55,$py=438
+10 0
+2 1
+30 0 w19_grove_built.ppm
+0 0 @$home_done
+150 0 w20_ending1.ppm
+150 0 w21_ending2.ppm
+150 0 w22_ending3.ppm
+200 0
+# open the menu
+2 8
+5 0 m0_menu.ppm
+# SPIRITS
+2 1
+5 0 m1_spirits.ppm
+2 2
+5 0
+# BAG
+2 128
+2 0
+2 1
+5 0 m2_bag.ppm
+2 2
+5 0
+# WORLD
+2 128
+2 0
+2 1
+5 0 m3_world.ppm
+2 2
+5 0
+# SAVE: open the page, then A saves
+2 128
+2 0
+2 1
+5 0
+2 0
+2 1
+10 0 m4_saved.ppm
+0 0 @$frame
+2 2
+5 0
+# EXIT closes the menu
+2 128
+2 0
+2 1
+10 0 m5_closed.ppm
+0 0 @$paused,$menu_page,$menu_cursor
