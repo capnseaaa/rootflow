@@ -169,6 +169,38 @@ def font_words():
     return words
 
 
+# ---- title banner: "ROOTFLOW" at 3x scale with a drop shadow ----
+# Each letter fills a 16x24 cell (2 x 3 tiles). Colors: 1 = cream letter, 3 = dark shadow, 0 = clear.
+BANNER_TEXT = "ROOTFLOW"
+
+
+def banner_words():
+    w, h = 16 * len(BANNER_TEXT), 24
+    px = [[0] * w for _ in range(h)]
+    for i, ch in enumerate(BANNER_TEXT):
+        rows = FONT[ch].split()
+        for dx, dy, col in ((1, 1, 3), (0, 0, 1)):
+            for ry, row in enumerate(rows):
+                for rx, bit in enumerate(row):
+                    if bit == "1":
+                        for yy in range(3):
+                            for xx in range(3):
+                                x = i * 16 + 1 + rx * 3 + xx + dx
+                                y = 1 + ry * 3 + yy + dy
+                                if x < w and y < h:
+                                    px[y][x] = col
+    words = []
+    # tile order: row of tiles by row of tiles (map columns = 2 per letter, 3 tile rows)
+    for ty in range(3):
+        for tx in range(w // 8):
+            for y in range(8):
+                v = 0
+                for x in range(8):
+                    v |= px[ty * 8 + y][tx * 8 + x] << (4 * x)
+                words.append(v)
+    return words
+
+
 # ---- starting map ----
 def make_valley():
     rng = random.Random(2026)
@@ -441,6 +473,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_breeze_sleep", sleep_palette(pal_breeze), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
+    out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
+    out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:

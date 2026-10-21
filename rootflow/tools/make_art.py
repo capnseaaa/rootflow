@@ -712,12 +712,49 @@ SPRITES = {
         "...........d....",
         "................",
     ],
+    # building preview frames: corner brackets around the tile you face (green = OK, orange = no)
+    "cursor_ok": [
+        "aaaa........aaaa",
+        "a99..........99a",
+        "a9............9a",
+        "a..............a",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "a..............a",
+        "a9............9a",
+        "a99..........99a",
+        "aaaa........aaaa",
+    ],
+    "cursor_bad": [
+        "1111........1111",
+        "1ff..........ff1",
+        "1f............f1",
+        "1..............1",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "................",
+        "1..............1",
+        "1f............f1",
+        "1ff..........ff1",
+        "1111........1111",
+    ],
 }
 # The main sheet is split into three files: the player, Sprout, and effects.
 # player_sprite.png and fx_sprite.png share OBJ bank 0; Sprout has its own bank (7).
 PLAYER_ORDER = ["down0", "down1", "up0", "up1", "side0", "side1"]
 SPROUT_ORDER = ["spirit0", "spirit1"]
-FX_ORDER = ["sparkle"]
+FX_ORDER = ["sparkle", "cursor_ok", "cursor_bad"]
 
 # Water spirit "Ripple" and the sleep bubble, drawn with RIPPLE_PAL.
 RIPPLE_SPRITES = {
@@ -926,6 +963,22 @@ def draw_sheet(sheet, order, pal):
     return img
 
 
+def append_new_cells(path, order):
+    """A sprite sheet that predates newer cells in `order`: add only the missing cells on the
+    right, keeping every existing pixel (and hand edits)."""
+    old = Image.open(path)
+    have = old.width // 16
+    if have >= len(order):
+        return
+    new = draw_sheet(SPRITES, order, OBJ_PAL)
+    out = Image.new("P", (16 * len(order), 16))
+    out.putpalette(old.getpalette())
+    out.paste(old, (0, 0))
+    out.paste(new.crop((have * 16, 0, len(order) * 16, 16)), (have * 16, 0))
+    out.save(path)
+    print("appended", len(order) - have, "cells to", path)
+
+
 def append_new_metatiles(path):
     """terrain.png exists but predates newer META entries: add only the missing
     tiles on the right, keeping every existing pixel (and hand edits) as is."""
@@ -958,6 +1011,8 @@ def main():
             print("wrote", path)
         elif name == "terrain.png":
             append_new_metatiles(path)
+        elif name == "fx_sprite.png":
+            append_new_cells(path, FX_ORDER)
 
 
 if __name__ == "__main__":

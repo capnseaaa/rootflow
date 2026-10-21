@@ -25,11 +25,14 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - At 2 hearts a spirit asks for help; its quest unlocks a new thing to build. At 3 hearts its power grows.
 - At 5 hearts you can bond one spirit as your lifelong companion. Choose carefully: it cannot be undone.
 
+## Sound
+- A chiptune for the title and for each area (melody and bass), with chimes for actions.
+
 ## Controls
 - D-pad: move. Hold B: run. Tap B facing a spirit: give a gift
 - A: greet a spirit / use the active spirit's power
 - R / L: next / previous spirit
-- Hold SELECT: build. SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it
+- Hold SELECT: build (a frame shows where; green = OK). SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it
 - START: menu (Spirits, Bag, World, Save). Save from SAVE.
 - L + R + START: new game (your save stays until you save again)
 

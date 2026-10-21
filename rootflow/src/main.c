@@ -6,6 +6,7 @@
 // Powers cost energy. Spirits can be housed at home sites; a home spreads life around it.
 
 #include "data.h"
+#include "music.h"
 
 typedef unsigned char  u8;
 typedef unsigned short u16;
@@ -84,17 +85,59 @@ static void vsync(void) {
 }
 
 // ---------- sound: short chimes on channel 1 ----------
+#define REG_SND2CNT   REG16(0x04000068)
+#define REG_SND2FREQ  REG16(0x0400006C)
+#define REG_SND3SEL   REG16(0x04000070)
+#define REG_SND3CNT   REG16(0x04000072)
+#define REG_SND3FREQ  REG16(0x04000074)
+#define WAVE_RAM      ((volatile u16*)0x04000090)
+
 static void sound_init(void) {
     REG_SNDCNT_X = 0x0080;   // master on
-    REG_SNDCNT_L = 0x1177;   // channel 1 on both sides, full volume
+    REG_SNDCNT_L = 0x7777;   // channels 1-3 on both sides, full volume
     REG_SNDCNT_H = 0x0002;   // PSG at 100%
     REG_SND1SWEEP = 0x0008;  // sweep off
+    // Channel 3 plays the bass from a 32-sample wave. Write it into the bank that is not playing.
+    REG_SND3SEL = 0x0040;
+    for (u32 i = 0; i < 8; i++) WAVE_RAM[i] = bass_wave[2 * i] | (bass_wave[2 * i + 1] << 8);
+    REG_SND3SEL = 0x0000;
 }
 static void chime(u32 hz, u32 vol) {
     REG_SND1CNT = (vol << 12) | (2 << 8) | (2 << 6);      // decaying envelope, 50% duty
     REG_SND1FREQ = (u16)((2048 - 131072 / hz) | 0x8000);  // restart
 }
 static const u16 scale[] = { 523, 587, 659, 784, 880, 1047, 1175, 1319 };
+
+// ---------- music: melody on channel 2, bass on channel 3 (sound effects keep channel 1) ----------
+static s32 song = -1;
+static u32 voice_pos[2], voice_left[2];   // note index and frames left, per voice
+static void music_note(s32 v, u16 freq) {
+    if (v == 0) {
+        if (!freq) { REG_SND2CNT = 0; REG_SND2FREQ = 0x8000; return; }      // rest: silence
+        REG_SND2CNT = (10 << 12) | (6 << 8) | (2 << 6);                   // soft pluck that rings ~1 s, 50% duty
+        REG_SND2FREQ = freq | 0x8000;
+    } else {
+        if (!freq) { REG_SND3SEL = 0; return; }
+        REG_SND3SEL = 0x0080;                                             // on, 32-sample bank 0
+        REG_SND3CNT = 2 << 13;                                            // 50% volume
+        REG_SND3FREQ = freq | 0x8000;
+    }
+}
+static void music_play(s32 s) {
+    if (s == song) return;
+    song = s;
+    for (s32 v = 0; v < 2; v++) { voice_pos[v] = 0; voice_left[v] = 0; }
+}
+static void music_tick(void) {
+    if (song < 0) return;
+    for (s32 v = 0; v < 2; v++) {
+        if (voice_left[v]) { voice_left[v]--; continue; }
+        u32 i = voice_pos[v];
+        music_note(v, song_freq[song][v][i]);
+        voice_left[v] = song_len[song][v][i] * song_fps[song] - 1;
+        voice_pos[v] = (i + 1) % song_count[song][v];
+    }
+}
 
 // ---------- world ----------
 // Three areas, each a 32x32 map kept in memory so restored land stays restored.
@@ -297,6 +340,7 @@ static void oam_flush(void) {
 #define OAM_ZZZ     5   // 5..5+NUM_SPIRITS-1
 #define OAM_SPARKLE 9
 #define OAM_GLOW    10
+#define OAM_CURSOR  11
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -354,6 +398,7 @@ static u8 home_done[NUM_SPIRITS];
 #define HOME_REACH_L1 8
 static u8 home_level[NUM_SPIRITS];     // 0 = not built, 1, 2
 static s32 build_item;                 // the item SELECT-building places
+static s32 cursor_mx = -1, cursor_my, cursor_ok;   // build preview: faced tile (mx -1 = hidden)
 static u32 grow_timer;                 // built things grow every 10 s
 static s32 home_reach(s32 k) { return home_level[k] >= 2 ? HOME_REACH : HOME_REACH_L1; }
 #define HOME_PULSE 360
@@ -432,6 +477,7 @@ static void spirit_init(s32 kind, s32 mx, s32 my, s32 state) {
 }
 
 static void reset_game(void) {
+    music_play(SONG_VALLEY);
     load_world();
     set_ground_palette(0);
     px = PLAYER_START_X * 16; py = PLAYER_START_Y * 16; pdir = DIR_DOWN;
@@ -605,6 +651,7 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
     use_area(a);
     if (blocked_at(nx, ny)) { use_area(cur_area); return 0; }
     cur_area = a;
+    music_play(SONG_VALLEY + a);   // each area has its own tune
     for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;   // blooms finish where they started
     sparkle_life = 0;
     px = nx; py = ny;
@@ -1075,6 +1122,10 @@ static void build_mode(void) {
     if (pdir == DIR_DOWN)  fy += 14;
     s32 mx = fx >> 4, my = fy >> 4;
     u8 t = tile_at(mx, my);
+    // preview: green when this item can go here and you can afford it
+    cursor_mx = mx; cursor_my = my;
+    cursor_ok = build_item == B_UPGRADE ? can_pay(B_UPGRADE)
+                                        : (t == GRASS || t == GRASS_TUFT || t == FLOWERS) && can_pay(build_item);
     if (HIT(KEY_A)) {
         if (build_item == B_UPGRADE) { upgrade_home(); return; }
         if (!(t == GRASS || t == GRASS_TUFT || t == FLOWERS)) { chime(262, 6); show_message("BUILD ON GREEN LAND"); return; }
@@ -1153,6 +1204,7 @@ static void try_gift(void) {
 }
 
 static void handle_action(void) {
+    cursor_mx = -1;   // build_mode() sets it again while SELECT is held
     // A short tap of B (released within 10 frames) is a gift; holding B is running.
     if (HELD(KEY_B)) b_hold++;
     else {
@@ -1331,6 +1383,11 @@ static void draw_sprites(void) {
         }
     }
 
+    // Build preview frame on the faced tile.
+    if (cursor_mx >= 0)
+        sprite_set(OAM_CURSOR, cursor_mx * 16 - cam_x, cursor_my * 16 - cam_y, SPR_SPARKLE + (cursor_ok ? 1 : 2), 0, PAL_FX);
+    else
+        sprite_hide(OAM_CURSOR);
     // The bonded companion glows: a soft sparkle that blinks above it.
     if (bonded >= 0 && spirits[bonded].area == cur_area && ((frame >> 4) & 1))
         sprite_set(OAM_GLOW, spirits[bonded].x - cam_x + 4, spirits[bonded].y - cam_y - 14, SPR_SPARKLE, 0, PAL_FX);
@@ -1415,6 +1472,7 @@ static int load_game(void) {
     draw_life();
     draw_active();
     show_message("WELCOME BACK!");
+    music_play(SONG_VALLEY + cur_area);
     return 1;
 }
 
@@ -1660,6 +1718,58 @@ static void update_menu(void) {
     }
 }
 
+// ---------- title screen ----------
+// Shows the valley (your own, if there is a save) behind a big ROOTFLOW banner. With a save:
+// CONTINUE / NEW GAME; without one: PRESS START.
+#define BANNER_BASE 64   // first banner tile in charblock 1 (after the font)
+static void title_screen(int has_save) {
+    for (u32 i = 0; i < 128; i++) oam_shadow[i * 4] = 0x0200;
+    oam_flush();
+    for (s32 r = 0; r < 20; r++) clear_row(r);
+    msgq_len = 0;
+    msg_timer = 0;
+    for (s32 ty = 0; ty < 3; ty++)
+        for (s32 tx = 0; tx < BANNER_W; tx++)
+            SCREENBLOCK(TEXT_SB)[(3 + ty) * 32 + 7 + tx] = (BANNER_BASE + ty * BANNER_W + tx) | (3 << 12);
+    put_text(3, 7, " SMALL ROOTS. BIG CHANGE. ");
+    music_play(SONG_TITLE);
+    s32 choice = 0, pan = 0, dir = 1;
+    cam_y = WORLD_PX / 2 - SCREEN_H / 2;
+    for (;;) {
+        vsync();
+        music_tick();
+        REG_BG1HOFS = pan >> 1;
+        REG_BG1VOFS = cam_y;
+        if ((frame & 31) == 0) animate_water();
+        poll_keys();
+        frame++;
+        pan += dir;                                    // drift slowly across the valley and back
+        if (pan >= (WORLD_PX - SCREEN_W) * 2 || pan <= 0) dir = -dir;
+        if (has_save) {
+            if (HIT(KEY_UP | KEY_DOWN)) { choice ^= 1; chime(659, 4); }
+            draw_window(9, 11, 20, 16);
+            put_text_win(11, 12, choice == 0 ? ">" : " ");
+            put_text_win(12, 12, "CONTINUE");
+            put_text_win(11, 14, choice == 1 ? ">" : " ");
+            put_text_win(12, 14, "NEW GAME");
+        } else {
+            put_text(9, 14, (frame & 32) ? " PRESS START " : "             ");
+        }
+        if (HIT(KEY_START | KEY_A)) break;
+    }
+    chime(1047, 10);
+    for (s32 r = 0; r < 20; r++) clear_row(r);
+    if (!has_save || choice == 1) {
+        reset_game();                     // a new game (a save stays until you save over it)
+    } else {
+        music_play(SONG_VALLEY + cur_area);
+        draw_life();
+        draw_active();
+        show_message("WELCOME BACK!");
+    }
+    update_camera();
+}
+
 int main(void) {
     REG_DISPCNT = 0x0080;   // forced blank while loading
 
@@ -1686,6 +1796,9 @@ int main(void) {
 
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
     copy32(CHARBLOCK(1), font_tiles, sizeof(font_tiles) / 4);
+    copy32(CHARBLOCK(1) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
+    PAL_BG[48 + 1] = (30) | (28 << 5) | (22 << 10);   // title banner: cream letters
+    PAL_BG[48 + 3] = (3) | (4 << 5) | (4 << 10);      // and a dark shadow
     copy32(OBJ_TILES, sprite_tiles, sizeof(sprite_tiles) / 4);
 
     for (u32 i = 0; i < 128; i++) oam_shadow[i * 4] = 0x0200;
@@ -1696,13 +1809,16 @@ int main(void) {
 
     sound_init();
     REG_WAITCNT = (REG_WAITCNT & ~3) | 3;   // SRAM: 8 wait states
-    if (!load_game()) reset_game();
+    int has_save = load_game();
+    if (!has_save) reset_game();
     update_camera();
 
     REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12);
+    title_screen(has_save);
 
     for (;;) {
         vsync();
+        music_tick();
         REG_BG1HOFS = cam_x;
         REG_BG1VOFS = cam_y;
         oam_flush();
