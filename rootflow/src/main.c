@@ -385,6 +385,17 @@ static u32 frame;
 static s32 hist_x[HIST], hist_y[HIST], hist_head;
 static const signed char bob[16] = { 0, 1, 1, 2, 2, 2, 1, 1, 0, -1, -1, -2, -2, -2, -1, -1 };
 
+// A spirit at home lives inside it. x, y = the site's top-left on screen; b = bob; anim = idle frame.
+// Sprout sits on its pad, and in the level 2 tree house peeks out of the hole now and then (frames
+// cut to the hole by build_data.py). Ripple floats in its pool. Pebble sits on top of its cairn as
+// the top stone. Breeze drifts in a small loop around its post or windmill.
+#define SPR_PEEK (TILE_PEEK / 4)
+static const u8 peek_frame[16] = { 9, 9, 9, 9, 9, 9, 9, 9, 0, 1, 2, 3, 2, 4, 2, 1 };   // 9 = hidden
+static const u8 peek_len[16]   = { 30, 30, 30, 30, 30, 30, 30, 30, 8, 8, 60, 40, 20, 40, 30, 8 };
+static const signed char loop_x[16] = { 0, 2, 4, 5, 6, 5, 4, 2, 0, -2, -4, -5, -6, -5, -4, -2 };
+static const signed char loop_y[16] = { -3, -3, -2, -1, 0, 1, 2, 3, 3, 3, 2, 1, 0, -1, -2, -3 };
+static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim);
+
 // ---------- spirits ----------
 enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME };
 enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE };
@@ -445,6 +456,30 @@ static u32 told_ending;
 static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE };
 static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE };
 static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP };
+static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim) {
+    s32 id = OAM_SPIRIT + i, lv = home_level[i];
+    switch (i) {
+    case KIND_SPROUT:
+        if (lv < 2) { sprite_set(id, x, y - 4 + b, SPR_SPROUT + anim, 0, PAL_SPROUT); return; }
+        {
+            u32 t = frame % 454, k = 0;
+            while (t >= peek_len[k]) t -= peek_len[k++];
+            if (peek_frame[k] == 9) sprite_hide(id);
+            else sprite_set(id, x, y, SPR_PEEK + peek_frame[k], 0, PAL_SPROUT);
+        }
+        return;
+    case KIND_RIPPLE:
+        sprite_set(id, x, y - 2 + (b >> 1), SPR_RIPPLE + anim, 0, PAL_RIPPLE);
+        return;
+    case KIND_STONE:
+        sprite_set(id, x, y - 16 - (lv < 2 ? 7 : 14) + (b > 1), SPR_STONE + anim, 0, PAL_STONE);
+        return;
+    default: {
+        u32 k = (frame >> 3) & 15;
+        sprite_set(id, x + loop_x[k], y - 22 + loop_y[k], SPR_BREEZE + anim, 0, PAL_BREEZE);
+    }
+    }
+}
 
 static s32 bonus_charge;   // +1 max charge for everyone after the steppe chest
 static s32 energy_max(const Spirit *s) { return (s->housed ? ENERGY_MAX_HOUSED : ENERGY_MAX) + bonus_charge; }
@@ -1066,14 +1101,7 @@ static void send_home(s32 k) {
     Spirit *s = &spirits[k];
     party_remove(k);
     s->state = SP_HOME;
-    // It rests in front of its home (below, else beside it), so it does not hide the home's art.
-    s32 hx = home_site_x[k], hy = home_site_y[k];
-    use_area(home_site_area[k]);
-    if (!is_solid(tile_at(hx, hy + 1))) hy++;
-    else if (!is_solid(tile_at(hx + 1, hy))) hx++;
-    else if (!is_solid(tile_at(hx - 1, hy))) hx--;
-    use_area(cur_area);
-    s->x = hx * 16; s->y = hy * 16;
+    s->x = home_site_x[k] * 16; s->y = home_site_y[k] * 16;   // drawn inside its home (draw_home_spirit)
     s->area = home_site_area[k];
     s->energy = ENERGY_MAX_HOUSED + bonus_charge;
 }
@@ -1382,7 +1410,7 @@ static void handle_action(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
         if (s->state == SP_JOINED || s->area != cur_area) continue;
-        // A housed spirit rests in front of its home; it also answers near the home itself.
+        // A housed spirit is drawn inside its home (the roof for Pebble and Breeze); it also answers near the site.
         if (!near_px(s->x, s->y, 28) && !(s->state == SP_HOME && near_px(home_site_x[i] * 16, home_site_y[i] * 16, 24))) continue;
         if (s->state == SP_ASLEEP) {
             // Only a hint; A still uses your spirit so you can bloom beside it.
@@ -1535,7 +1563,10 @@ static void draw_sprites(void) {
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
-        if (s->state == SP_ASLEEP) {
+        if (s->state == SP_HOME) {
+            draw_home_spirit(i, sx, s->y - cam_y, b, anim);
+            sprite_hide(OAM_ZZZ + i);
+        } else if (s->state == SP_ASLEEP) {
             // gray, still, with a sleep bubble that drifts up
             sprite_set(OAM_SPIRIT + i, sx, sy + 2, spirit_tile[s->kind], 0, spirit_sleep_pal[s->kind]);
             sprite_set(OAM_ZZZ + i, sx + 8, sy - 10 - ((frame >> 3) & 3), SPR_ZZZ, 0, PAL_RIPPLE);

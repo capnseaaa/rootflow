@@ -401,6 +401,27 @@ def c_array(ctype, name, values, per_line=8, fmt="0x{:08X}"):
     return "\n".join(lines)
 
 
+# Sprout peeking out of its tree house (grove level 2 base): Sprout's first frame moved by (dx, dy)
+# and cut to the dark pixels of the hole, so only the part inside the hole shows. main.c plays
+# these frames (PEEK_FRAMES) in the order of its peek table.
+PEEK_SHIFTS = [(0, 8), (0, 4), (0, 0), (-2, 0), (2, 0)]
+
+
+def sprout_peek(terrain, sprout):
+    n = terrain.size[0] // 16
+    base = (n - 16 + 3) * 16                    # HOME_FIRST + grove (0) * 4 + level 2 base (3)
+    hole = {(x, y) for y in range(16) for x in range(16)
+            if 3 <= x <= 12 and 1 <= y <= 14 and terrain.getpixel((base + x, y)) == 15}
+    img = Image.new("P", (16 * len(PEEK_SHIFTS), 16), 0)
+    img.putpalette(sprout.getpalette())
+    for i, (dx, dy) in enumerate(PEEK_SHIFTS):
+        for x, y in hole:
+            sx, sy = x - dx, y - dy
+            if 0 <= sx < 16 and 0 <= sy < 16 and sprout.getpixel((sx, sy)):
+                img.putpixel((16 * i + x, y), sprout.getpixel((sx, sy)))
+    return img
+
+
 def sleep_palette(pal):
     """Sleeping spirits: same art, desaturated and dimmed. The outline stays."""
     gray = []
@@ -426,7 +447,8 @@ def main():
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
-              ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16)]
+              ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
+              ("PEEK", sprout_peek(terrain, sprout), 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")

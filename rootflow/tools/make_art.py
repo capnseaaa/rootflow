@@ -640,12 +640,11 @@ def grove_base(rng, level):
                     px[y][xx - dx] = 15
         for x in range(5, 11):
             px[y][x] = 12 if y < 15 else 15
-    for y in range(4, 12):                                         # round door with a frame
-        for x in range(5, 11):
-            d = ((x - 7.5) / 2.5) ** 2 + ((y - 7.5) / 3.5) ** 2
+    for y in range(2, 14):                                         # a round hole with a frame; Sprout
+        for x in range(4, 12):                                     # peeks out of it (build_data cuts the
+            d = ((x - 7.5) / 3.4) ** 2 + ((y - 7.5) / 4.4) ** 2    # peek frames to its dark pixels)
             if d < 1:
-                px[y][x] = 15 if d < 0.65 else 5
-    px[8][9] = 14                                                  # door knob
+                px[y][x] = 15 if d < 0.6 else 5
     dots(px, [(2, 12), (13, 12), (1, 14), (14, 14)], 13)           # flowers by the roots
     dots(px, [(2, 13), (13, 13)], 6)
     return px
