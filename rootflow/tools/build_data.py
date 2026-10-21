@@ -1,4 +1,4 @@
-"""Convert art/*.png, the font, and the starting map into src/data.h."""
+"""Convert art/*.png, the font, and the starting maps into src/data.h."""
 import os
 import random
 from PIL import Image
@@ -8,7 +8,8 @@ ART = os.path.join(ROOT, "art")
 OUT = os.path.join(ROOT, "src", "data.h")
 
 # Metatile indices (must match make_art.py META and main.c enum)
-DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE, THORN, HOMESITE = range(14)
+(DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE, THORN, HOMESITE,
+ CHEST, CHEST_OPEN, WRECK) = range(17)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -20,8 +21,17 @@ POCKET = (26, 2, 30, 6)
 BREEZE_SPOT = (27, 2)          # sleeps inside the hidden spring
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
-# Home sites, one per spirit kind (Sprout, Ripple, Pebble, Breeze).
-HOME_SITES = [(3, 28), (28, 5), (29, 10), (4, 11)]
+# Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
+VALLEY, EAST, SOUTH = 0, 1, 2
+NUM_AREAS = 3
+EAST_GATE_ROWS = (19, 20, 21)      # valley x=31 <-> steppe x=0
+SOUTH_GATE_COLS = (14, 15, 16)     # valley y=31 <-> hollow y=0
+# Home sites, one per spirit kind (Sprout, Ripple, Pebble, Breeze): (area, x, y).
+HOME_SITES = [(VALLEY, 3, 28), (VALLEY, 28, 5), (SOUTH, 16, 15), (EAST, 20, 15)]
+# Treasure chests (area, x, y); the reward for each is in main.c (chest_reward).
+CHESTS = [(VALLEY, 5, 30), (EAST, 28, 4), (SOUTH, 26, 27)]
+# Rusted Vael machines with lore (area, x, y).
+WRECKS = [(VALLEY, 18, 6), (EAST, 9, 25), (SOUTH, 5, 6)]
 
 
 def rgb15(r, g, b):
@@ -61,6 +71,10 @@ def strip_cells(img, cell_h):
 
 # ---- 5x7 font ----
 FONT = {
+    "+": "00000 00100 00100 11111 00100 00100 00000",
+    "/": "00001 00010 00010 00100 01000 01000 10000",
+    "-": "00000 00000 00000 11111 00000 00000 00000",
+    ",": "00000 00000 00000 00000 00110 00100 01000",
     "A": "01110 10001 10001 11111 10001 10001 10001",
     "B": "11110 10001 10001 11110 10001 10001 11110",
     "C": "01110 10001 10000 10000 10000 10001 01110",
@@ -105,7 +119,7 @@ FONT = {
     "'": "00100 00100 01000 00000 00000 00000 00000",
     " ": "00000 00000 00000 00000 00000 00000 00000",
 }
-FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'"
+FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'+/-,"
 
 
 def font_words():
@@ -125,7 +139,7 @@ def font_words():
 
 
 # ---- starting map ----
-def make_map():
+def make_valley():
     rng = random.Random(2026)
     m = [[DEAD] * MAP_W for _ in range(MAP_H)]
     for y in range(MAP_H):
@@ -171,13 +185,112 @@ def make_map():
         for y in range(cy - 1, cy + 2):
             for x in range(cx - 1, cx + 2):
                 m[y][x] = DEAD
-    # home sites: the marker plus open, non-solid ground on its four sides
-    for x, y in HOME_SITES:
-        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-            if m[y + dy][x + dx] in (ROCK, DEAD_TREE, THORN):
-                m[y + dy][x + dx] = DEAD
-        m[y][x] = HOMESITE
-    return [v for row in m for v in row]
+    # exits: open ground to the east edge (far bank) and to the south edge
+    for y in EAST_GATE_ROWS:
+        for x in range(26, 32):
+            if m[y][x] != WATER:
+                m[y][x] = DEAD
+    for x in SOUTH_GATE_COLS:
+        for y in range(27, 32):
+            m[y][x] = DEAD
+    place_objects(m, VALLEY)
+    return m
+
+
+def open_around(m, x, y):
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        if 0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H and m[y + dy][x + dx] in (ROCK, DEAD_TREE, THORN):
+            m[y + dy][x + dx] = DEAD
+
+
+def place_objects(m, area):
+    """Home sites, chests, and wrecks for one area, each with open ground beside it."""
+    for a, x, y in HOME_SITES:
+        if a == area:
+            open_around(m, x, y)
+            m[y][x] = HOMESITE
+    for a, x, y in CHESTS:
+        if a == area:
+            open_around(m, x, y)
+            m[y][x] = CHEST
+    for a, x, y in WRECKS:
+        if a == area:
+            open_around(m, x, y)
+            m[y][x] = WRECK
+
+
+def scatter(rng, crack=0.30, tree=0.06, rock=0.04, thorn=0.0):
+    m = [[DEAD] * MAP_W for _ in range(MAP_H)]
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            r = rng.random()
+            if r < crack:
+                m[y][x] = DEAD_CRACK
+            elif r < crack + tree:
+                m[y][x] = DEAD_TREE
+            elif r < crack + tree + rock:
+                m[y][x] = ROCK
+            elif r < crack + tree + rock + thorn:
+                m[y][x] = THORN
+    return m
+
+
+def ring(m, x0, y0, x1, y1, wall, inner=DEAD):
+    """A closed wall around the interior rectangle x0..x1, y0..y1."""
+    for y in range(y0 - 1, y1 + 2):
+        for x in range(x0 - 1, x1 + 2):
+            if 0 <= x < MAP_W and 0 <= y < MAP_H:
+                inside = x0 <= x <= x1 and y0 <= y <= y1
+                m[y][x] = inner if inside else wall
+
+
+def make_east():
+    """Windy Steppe: dry dead grassland crossed by thorn hedges. Breeze's nook sits inside
+    a thorn ring; a chest hides in a thorn-walled corner; one small pond."""
+    rng = random.Random(3030)
+    m = scatter(rng, crack=0.25, tree=0.05, rock=0.02, thorn=0.03)
+    for y0 in (6, 12, 26):                       # long thorn hedges with gaps
+        for x in range(2, 30):
+            if (x + y0) % 9 not in (0, 1, 2):
+                m[y0][x] = THORN
+    ring(m, 18, 13, 22, 17, THORN)               # Breeze's nook
+    ring(m, 26, 2, 30, 6, THORN)                 # chest corner (map edge closes the top)
+    for y in range(20, 23):                      # small pond
+        for x in range(23, 26):
+            m[y][x] = WATER
+    for y in EAST_GATE_ROWS:                     # entry path from the valley
+        for x in range(0, 5):
+            m[y][x] = DEAD
+    place_objects(m, EAST)
+    return m
+
+
+def make_south():
+    """Stone Hollow: a rocky basin. Pebble's cairn sits inside a ring of boulders, a chest
+    hides behind a double rock wall, and a pond feeds big blooms."""
+    rng = random.Random(4040)
+    m = scatter(rng, crack=0.25, tree=0.04, rock=0.12)
+    ring(m, 14, 13, 18, 17, ROCK)                # Pebble's cairn
+    ring(m, 25, 26, 28, 29, ROCK)                # chest: double wall
+    for x in range(23, 31):
+        for y in (24, 31):
+            if 0 <= y < MAP_H:
+                m[y][x] = ROCK
+    for y in range(24, 32):
+        m[y][23] = ROCK
+    for y in range(19, 23):                      # pond
+        for x in range(7, 11):
+            m[y][x] = WATER
+    for x in SOUTH_GATE_COLS:                    # entry path from the valley
+        for y in range(0, 5):
+            m[y][x] = DEAD
+    place_objects(m, SOUTH)
+    return m
+
+
+def make_maps():
+    maps = [make_valley(), make_east(), make_south()]
+    return [v for m in maps for row in m for v in row]
 
 
 def c_array(ctype, name, values, per_line=8, fmt="0x{:08X}"):
@@ -231,8 +344,18 @@ def main():
     out.append(f"#define STONE_SPOT_X {STONE_SPOT[0]}\n#define STONE_SPOT_Y {STONE_SPOT[1]}")
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
-    out.append(c_array("unsigned char", "home_site_x", [x for x, _ in HOME_SITES], fmt="{}"))
-    out.append(c_array("unsigned char", "home_site_y", [y for _, y in HOME_SITES], fmt="{}"))
+    out.append(f"#define NUM_AREAS {NUM_AREAS}")
+    out.append(c_array("unsigned char", "home_site_area", [a for a, _, _ in HOME_SITES], fmt="{}"))
+    out.append(c_array("unsigned char", "home_site_x", [x for _, x, _ in HOME_SITES], fmt="{}"))
+    out.append(c_array("unsigned char", "home_site_y", [y for _, _, y in HOME_SITES], fmt="{}"))
+    out.append(f"#define NUM_CHESTS {len(CHESTS)}")
+    out.append(c_array("unsigned char", "chest_area", [a for a, _, _ in CHESTS], fmt="{}"))
+    out.append(c_array("unsigned char", "chest_x", [x for _, x, _ in CHESTS], fmt="{}"))
+    out.append(c_array("unsigned char", "chest_y", [y for _, _, y in CHESTS], fmt="{}"))
+    out.append(f"#define NUM_WRECKS {len(WRECKS)}")
+    out.append(c_array("unsigned char", "wreck_area", [a for a, _, _ in WRECKS], fmt="{}"))
+    out.append(c_array("unsigned char", "wreck_x", [x for _, x, _ in WRECKS], fmt="{}"))
+    out.append(c_array("unsigned char", "wreck_y", [y for _, _, y in WRECKS], fmt="{}"))
     out.append(f'static const char FONT_CHARS[] = "{FONT_CHARS}";')
     out.append(c_array("unsigned short", "bg_pal", palette_of(terrain), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal", palette_of(player), fmt="0x{:04X}"))
@@ -248,7 +371,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_breeze_sleep", sleep_palette(pal_breeze), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
-    out.append(c_array("unsigned char", "start_map", make_map(), per_line=32, fmt="{}"))
+    out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         f.write("\n\n".join(out) + "\n")

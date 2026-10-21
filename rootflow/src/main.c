@@ -54,7 +54,7 @@ typedef signed int     s32;
 #define MAP_SB    28
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
-       THORN, HOMESITE };
+       THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -95,8 +95,15 @@ static void chime(u32 hz, u32 vol) {
 static const u16 scale[] = { 523, 587, 659, 784, 880, 1047, 1175, 1319 };
 
 // ---------- world ----------
-static u8 world[MAP_W * MAP_H];
+// Three areas, each a 32x32 map kept in memory so restored land stays restored.
+// cur_area is where the player is (and what the screen shows). work_area is the map the tile
+// functions act on; it differs from cur_area only while a home in another area pulses.
+static u8 maps[NUM_AREAS][MAP_W * MAP_H];
+static u8 *world = maps[0];
+static s32 cur_area, work_area;
 static u32 restorable_count;
+
+static void use_area(s32 a) { work_area = a; world = maps[a]; }
 
 static u8 tile_at(s32 mx, s32 my) {
     if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return ROCK;
@@ -104,6 +111,7 @@ static u8 tile_at(s32 mx, s32 my) {
 }
 
 static void draw_meta(s32 mx, s32 my) {
+    if (work_area != cur_area) return;   // off-screen area: memory only
     u16 base = world[my * MAP_W + mx] * 4;
     for (s32 k = 0; k < 4; k++) {
         s32 tx = mx * 2 + (k & 1);
@@ -119,28 +127,43 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 }
 
 static int is_solid(u8 t) {
-    return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN;
+    return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN ||
+           t == CHEST || t == CHEST_OPEN || t == WRECK;
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE;
 }
 
-static void load_world(void) {
-    restorable_count = 0;
-    for (s32 i = 0; i < MAP_W * MAP_H; i++) {
-        world[i] = start_map[i];
-        u8 t = world[i];
-        if (t != WATER && t != ROCK && t != THORN && t != HOMESITE) restorable_count++;
-    }
+static int is_restorable(u8 t) {
+    return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
+             t == WRECK);
+}
+
+static void draw_area(void) {
     for (s32 y = 0; y < MAP_H; y++)
         for (s32 x = 0; x < MAP_W; x++)
             draw_meta(x, y);
 }
 
+static void load_world(void) {
+    restorable_count = 0;
+    for (s32 a = 0; a < NUM_AREAS; a++)
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 t = start_maps[a * MAP_W * MAP_H + i];
+            maps[a][i] = t;
+            if (is_restorable(t)) restorable_count++;
+        }
+    cur_area = 0;
+    use_area(0);
+    draw_area();
+}
+
+// LIFE % counts all three areas.
 static u32 life_percent(void) {
     u32 alive = 0;
-    for (s32 i = 0; i < MAP_W * MAP_H; i++)
-        if (is_alive(world[i])) alive++;
+    for (s32 a = 0; a < NUM_AREAS; a++)
+        for (s32 i = 0; i < MAP_W * MAP_H; i++)
+            if (is_alive(maps[a][i])) alive++;
     return alive * 100 / restorable_count;
 }
 
@@ -257,7 +280,7 @@ static const signed char bob[16] = { 0, 1, 1, 2, 2, 2, 1, 1, 0, -1, -1, -2, -2, 
 enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME };
 enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE };
 // housed: the spirit has a home. While it travels with you its power is weaker (fewer charges).
-typedef struct { s32 x, y, state, kind, energy, housed; } Spirit;
+typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // area: where it is
 #define NUM_SPIRITS 4
 #define ENERGY_MAX 3
 #define ENERGY_MAX_HOUSED 2
@@ -307,11 +330,18 @@ static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE 
 static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE };
 static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP };
 
-static s32 energy_max(const Spirit *s) { return s->housed ? ENERGY_MAX_HOUSED : ENERGY_MAX; }
+static s32 bonus_charge;   // +1 max charge for everyone after the steppe chest
+static s32 energy_max(const Spirit *s) { return (s->housed ? ENERGY_MAX_HOUSED : ENERGY_MAX) + bonus_charge; }
 static int in_party(s32 kind) {
     for (s32 p = 0; p < party_count; p++) if (party[p] == kind) return 1;
     return 0;
 }
+
+// ---------- materials and relics ----------
+static u32 stone, fruit, seeds;
+static u8 chest_open[NUM_CHESTS], wreck_read[NUM_WRECKS];
+static u8 picked[NUM_AREAS][MAP_W * MAP_H / 8];   // one bit per tile: a tree already shaken
+static s32 pulse_div = 1;                          // 2 after the hollow chest: homes pulse twice as fast
 
 // ---------- blooms ----------
 #define BR 5                      // max bloom radius in tiles (4 near water, +1 with Sprout's grove)
@@ -351,7 +381,7 @@ static void draw_active(void) {
 static void spirit_init(s32 kind, s32 mx, s32 my, s32 state) {
     Spirit *s = &spirits[kind];
     s->x = mx * 16; s->y = my * 16; s->state = state; s->kind = kind;
-    s->energy = ENERGY_MAX; s->housed = 0;
+    s->energy = ENERGY_MAX; s->housed = 0; s->area = 0;
 }
 
 static void reset_game(void) {
@@ -374,6 +404,13 @@ static void reset_game(void) {
     told_rest = 0;
     for (s32 i = 0; i < NUM_SPIRITS; i++) pulse_r[i] = pulse_timer[i] = 0;
     just_called = -1;
+    stone = fruit = seeds = 0;
+    for (s32 i = 0; i < NUM_CHESTS; i++) chest_open[i] = 0;
+    for (s32 i = 0; i < NUM_WRECKS; i++) wreck_read[i] = 0;
+    for (s32 a = 0; a < NUM_AREAS; a++)
+        for (s32 i = 0; i < MAP_W * MAP_H / 8; i++) picked[a][i] = 0;
+    bonus_charge = 0;
+    pulse_div = 1;
     for (s32 r = 0; r < 20; r++) clear_row(r);
     draw_life();
     draw_active();
@@ -454,12 +491,13 @@ static int player_on_tile(s32 mx, s32 my) {
 static void grow_tile(s32 mx, s32 my, int edge) {
     if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return;
     u8 t = tile_at(mx, my);
-    if (t == DEAD_TREE) { if (!player_on_tile(mx, my)) set_tile(mx, my, TREE); return; }
+    int here = work_area == cur_area;   // the player only stands in the area on screen
+    if (t == DEAD_TREE) { if (!(here && player_on_tile(mx, my))) set_tile(mx, my, TREE); return; }
     if (t != DEAD && t != DEAD_CRACK && t != DIRT) return;
     if (edge && t != DIRT) { set_tile(mx, my, DIRT); return; }
     u32 r = rng() % 100;
     u8 nt = r < 55 ? GRASS : r < 80 ? GRASS_TUFT : r < 95 ? FLOWERS : TREE;
-    if (nt == TREE && player_on_tile(mx, my)) nt = FLOWERS;
+    if (nt == TREE && here && player_on_tile(mx, my)) nt = FLOWERS;
     set_tile(mx, my, nt);
 }
 
@@ -467,7 +505,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
 static void check_wake(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->state != SP_ASLEEP) continue;
+        if (s->state != SP_ASLEEP || s->area != work_area) continue;
         s32 mx = (s->x + 8) >> 4, my = (s->y + 8) >> 4;
         for (s32 y = my - 1; y <= my + 1; y++)
             for (s32 x = mx - 1; x <= mx + 1; x++)
@@ -500,6 +538,44 @@ static void update_blooms(void) {
     if (changed) { draw_life(); check_wake(); }
 }
 
+// ---------- areas ----------
+static const signed char area_east[NUM_AREAS] = { 1, -1, -1 }, area_west[NUM_AREAS] = { -1, 0, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0 };
+static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW" };
+
+// Walk into area a, standing at (nx, ny). Fails (returns 0) if that spot is blocked.
+static int enter_area(s32 a, s32 nx, s32 ny) {
+    use_area(a);
+    if (blocked_at(nx, ny)) { use_area(cur_area); return 0; }
+    cur_area = a;
+    for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;   // blooms finish where they started
+    sparkle_life = 0;
+    px = nx; py = ny;
+    for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
+    for (s32 p = 0; p < party_count; p++) {
+        Spirit *s = &spirits[party[p]];
+        s->area = a; s->x = px; s->y = py;
+    }
+    REG_DISPCNT |= 0x0080;              // blank the screen while the new map is drawn
+    draw_area();
+    REG_DISPCNT &= ~0x0080;
+    show_message(area_name[a]);
+    chime(523, 8);
+    return 1;
+}
+
+// Pressing against an open map edge leads to the next area.
+static void check_exits(void) {
+    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
+        enter_area(area_east[cur_area], 2, py);
+    else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0)
+        enter_area(area_west[cur_area], WORLD_PX - 18, py);
+    else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0)
+        enter_area(area_south[cur_area], px, 2);
+    else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0)
+        enter_area(area_north[cur_area], px, WORLD_PX - 18);
+}
+
 static void update_player(void) {
     s32 speed = HELD(KEY_B) ? 2 : 1;
     if (home_done[KIND_BREEZE]) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
@@ -520,6 +596,7 @@ static void update_player(void) {
     } else {
         pstep = 0;
     }
+    check_exits();
 }
 
 static void update_spirits(void) {
@@ -557,6 +634,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
             set_tile(mx, my, DIRT);
             restorable_count++;
+            stone++;
             sparkle_at(mx, my);
         }
         draw_life();
@@ -577,12 +655,103 @@ static int use_power(s32 kind, s32 mx, s32 my) {
     return 1;
 }
 
+// ---------- materials, chests, lore ----------
+static char num_msg[32];
+
+static u32 count_set(const u8 *a, s32 n) { u32 c = 0; for (s32 i = 0; i < n; i++) c += a[i] != 0; return c; }
+
+// "+1 FRUIT" style messages; numbers stay small (0..999).
+static char *fmt_num(char *p, u32 v) {
+    if (v >= 100) *p++ = '0' + v / 100 % 10;
+    if (v >= 10) *p++ = '0' + v / 10 % 10;
+    *p++ = '0' + v % 10;
+    return p;
+}
+static void str_cat(char **p, const char *s) { while (*s) *(*p)++ = *s++; }
+
+static const char *lore[NUM_WRECKS][3] = {
+    { "A RUSTED VAEL PUMP.", "IT DRANK THE RIVER DOWN", "UNTIL THE VALLEY WENT GRAY." },
+    { "A FALLEN VAEL WIND TOWER.", "VAEL PUSHED THE RAIN CLOUDS", "AWAY TO SELL THEM NORTH." },
+    { "A COLD VAEL DRILL.", "IT DUG FOR WATER BELOW", "AND THE SPRINGS WENT SILENT." },
+};
+static const char *chest_reward[NUM_CHESTS] = {
+    "+5 SEEDS AND +3 FRUIT!", "EVERY SPIRIT: +1 MAX CHARGE!", "HOMES NOW PULSE TWICE AS FAST!",
+};
+
+static int find_at(const u8 *ax, const u8 *ay, const u8 *aa, s32 n, s32 mx, s32 my) {
+    for (s32 i = 0; i < n; i++)
+        if (aa[i] == cur_area && ax[i] == mx && ay[i] == my) return i;
+    return -1;
+}
+
+static void open_chest(s32 i, s32 mx, s32 my) {
+    chest_open[i] = 1;
+    set_tile(mx, my, CHEST_OPEN);
+    if (i == 0) { seeds += 5; fruit += 3; }
+    if (i == 1) {
+        bonus_charge = 1;
+        for (s32 k = 0; k < NUM_SPIRITS; k++) spirits[k].energy++;
+        draw_active();
+    }
+    if (i == 2) pulse_div = 2;
+    chime(1319, 14);
+    sparkle_at(mx, my);
+    show_message("YOU FOUND A RELIC!");
+    queue_message(chest_reward[i]);
+}
+
+static void read_wreck(s32 i) {
+    if (!wreck_read[i]) { wreck_read[i] = 1; chime(330, 10); }
+    show_message(lore[i][0]);
+    queue_message(lore[i][1]);
+    queue_message(lore[i][2]);
+    char *p = num_msg;
+    str_cat(&p, "LORE FOUND: ");
+    p = fmt_num(p, count_set(wreck_read, NUM_WRECKS));
+    str_cat(&p, " OF ");
+    p = fmt_num(p, NUM_WRECKS);
+    *p = 0;
+    queue_message(num_msg);
+}
+
+// A on a chest, a pump, a fruit tree, or flowers does that instead of a spirit power.
+// Returns 1 if it handled the press.
+static int interact(s32 mx, s32 my) {
+    u8 t = tile_at(mx, my);
+    s32 i;
+    if (t == CHEST && (i = find_at(chest_x, chest_y, chest_area, NUM_CHESTS, mx, my)) >= 0) {
+        open_chest(i, mx, my); return 1;
+    }
+    if (t == WRECK && (i = find_at(wreck_x, wreck_y, wreck_area, NUM_WRECKS, mx, my)) >= 0) {
+        read_wreck(i); return 1;
+    }
+    u32 bit = my * MAP_W + mx;
+    if (t == TREE && !(picked[cur_area][bit >> 3] & (1 << (bit & 7)))) {
+        picked[cur_area][bit >> 3] |= 1 << (bit & 7);
+        fruit++;
+        chime(784, 8);
+        sparkle_at(mx, my);
+        show_message("+1 FRUIT");
+        return 1;
+    }
+    if (t == FLOWERS) {
+        set_tile(mx, my, GRASS);
+        seeds++;
+        chime(880, 8);
+        show_message("+1 SEED");
+        return 1;
+    }
+    return 0;
+}
+
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
     if (pdir == DIR_RIGHT) fx += 14;
     if (pdir == DIR_UP)    fy -= 14;
     if (pdir == DIR_DOWN)  fy += 14;
+    if (interact(fx >> 4, fy >> 4)) return;
+    if (!party_count) return;
     Spirit *s = &spirits[party[active]];
     if (s->energy == 0) {
         chime(220, 6);
@@ -625,7 +794,8 @@ static void send_home(s32 k) {
     party_remove(k);
     s->state = SP_HOME;
     s->x = home_site_x[k] * 16; s->y = home_site_y[k] * 16;
-    s->energy = ENERGY_MAX_HOUSED;
+    s->area = home_site_area[k];
+    s->energy = ENERGY_MAX_HOUSED + bonus_charge;
 }
 
 static void try_build_home(s32 k) {
@@ -675,7 +845,7 @@ static void handle_action(void) {
     // Spirits not in the party react when the player is close.
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->state == SP_JOINED || !near_px(s->x, s->y, 28)) continue;
+        if (s->state == SP_JOINED || s->area != cur_area || !near_px(s->x, s->y, 28)) continue;
         if (s->state == SP_ASLEEP) {
             // Only a hint; A still uses your spirit so you can bloom beside it.
             if (msg_timer == 0) show_message("IT SLEEPS. BLOOM NEAR IT");
@@ -699,7 +869,7 @@ static void handle_action(void) {
     // A button when the action can happen; otherwise A still uses your spirit (so you can
     // bloom the land around a site).
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
-        if (!near_px(home_site_x[k] * 16, home_site_y[k] * 16, 24)) {
+        if (home_site_area[k] != cur_area || !near_px(home_site_x[k] * 16, home_site_y[k] * 16, 24)) {
             if (just_called == k) just_called = -1;
             continue;
         }
@@ -729,7 +899,7 @@ static void handle_action(void) {
         return;
     }
 
-    if (party_count && HIT(KEY_A)) use_ability();
+    if (HIT(KEY_A)) use_ability();
 }
 
 // Energy: standing on living ground slowly recharges the party (twice as fast with Ripple's
@@ -748,7 +918,7 @@ static void update_homes(void) {
         if (got) { chime(1319, 5); changed = 1; }
     }
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
-        if (!home_done[k]) continue;
+        if (!home_done[k] || home_site_area[k] != cur_area) continue;
         s32 dx = fx - home_site_x[k], dy = fy - home_site_y[k];
         if (dx * dx + dy * dy > 4) continue;
         for (s32 p = 0; p < party_count; p++) {
@@ -760,29 +930,32 @@ static void update_homes(void) {
 
     // Pulses: ring r turns living, ring r+1 becomes the dirt edge. Rings follow the same
     // distance rules as blooms, so rock walls and water stop them.
+    // Homes in other areas keep pulsing: their map changes in memory only.
     int grew = 0;
     s32 g = HOME_REACH * 2 + 1;
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
-        if (!home_done[k] || pulse_r[k] >= HOME_REACH || ++pulse_timer[k] < HOME_PULSE) continue;
+        if (!home_done[k] || pulse_r[k] >= HOME_REACH || ++pulse_timer[k] < HOME_PULSE / pulse_div) continue;
         pulse_timer[k] = 0;
         s32 r = ++pulse_r[k];
         s32 hx = home_site_x[k], hy = home_site_y[k];
+        use_area(home_site_area[k]);
         for (s32 gy = 0; gy < g; gy++)
             for (s32 gx = 0; gx < g; gx++) {
                 s32 d = home_dist[k][gy * g + gx];
                 if (d <= 10 * (r - 1) + 5 || d > 10 * (r + 1) + 5) continue;
                 grow_tile(hx + gx - HOME_REACH, hy + gy - HOME_REACH, d > 10 * r + 5);
             }
-        sparkle_at(hx, hy);
-        chime(scale[r & 7], 7);
+        check_wake();
+        if (work_area == cur_area) { sparkle_at(hx, hy); chime(scale[r & 7], 7); }
+        use_area(cur_area);
         grew = 1;
     }
-    if (grew) { draw_life(); check_wake(); }
+    if (grew) draw_life();
 }
 
 // The first step into the hidden spring gets a message.
 static void check_spring(void) {
-    if (told_spring) return;
+    if (told_spring || cur_area != 0) return;
     s32 mx = (px + 8) >> 4, my = (py + 12) >> 4;
     if (mx >= POCKET_X0 && mx <= POCKET_X1 && my >= POCKET_Y0 && my <= POCKET_Y1) {
         show_message("A HIDDEN SPRING!");
@@ -817,6 +990,7 @@ static void draw_sprites(void) {
 
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
+        if (s->area != cur_area) { sprite_hide(OAM_SPIRIT + i); sprite_hide(OAM_ZZZ + i); continue; }
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
@@ -837,6 +1011,39 @@ static void draw_sprites(void) {
     } else {
         sprite_hide(OAM_SPARKLE);
     }
+}
+
+// ---------- pause panel (START) ----------
+static int paused;
+static void panel_line(s32 row, const char *label, u32 a, s32 of, const char *label2, u32 b, s32 of2) {
+    char buf[24], *p = buf;
+    for (s32 i = 0; i < 22; i++) buf[i] = ' ';
+    buf[22] = 0;
+    p = buf + 1;
+    str_cat(&p, label);
+    p = fmt_num(p, a);
+    if (of >= 0) { *p++ = '/'; p = fmt_num(p, of); }
+    if (label2) {
+        p = buf + 12;
+        str_cat(&p, label2);
+        p = fmt_num(p, b);
+        if (of2 >= 0) { *p++ = '/'; p = fmt_num(p, of2); }
+    }
+    put_text(4, row, buf);
+}
+static void draw_panel(void) {
+    put_text(4, 5, "                      ");
+    put_text(4, 6, "        PAUSED        ");
+    put_text(4, 7, "                      ");
+    panel_line(8, "STONE  ", stone, -1, "FRUIT  ", fruit, -1);
+    panel_line(9, "SEEDS  ", seeds, -1, "RELICS ", count_set(chest_open, NUM_CHESTS), NUM_CHESTS);
+    panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, "LIFE % ", life_percent(), -1);
+    put_text(4, 11, "                      ");
+    put_text(4, 12, " L+R+START: NEW GAME  ");
+    put_text(4, 13, "                      ");
+}
+static void close_panel(void) {
+    for (s32 r = 5; r <= 13; r++) clear_row(r);
 }
 
 int main(void) {
@@ -884,7 +1091,9 @@ int main(void) {
         frame++;
         rng_state += keys_now;
 
-        if (HIT(KEY_START)) { reset_game(); continue; }
+        if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { paused = 0; reset_game(); continue; }
+        if (HIT(KEY_START)) { paused ^= 1; if (paused) draw_panel(); else close_panel(); }
+        if (paused) continue;
 
         update_player();
         update_spirits();

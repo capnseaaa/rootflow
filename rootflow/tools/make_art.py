@@ -55,7 +55,7 @@ OBJ_PAL = [
 # Metatile order matters: the game refers to these by index.
 META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "tree", "dead_tree", "rock", "water", "water_b", "bridge",
-        "thorn", "homesite"]
+        "thorn", "homesite", "chest", "chest_open", "wreck"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -244,13 +244,50 @@ def homesite(rng):
     return px
 
 
+def chest(rng, open_=False):
+    px = dead(rng)
+    # a small wooden chest with a gold latch
+    for y in range(5, 14):
+        for x in range(2, 14):
+            edge = y in (5, 13) or x in (2, 13)
+            px[y][x] = 15 if edge else (5 if y < 9 else 4)
+    for x in range(3, 13):
+        px[9][x] = 12                      # lid seam
+    if open_:
+        for y in range(6, 9):
+            for x in range(3, 13):
+                px[y][x] = 15                  # dark empty inside
+        for x in range(3, 13):
+            px[4][x] = 12; px[3][x] = 15       # lid tipped back
+    else:
+        px[9][7] = px[9][8] = 14; px[10][7] = px[10][8] = 13   # latch
+    return px
+
+
+def wreck(rng):
+    px = dead(rng)
+    # a rusted Vael pump: a squat tank, a bent pipe, rivets
+    for y in range(6, 15):
+        for x in range(3, 12):
+            edge = y in (6, 14) or x in (3, 11)
+            px[y][x] = 15 if edge else (3 if (x + y) % 4 else 13)
+    for y in range(2, 7):
+        px[y][9] = 15; px[y][10] = 1
+    for x in range(10, 15):
+        px[2][x] = 15; px[3][x] = 1
+    for x, y in ((5, 8), (9, 8), (5, 12), (9, 12)):
+        px[y][x] = 14
+    px[10][6] = px[10][7] = px[10][8] = 1     # dead gauge slot
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
         dead(rng), dead_crack(rng), dirt(rng), grass(rng, tufts=0),
         grass(rng, tufts=5), grass(rng, tufts=1, flowers=3), tree(rng),
         dead_tree(rng), rock(rng), water(rng, 0), water(rng, 1), bridge(rng),
-        thorn(rng), homesite(rng),
+        thorn(rng), homesite(rng), chest(rng), chest(rng, True), wreck(rng),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))

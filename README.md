@@ -10,10 +10,15 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - Powers cost energy. Rest on green land or at a home to recharge.
 - Build a home with help from two other spirits. A home pulses life around it and gives the whole team a bonus.
 
+## World
+- The valley, the Windy Steppe to the east, and Stone Hollow to the south. Walk off an open edge to travel.
+- Collect stone, fruit, and seeds; find hidden chests and the rusted machines Vael left behind.
+
 ## Controls
 - D-pad: move, B: run
 - A: greet a spirit / use the active spirit's power
-- R / L: next / previous spirit (SELECT also works), START: reset
+- R / L: next / previous spirit (SELECT also works)
+- START: pause (materials, relics, lore). L + R + START: new game
 
 ## Build
 Needs `arm-none-eabi-gcc` and Python 3 with Pillow.
