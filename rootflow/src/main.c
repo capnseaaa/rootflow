@@ -1066,7 +1066,14 @@ static void send_home(s32 k) {
     Spirit *s = &spirits[k];
     party_remove(k);
     s->state = SP_HOME;
-    s->x = home_site_x[k] * 16; s->y = home_site_y[k] * 16;
+    // It rests in front of its home (below, else beside it), so it does not hide the home's art.
+    s32 hx = home_site_x[k], hy = home_site_y[k];
+    use_area(home_site_area[k]);
+    if (!is_solid(tile_at(hx, hy + 1))) hy++;
+    else if (!is_solid(tile_at(hx + 1, hy))) hx++;
+    else if (!is_solid(tile_at(hx - 1, hy))) hx--;
+    use_area(cur_area);
+    s->x = hx * 16; s->y = hy * 16;
     s->area = home_site_area[k];
     s->energy = ENERGY_MAX_HOUSED + bonus_charge;
 }
@@ -1374,7 +1381,9 @@ static void handle_action(void) {
     // Spirits not in the party react when the player is close.
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->state == SP_JOINED || s->area != cur_area || !near_px(s->x, s->y, 28)) continue;
+        if (s->state == SP_JOINED || s->area != cur_area) continue;
+        // A housed spirit rests in front of its home; it also answers near the home itself.
+        if (!near_px(s->x, s->y, 28) && !(s->state == SP_HOME && near_px(home_site_x[i] * 16, home_site_y[i] * 16, 24))) continue;
         if (s->state == SP_ASLEEP) {
             // Only a hint; A still uses your spirit so you can bloom beside it.
             if (msg_timer == 0) show_message("IT SLEEPS. BLOOM NEAR IT");

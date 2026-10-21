@@ -652,41 +652,48 @@ def grove_base(rng, level):
 
 
 def spring_top(rng, level):
+    """A water-drop dome standing on a pale stone plinth. Level 2: the drop is taller, sprays a
+    jet of water from its tip, and has arched windows."""
     px = water(rng, 0)
-    if level == 1:      # a dome shaped like a water drop
-        for y in range(1, 16):
-            for x in range(16):
-                if y < 6:
-                    w = (y - 1) * 1.05                         # the drop's point
-                else:                                          # its round body
-                    w = max(0.0, 42.25 - (y - 9.5) ** 2) ** 0.5
-                if abs(x - 7.5) <= w:
-                    px[y][x] = 10
-                    if abs(x - 7.5) > w - 1 or y == 1:
-                        px[y][x] = 15
-        for y in range(5, 15):
-            for x in range(4, 8):
-                if px[y][x] == 10 and (x + y) % 5 == 0:
-                    px[y][x] = 11                              # ripples on the dome
-        dots(px, [(5, 6), (5, 7), (6, 5)], 11)                 # shine
-        for y in range(11, 16):                                # doorway
-            for x in range(6, 10):
-                px[y][x] = 9 if y > 11 else 15
-        dots(px, [(10, 9), (11, 11)], 9)
-    else:               # a stone arch with a waterfall pouring through it
-        for y in range(16):
-            for x in range(16):
-                if x < 3 or x > 12 or y < 3:
-                    px[y][x] = 3 if (x * 3 + y * 5) % 7 else 2   # stones
+    tip, cy, r = (2, 9.0, 5.4) if level == 1 else (2, 8.8, 5.9)
+    neck = cy - r * 0.6                                     # where the point meets the round body
+
+    def width(y):
+        if y < tip:
+            return -1.0
+        if y < neck:
+            return (y - tip) / max(1.0, neck - tip) * r * 0.8   # the drop's point
+        return max(0.0, r * r - (y - cy) ** 2) ** 0.5           # its round body
+
+    for y in range(12, 16):                                     # the plinth: a rounded stone ring
+        half = (6.5, 7.5, 7.5, 7.0)[y - 12]
         for x in range(16):
-            px[3][x] = 15 if 3 <= x <= 12 else px[3][x]
-        for y in range(3, 16):
-            px[y][3] = px[y][12] = 15
-        for y in range(4, 16):                                 # the falling water
-            for x in range(4, 12):
-                px[y][x] = 11 if (x + y * 2) % 5 == 0 else (10 if (x + y) % 3 else 9)
-        dots(px, [(1, 1), (6, 0), (11, 1), (14, 4), (1, 9)], 14)   # wet glints
-        dots(px, [(0, 12), (15, 12), (2, 14), (13, 14)], 8)       # moss
+            d = abs(x - 7.5)
+            if d <= half:
+                edge = d > half - 1 or y == 12
+                px[y][x] = 15 if edge else (3 if y == 15 or (x * 5 + y * 3) % 7 == 0 else 14)
+    for y in range(15):
+        for x in range(16):
+            w = width(y)
+            d = abs(x - 7.5)
+            if w >= 0 and d <= w:
+                px[y][x] = 15 if (d > w - 1 or y == tip) else (11 if x < 7.5 - w + 2.5 else 10)
+    for y in range(int(neck), 14):                              # ripples on the dome
+        for x in range(6, 10):
+            if px[y][x] == 10 and (x + y) % 5 == 0:
+                px[y][x] = 11
+    for y, xs in ((11, (7, 8)), (12, (6, 7, 8, 9)), (13, (6, 7, 8, 9)), (14, (6, 7, 8, 9)), (15, (6, 7, 8, 9))):
+        for x in xs:                                            # an arched doorway
+            px[y][x] = 9
+    dots(px, [(6, 11), (9, 11), (5, 12), (10, 12)], 15)
+    if level == 2:
+        for wx in (4, 11):                                      # arched windows
+            dots(px, [(wx, 8), (wx, 9)], 9)
+        # the jet from the tip, falling in two arcs
+        dots(px, [(7, 0), (8, 0), (7, 1), (8, 1)], 14)
+        dots(px, [(6, 0), (9, 0), (5, 1), (10, 1), (4, 2), (11, 2), (3, 3), (12, 3)], 11)
+        dots(px, [(2, 4), (13, 4), (2, 5), (13, 5), (1, 7), (14, 7)], 11)
+        dots(px, [(1, 8), (14, 8)], 14)
     return px
 
 
