@@ -55,7 +55,8 @@ typedef signed int     s32;
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
        THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
-       PATH, FLOWERBED, FLOWERBED_EMPTY, SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH };
+       PATH, FLOWERBED, FLOWERBED_EMPTY, SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH,
+       DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -130,12 +131,15 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 static int is_solid(u8 t) {
     return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN ||
            t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR || t == DRY_RIVER ||
-           t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH;
+           t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH ||
+           t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
+           t == STATUE || t == PINWHEEL;
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
     return t == PATH || t == FLOWERBED || t == FLOWERBED_EMPTY || t == SAPLING || t == FRUIT_TREE ||
-           t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH;
+           t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH || t == BLOSSOM || t == FOUNTAIN ||
+           t == STATUE || t == PINWHEEL;
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || is_built(t);
@@ -143,7 +147,8 @@ static int is_alive(u8 t) {
 
 static int is_restorable(u8 t) {
     return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
-             t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE);
+             t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
+             t == LEVER_PULLED || t == LOST_STONE);
 }
 
 static void draw_area(void) {
@@ -217,7 +222,7 @@ static void show_message(const char *s) {
 }
 
 // Messages that wait their turn (lore, endings). Shown when the current message ends.
-#define MSGQ 4
+#define MSGQ 8   // quest offers, rewards, and the ending can stack up
 static const char *msg_queue[MSGQ];
 static u32 msgq_len;
 static void queue_message(const char *s) {
@@ -291,6 +296,7 @@ static void oam_flush(void) {
 #define OAM_SPIRIT  1   // 1..NUM_SPIRITS
 #define OAM_ZZZ     5   // 5..5+NUM_SPIRITS-1
 #define OAM_SPARKLE 9
+#define OAM_GLOW    10
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -368,6 +374,16 @@ static int in_party(s32 kind) {
     return 0;
 }
 
+// ---------- friendship ----------
+// Friendship points 0..100 per spirit; every 20 is a heart (max 5).
+static u8 fp[NUM_SPIRITS];
+static u8 quest[NUM_SPIRITS];          // 0 not offered, 1 active, 2 done
+static u8 unlocked[NUM_SPIRITS];       // quest reward build item unlocked
+static s32 bonded = -1;                // the bonded companion's kind, or -1
+static u32 thorn_quest;                // thorns cleared since Breeze asked
+static s32 hearts(s32 k) { return fp[k] / 20; }
+static int boosted(s32 k) { return hearts(k) >= 3; }   // the 3-heart power boost
+
 // ---------- materials and relics ----------
 static u32 stone, fruit, seeds;
 static u8 chest_open[NUM_CHESTS], wreck_read[NUM_WRECKS];
@@ -375,7 +391,7 @@ static u8 picked[NUM_AREAS][MAP_W * MAP_H / 8];   // one bit per tile: a tree al
 static s32 pulse_div = 1;                          // 2 after the hollow chest: homes pulse twice as fast
 
 // ---------- blooms ----------
-#define BR 6                      // max bloom radius in tiles (4 near water, +1 grove, +2 grove level 2)
+#define BR 8                      // max bloom radius: 4 near water, +2 grove level 2, +1 at 3 hearts, +1 bonded
 #define BGRID (BR * 2 + 1)
 typedef struct { s32 cx, cy, r, maxr, timer, active; u8 dist[BGRID * BGRID]; } Bloom;
 #define MAX_BLOOMS 6
@@ -430,6 +446,9 @@ static void reset_game(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_level[i] = 0;
     build_item = 0;
     grow_timer = 0;
+    for (s32 i = 0; i < NUM_SPIRITS; i++) fp[i] = quest[i] = unlocked[i] = 0;
+    bonded = -1;
+    thorn_quest = 0;
     msgq_len = 0;
     party_count = 0; active = 0;
     for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
@@ -475,7 +494,8 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
     for (s32 gy = 0; gy < g; gy++)
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
-            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR || t == DRY_RIVER);
+            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR || t == DRY_RIVER ||
+                                        t == DAM || t == LOST_STONE);
             dist[gy * g + gx] = 255;
         }
     dist[R * g + R] = 0;
@@ -512,7 +532,7 @@ static void start_bloom(s32 mx, s32 my) {
         Bloom *b = &blooms[i];
         b->cx = mx; b->cy = my; b->r = -1; b->timer = 0; b->active = 1;
         int wet = water_near(mx, my, 3);
-        b->maxr = (wet ? 4 : 2) + home_level[KIND_SPROUT];   // grove bonus: +1, or +2 at level 2
+        b->maxr = (wet ? 4 : 2) + home_level[KIND_SPROUT] + boosted(KIND_SPROUT) + (bonded == KIND_SPROUT);
         bloom_distances(b);
         sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 40;
         if (wet && !told_river) { show_message("THE RIVER FEEDS THE ROOTS"); told_river = 1; }
@@ -652,6 +672,46 @@ static void update_spirits(void) {
 
 static void sparkle_at(s32 mx, s32 my) { sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 30; }
 
+static const char *quest_ask[NUM_SPIRITS][2] = {
+    { "SPROUT: PLANT 3 FLOWER", "BEDS BY MY GROVE?" },
+    { "RIPPLE: A VAEL DAM UP NORTH", "IN THE STEPPE HOLDS MY RIVER." },
+    { "PEBBLE: I LOST A STANDING", "STONE IN THE VALLEY..." },
+    { "BREEZE: HELP ME CLEAR", "30 THORNS WITH MY GUSTS!" },
+};
+static const char *quest_reward[NUM_SPIRITS] = {
+    "NEW BUILD: BLOSSOM TREE", "NEW BUILD: FOUNTAIN", "NEW BUILD: PEBBLE STATUE", "NEW BUILD: PINWHEEL",
+};
+static const char *grew_msg[NUM_SPIRITS] = {
+    "SPROUT GREW STRONGER!", "RIPPLE GREW STRONGER!", "PEBBLE GREW STRONGER!", "BREEZE GREW STRONGER!",
+};
+static const char *trust_msg[NUM_SPIRITS] = {
+    "SPROUT TRUSTS YOU FULLY!", "RIPPLE TRUSTS YOU FULLY!", "PEBBLE TRUSTS YOU FULLY!", "BREEZE TRUSTS YOU FULLY!",
+};
+
+static void add_fp(s32 k, s32 n) {
+    s32 before = hearts(k);
+    s32 v = fp[k] + n;
+    fp[k] = v > 100 ? 100 : v;
+    s32 after = hearts(k);
+    if (before < 2 && after >= 2 && quest[k] == 0) {
+        quest[k] = 1;
+        queue_message(quest_ask[k][0]);
+        queue_message(quest_ask[k][1]);
+    }
+    if (before < 3 && after >= 3) queue_message(grew_msg[k]);
+    if (before < 5 && after >= 5) { queue_message(trust_msg[k]); queue_message("BOND IN THE SPIRITS MENU."); }
+}
+
+static void complete_quest(s32 k) {
+    if (quest[k] != 1) return;
+    quest[k] = 2;
+    unlocked[k] = 1;
+    chime(1319, 14);
+    queue_message("QUEST DONE!");
+    queue_message(quest_reward[k]);
+    add_fp(k, 30);
+}
+
 // Returns 1 if the power did something (and so costs a charge).
 static int use_power(s32 kind, s32 mx, s32 my) {
     u8 t = tile_at(mx, my);
@@ -662,15 +722,23 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE) {
         if (t != WATER && t != DRY_RIVER) return 0;
-        set_tile(mx, my, t == WATER ? BRIDGE : DRY_BRIDGE);
+        // 1 plank; 2 at 3 hearts; 3 when bonded.
+        s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
+        s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+        s32 n = bonded == KIND_RIPPLE ? 3 : 1 + boosted(KIND_RIPPLE);
+        for (s32 k = 0; k < n; k++, mx += sx, my += sy) {
+            u8 w = tile_at(mx, my);
+            if (w != WATER && w != DRY_RIVER) break;
+            set_tile(mx, my, w == WATER ? BRIDGE : DRY_BRIDGE);
+            sparkle_at(mx, my);
+        }
         chime(392, 12);
-        sparkle_at(mx, my);
     } else if (kind == KIND_STONE) {
         if (t != ROCK) return 0;
         // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
         s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
         s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
-        s32 reach = 1 + home_level[KIND_STONE];   // cairn bonus: 2 rocks, 3 at level 2
+        s32 reach = 1 + home_level[KIND_STONE] + boosted(KIND_STONE) + (bonded == KIND_STONE ? 2 : 0);
         for (s32 k = 0; k < reach && tile_at(mx, my) == ROCK; k++, mx += sx, my += sy) {
             if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
             set_tile(mx, my, DIRT);
@@ -685,10 +753,12 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         if (t != THORN) return 0;
         s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
         s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
-        for (s32 k = 0; k < 3 && tile_at(mx, my) == THORN; k++, mx += sx, my += sy) {
+        s32 n = 3 + 2 * boosted(KIND_BREEZE) + (bonded == KIND_BREEZE ? 3 : 0);
+        for (s32 k = 0; k < n && tile_at(mx, my) == THORN; k++, mx += sx, my += sy) {
             set_tile(mx, my, DEAD);
             restorable[work_area]++;
             sparkle_at(mx, my);
+            if (quest[KIND_BREEZE] == 1 && ++thorn_quest >= 30) complete_quest(KIND_BREEZE);
         }
         draw_life();
         chime(880, 10);
@@ -768,6 +838,30 @@ static int interact(s32 mx, s32 my) {
     if (t == WRECK && (i = find_at(wreck_x, wreck_y, wreck_area, NUM_WRECKS, mx, my)) >= 0) {
         read_wreck(i); return 1;
     }
+    if (t == LEVER) {
+        if (quest[KIND_RIPPLE] != 1) { show_message("A RUSTED VAEL LEVER."); queue_message("IT IS STUCK FAST."); return 1; }
+        if (!in_party(KIND_RIPPLE)) { show_message("IT WON'T MOVE. RIPPLE"); queue_message("SHOULD BE HERE TO HELP."); return 1; }
+        // Ripple pushes the water through: the dam opens and the whole steppe river flows again.
+        set_tile(mx, my, LEVER_PULLED);
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 w = world[i];
+            if (w == DRY_RIVER || w == DAM) set_tile(i % MAP_W, i / MAP_W, WATER);
+            else if (w == DRY_BRIDGE) set_tile(i % MAP_W, i / MAP_W, BRIDGE);
+        }
+        chime(330, 14);
+        show_message("THE DAM OPENS!");
+        queue_message("THE RIVER FLOWS AGAIN!");
+        complete_quest(KIND_RIPPLE);
+        return 1;
+    }
+    if (t == LOST_STONE) {
+        if (quest[KIND_STONE] != 1) { show_message("A SMALL STANDING STONE."); queue_message("IT HUMS SOFTLY."); return 1; }
+        set_tile(mx, my, MENHIR);
+        sparkle_at(mx, my);
+        show_message("PEBBLE'S LOST STONE!");
+        complete_quest(KIND_STONE);
+        return 1;
+    }
     u32 bit = my * MAP_W + mx;
     if (t == TREE && !(picked[cur_area][bit >> 3] & (1 << (bit & 7)))) {
         picked[cur_area][bit >> 3] |= 1 << (bit & 7);
@@ -818,14 +912,15 @@ static void use_ability(void) {
     if (interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
-    if (s->energy == 0) {
+    if (s->energy == 0 && !(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) {
         chime(220, 6);
         show_message(spirit_tired[s->kind]);
         if (msgq_len == 0) queue_message(REST_TIP);
         return;
     }
     if (!use_power(s->kind, fx >> 4, fy >> 4)) { chime(262, 6); return; }
-    s->energy--;
+    if (!(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) s->energy--;   // a bonded Sprout blooms for free
+    add_fp(s->kind, 2);
     draw_active();
     if (!told_rest) { told_rest = 1; queue_message(REST_TIP); }
 }
@@ -883,6 +978,7 @@ static void try_build_home(s32 k) {
     pulse_timer[k] = HOME_PULSE - 120;   // first pulse two seconds after building
     home_level[k] = 1;
     flood_dist(home_dist[k], hx, hy, HOME_REACH_L1);
+    add_fp(k, 20);
     s32 all = 1;
     for (s32 i = 0; i < NUM_SPIRITS; i++) all &= home_done[i];
     if (all && !told_ending) {
@@ -899,15 +995,21 @@ static int near_px(s32 x, s32 y, s32 r) {
 }
 
 // ---------- building (hold SELECT) ----------
-enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, NUM_BUILDS };
-static const u8 build_tile[NUM_BUILDS] = { PATH, FLOWERBED, SAPLING, LANTERN, BENCH, 0 };
+// The last four items are quest rewards and appear once their quest is done (unlocked[]).
+enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL,
+       NUM_BUILDS };
+static const u8 build_tile[NUM_BUILDS] = { PATH, FLOWERBED, SAPLING, LANTERN, BENCH, 0,
+                                           BLOSSOM, FOUNTAIN, STATUE, PINWHEEL };
 static const u8 build_cost[NUM_BUILDS][3] = {   // stone, seeds, fruit
     { 1, 0, 0 }, { 0, 2, 0 }, { 0, 1, 1 }, { 3, 0, 0 }, { 2, 0, 1 }, { 5, 5, 3 },
+    { 0, 3, 2 }, { 4, 0, 2 }, { 6, 0, 0 }, { 2, 2, 0 },
 };
 static const char *build_text[NUM_BUILDS] = {
     "PATH: 1 STONE", "FLOWER BED: 2 SEEDS", "SAPLING: 1 SEED 1 FRUIT", "LANTERN: 3 STONE",
     "BENCH: 2 STONE 1 FRUIT", "HOME: 5 STONE 5 SEED 3 FRUIT",
+    "BLOSSOM: 3 SEEDS 2 FRUIT", "FOUNTAIN: 4 STONE 2 FRUIT", "STATUE: 6 STONE", "PINWHEEL: 2 STONE 2 SEEDS",
 };
+static int build_ok(s32 b) { return b < B_BLOSSOM || unlocked[b - B_BLOSSOM]; }
 
 static s32 build_of_tile(u8 t) {
     switch (t) {
@@ -916,6 +1018,10 @@ static s32 build_of_tile(u8 t) {
     case SAPLING: case FRUIT_TREE: case FRUIT_TREE_BARE: return B_SAPLING;
     case LANTERN: return B_LANTERN;
     case BENCH: return B_BENCH;
+    case BLOSSOM: return B_BLOSSOM;
+    case FOUNTAIN: return B_FOUNTAIN;
+    case STATUE: return B_STATUE;
+    case PINWHEEL: return B_PINWHEEL;
     }
     return -1;
 }
@@ -924,6 +1030,18 @@ static int can_pay(s32 b) {
 }
 static void pay(s32 b, s32 sign) {
     stone += sign * build_cost[b][0]; seeds += sign * build_cost[b][1]; fruit += sign * build_cost[b][2];
+}
+
+// Sprout's quest: three flower beds within 5 tiles of its grove site (in the valley).
+static void check_sprout_quest(void) {
+    if (quest[KIND_SPROUT] != 1) return;
+    s32 n = 0, hx = home_site_x[KIND_SPROUT], hy = home_site_y[KIND_SPROUT];
+    u8 *m = maps[home_site_area[KIND_SPROUT]];
+    for (s32 y = hy - 5; y <= hy + 5; y++)
+        for (s32 x = hx - 5; x <= hx + 5; x++)
+            if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H &&
+                (m[y * MAP_W + x] == FLOWERBED || m[y * MAP_W + x] == FLOWERBED_EMPTY)) n++;
+    if (n >= 3) complete_quest(KIND_SPROUT);
 }
 
 // Upgrade the built home next to the player to level 2: it reaches 12 tiles and its bonus grows.
@@ -935,6 +1053,7 @@ static void upgrade_home(void) {
         if (!can_pay(B_UPGRADE)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
         pay(B_UPGRADE, -1);
         home_level[k] = 2;
+        add_fp(k, 20);
         flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);   // pulses go on to 12
         chime(1319, 14);
         sparkle_at(home_site_x[k], home_site_y[k]);
@@ -946,8 +1065,8 @@ static void upgrade_home(void) {
 }
 
 static void build_mode(void) {
-    if (HIT(KEY_R)) build_item = (build_item + 1) % NUM_BUILDS;
-    if (HIT(KEY_L)) build_item = (build_item + NUM_BUILDS - 1) % NUM_BUILDS;
+    if (HIT(KEY_R)) do build_item = (build_item + 1) % NUM_BUILDS; while (!build_ok(build_item));
+    if (HIT(KEY_L)) do build_item = (build_item + NUM_BUILDS - 1) % NUM_BUILDS; while (!build_ok(build_item));
     if (HIT(KEY_SELECT | KEY_R | KEY_L) || msg_timer < 30) { show_message(build_text[build_item]); msg_timer = 40; }
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
@@ -964,6 +1083,7 @@ static void build_mode(void) {
         set_tile(mx, my, build_tile[build_item]);
         chime(659, 10);
         sparkle_at(mx, my);
+        if (build_item == B_BED) check_sprout_quest();
     }
     if (HIT(KEY_B)) {
         s32 b = build_of_tile(t);
@@ -991,9 +1111,54 @@ static void update_growth(void) {
         }
     }
     use_area(cur_area);
+    check_sprout_quest();
+}
+
+// ---------- gifts: tap B while facing a spirit ----------
+static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2 };          // 0 stone, 1 fruit, 2 seeds
+static const char *favorite_name[3] = { "STONE", "FRUIT", "SEEDS" };
+static const char *loves_msg[NUM_SPIRITS] = {
+    "SPROUT LOVES THE SEEDS!", "RIPPLE LOVES THE FRUIT!", "PEBBLE LOVES THE STONE!", "BREEZE LOVES THE SEEDS!",
+};
+static u32 b_hold;
+static void try_gift(void) {
+    s32 fx = px + 8, fy = py + 12;
+    if (pdir == DIR_LEFT)  fx -= 14;
+    if (pdir == DIR_RIGHT) fx += 14;
+    if (pdir == DIR_UP)    fy -= 14;
+    if (pdir == DIR_DOWN)  fy += 14;
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        Spirit *sp = &spirits[k];
+        if (sp->area != cur_area || (sp->state != SP_JOINED && sp->state != SP_HOME)) continue;
+        s32 dx = sp->x + 8 - fx, dy = sp->y + 8 - fy;
+        if (dx * dx + dy * dy > 12 * 12) continue;
+        u32 *have = favorite[k] == 0 ? &stone : favorite[k] == 1 ? &fruit : &seeds;
+        if (*have == 0) {
+            char *p = num_msg;
+            str_cat(&p, spirit_name[k]);
+            str_cat(&p, " WANTS ");
+            str_cat(&p, favorite_name[favorite[k]]);
+            *p = 0;
+            chime(262, 6);
+            show_message(num_msg);
+            return;
+        }
+        (*have)--;
+        chime(1047, 10);
+        show_message(loves_msg[k]);
+        sparkle_at((sp->x + 8) >> 4, (sp->y + 8) >> 4);
+        add_fp(k, 10);
+        return;
+    }
 }
 
 static void handle_action(void) {
+    // A short tap of B (released within 10 frames) is a gift; holding B is running.
+    if (HELD(KEY_B)) b_hold++;
+    else {
+        if (b_hold && b_hold < 10 && !HELD(KEY_SELECT)) try_gift();
+        b_hold = 0;
+    }
     // R swaps to the next spirit, L to the previous one.
     if (HELD(KEY_SELECT)) { build_mode(); return; }   // SELECT is the builder
     s32 step = HIT(KEY_R) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
@@ -1166,6 +1331,11 @@ static void draw_sprites(void) {
         }
     }
 
+    // The bonded companion glows: a soft sparkle that blinks above it.
+    if (bonded >= 0 && spirits[bonded].area == cur_area && ((frame >> 4) & 1))
+        sprite_set(OAM_GLOW, spirits[bonded].x - cam_x + 4, spirits[bonded].y - cam_y - 14, SPR_SPARKLE, 0, PAL_FX);
+    else
+        sprite_hide(OAM_GLOW);
     if (sparkle_life > 0) {
         sparkle_life--;
         sprite_set(OAM_SPARKLE, sparkle_x - cam_x, sparkle_y - cam_y - (40 - sparkle_life) / 4,
@@ -1183,7 +1353,7 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x32534652u   // "RFS2" (v0.7: new spirit places, home levels, built things)
+#define SAVE_MAGIC 0x33534652u   // "RFS3" (v0.9: friendship, quests, bond)
 
 // Everything that makes up a game in progress, in save order.
 static const struct { void *p; u32 n; } save_fields[] = {
@@ -1194,6 +1364,7 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &stone, 4 }, { &fruit, 4 }, { &seeds, 4 },
     { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked) },
     { &bonus_charge, 4 }, { &pulse_div, 4 }, { home_level, sizeof(home_level) }, { &build_item, 4 },
+    { fp, sizeof(fp) }, { quest, sizeof(quest) }, { unlocked, sizeof(unlocked) }, { &bonded, 4 }, { &thorn_quest, 4 },
     { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
@@ -1290,6 +1461,39 @@ static void draw_menu_list(void) {
     }
 }
 
+static s32 spirit_cursor;
+static const char *quest_short[NUM_SPIRITS][2] = {
+    { "PLANT 3 FLOWER", "BEDS BY MY GROVE" }, { "PULL THE VAEL", "LEVER, STEPPE" },
+    { "FIND MY LOST", "STONE, VALLEY" }, { "CLEAR 30 THORNS", "WITH MY GUSTS" },
+};
+static void draw_hearts(s32 col, s32 row, s32 k) {
+    for (s32 i = 0; i < 5; i++) put_text_win(col + i, row, i < hearts(k) ? "*" : "@");
+}
+static s32 beds_by_grove(void) {
+    s32 n = 0, hx = home_site_x[KIND_SPROUT], hy = home_site_y[KIND_SPROUT];
+    u8 *m = maps[home_site_area[KIND_SPROUT]];
+    for (s32 y = hy - 5; y <= hy + 5; y++)
+        for (s32 x = hx - 5; x <= hx + 5; x++)
+            if (x >= 0 && y >= 0 && x < MAP_W && y < MAP_H &&
+                (m[y * MAP_W + x] == FLOWERBED || m[y * MAP_W + x] == FLOWERBED_EMPTY)) n++;
+    return n;
+}
+
+// Bond k as your companion for good: it leads the party and its power is supercharged.
+static void bond_with(s32 k) {
+    bonded = k;
+    if (in_party(k)) {
+        s32 n = 0, order[NUM_SPIRITS];
+        order[n++] = k;
+        for (s32 p = 0; p < party_count; p++) if (party[p] != k) order[n++] = party[p];
+        for (s32 p = 0; p < party_count; p++) party[p] = order[p];
+        active = 0;
+        draw_active();
+    }
+    chime(1319, 14);
+    show_message("A BOND FOR LIFE!");
+}
+
 static void draw_page(void) {
     draw_window(0, 1, 18, 15);
     s32 r = 2;
@@ -1298,27 +1502,66 @@ static void draw_page(void) {
         r++;
         for (s32 k = 0; k < NUM_SPIRITS; k++) {
             Spirit *sp = &spirits[k];
+            put_text_win(1, r, k == spirit_cursor ? ">" : " ");
             if (sp->state == SP_ASLEEP) { put_text_win(2, r, "???"); r += 3; continue; }
-            if (sp->state == SP_HOME) {
-                put_text_win(2, r, spirit_name[k]);
-                put_text_win(11, r, "AT HOME");
-            } else {
-                put_text_win(2, r, num_line(spirit_name[k], sp->energy, energy_max(sp), 16));
-            }
+            put_text_win(2, r, spirit_name[k]);
+            draw_hearts(11, r, k);
             r++;
-            if (home_done[k]) {
-                char *p = line;
-                str_cat(&p, "  ");
-                str_cat(&p, home_name[k]);
-                str_cat(&p, " LV ");
-                p = fmt_num(p, home_level[k]);
-                *p = 0;
-                put_text_win(2, r, line);
-            } else {
-                put_text_win(2, r, "  NO HOME YET");
-            }
+            char *p = line;
+            str_cat(&p, "  ");
+            if (sp->state == SP_HOME) str_cat(&p, "AT HOME");
+            else { p = fmt_num(p, sp->energy); *p++ = '/'; p = fmt_num(p, energy_max(sp)); }
+            if (bonded == k) str_cat(&p, "  BOND");
+            *p = 0;
+            put_text_win(2, r, line);
             r += 2;
         }
+    } else if (menu_page >= 10 && menu_page < 10 + NUM_SPIRITS) {
+        s32 k = menu_page - 10;
+        put_text_win(2, r, spirit_name[k]);
+        draw_hearts(11, r++, k);
+        r++;
+        char *p = line;
+        str_cat(&p, "LOVES ");
+        str_cat(&p, favorite_name[favorite[k]]);
+        *p = 0;
+        put_text_win(2, r++, line);
+        if (home_done[k]) {
+            p = line;
+            str_cat(&p, home_name[k]);
+            str_cat(&p, " LV ");
+            p = fmt_num(p, home_level[k]);
+            *p = 0;
+            put_text_win(2, r++, line);
+        } else put_text_win(2, r++, "NO HOME YET");
+        r++;
+        if (quest[k] == 0) put_text_win(2, r++, "NO REQUEST YET");
+        else if (quest[k] == 2) put_text_win(2, r++, "QUEST DONE!");
+        else {
+            put_text_win(2, r++, quest_short[k][0]);
+            put_text_win(2, r++, quest_short[k][1]);
+            if (k == KIND_SPROUT) put_text_win(2, r++, num_line("BEDS", beds_by_grove(), 3, 16));
+            if (k == KIND_BREEZE) put_text_win(2, r++, num_line("CLEARED", thorn_quest, 30, 16));
+        }
+        r++;
+        if (bonded == k) put_text_win(2, r++, "YOUR COMPANION");
+        else if (bonded >= 0) put_text_win(2, r++, "");
+        else if (hearts(k) >= 5) put_text_win(2, r++, "A: BOND");
+        else put_text_win(2, r++, "BOND AT 5 HEARTS");
+    } else if (menu_page >= 20 && menu_page < 20 + NUM_SPIRITS) {
+        s32 k = menu_page - 20;
+        char *p = line;
+        str_cat(&p, "BOND WITH ");
+        str_cat(&p, spirit_name[k]);
+        *p++ = '?';
+        *p = 0;
+        put_text_win(2, r++, line);
+        r++;
+        put_text_win(2, r++, "THIS CAN NEVER");
+        put_text_win(2, r++, "BE UNDONE.");
+        r++;
+        put_text_win(2, r++, "A: BOND");
+        put_text_win(2, r++, "B: NOT YET");
     } else if (menu_page == M_BAG) {
         put_text_win(2, r++, "BAG");
         r++;
@@ -1384,6 +1627,25 @@ static void update_menu(void) {
         }
         return;
     }
+    if (menu_page == M_SPIRITS) {
+        s32 old = spirit_cursor;
+        if (HIT(KEY_DOWN)) spirit_cursor = (spirit_cursor + 1) % NUM_SPIRITS;
+        if (HIT(KEY_UP)) spirit_cursor = (spirit_cursor + NUM_SPIRITS - 1) % NUM_SPIRITS;
+        if (old != spirit_cursor) { draw_page(); chime(659, 4); }
+        if (HIT(KEY_A) && spirits[spirit_cursor].state != SP_ASLEEP) {
+            menu_page = 10 + spirit_cursor; draw_page(); chime(784, 6); return;
+        }
+    } else if (menu_page >= 10 && menu_page < 10 + NUM_SPIRITS) {
+        s32 k = menu_page - 10;
+        if (HIT(KEY_A) && bonded < 0 && hearts(k) >= 5) { menu_page = 20 + k; draw_page(); chime(784, 6); return; }
+        if (HIT(KEY_B)) { menu_page = M_SPIRITS; draw_page(); chime(523, 4); return; }
+        return;
+    } else if (menu_page >= 20 && menu_page < 20 + NUM_SPIRITS) {
+        s32 k = menu_page - 20;
+        if (HIT(KEY_A)) { bond_with(k); menu_page = 10 + k; draw_page(); return; }
+        if (HIT(KEY_B)) { menu_page = 10 + k; draw_page(); chime(523, 4); return; }
+        return;
+    }
     if (HIT(KEY_B)) {
         for (s32 r = 1; r <= 18; r++) clear_row(r);
         menu_page = -1;
@@ -1420,6 +1682,7 @@ int main(void) {
     PAL_BG[32 + 2] = (31) | (31 << 5) | (29 << 10);
     PAL_BG[32 + 3] = (29) | (24 << 5) | (13 << 10);
     PAL_BG[32 + 4] = (22) | (16 << 5) | (7 << 10);
+    PAL_BG[32 + 5] = (29) | (7 << 5) | (8 << 10);     // heart red
 
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
     copy32(CHARBLOCK(1), font_tiles, sizeof(font_tiles) / 4);

@@ -10,7 +10,8 @@ OUT = os.path.join(ROOT, "src", "data.h")
 # Metatile indices (must match make_art.py META and main.c enum)
 (DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE, THORN, HOMESITE,
  CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE, PATH, FLOWERBED, FLOWERBED_EMPTY,
- SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH) = range(30)
+ SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH, DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN,
+ STATUE, PINWHEEL) = range(38)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -21,6 +22,10 @@ STONE_AREA, STONE_SPOT = 1, (27, 23)
 DRY_RIVER_X = (13, 14)            # steppe: a dry riverbed, two tiles wide, top to bottom
 # Hidden spring: interior rectangle (x0, y0, x1, y1), walled by a ring of rocks.
 POCKET = (26, 2, 30, 6)
+# Ripple's quest: a rusted Vael dam at the head of the steppe's dry river, and its lever.
+DAM_LEVER = (15, 1)
+# Pebble's quest: its lost standing stone, walled in by rocks in the valley's top-left corner.
+LOST_STONE_AT = (2, 2)
 # Breeze sleeps in Stone Hollow, sealed in a boulder pocket (Pebble breaks in).
 BREEZE_AREA, BREEZE_SPOT = 2, (3, 26)
 BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
@@ -137,8 +142,11 @@ WINDOW8 = {
     "(": ["43342222"] * 8,
     ")": ["22224334"] * 8,
     ">": ["22222222", "21222222", "21122222", "21112222", "21122222", "21222222", "22222222", "22222222"],
+    # hearts (5 = heart red, 4 = outline): full and empty
+    "*": ["22222222", "25525522", "55555552", "55555552", "25555522", "22555222", "22252222", "22222222"],
+    "@": ["22222222", "24424422", "42242242", "42222242", "24222422", "22424222", "22242222", "22222222"],
 }
-FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'+/-,[]{}^_()>"
+FONT_CHARS = " ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789%:!.?'+/-,[]{}^_()>*@"
 
 
 def font_words():
@@ -216,6 +224,11 @@ def make_valley():
     for x in SOUTH_GATE_COLS:
         for y in range(27, 32):
             m[y][x] = DEAD
+    lx, ly = LOST_STONE_AT                        # Pebble's lost stone, sealed in by rocks
+    for y in range(ly - 1, ly + 2):
+        for x in range(lx - 1, lx + 2):
+            m[y][x] = ROCK
+    m[ly][lx] = LOST_STONE
     place_objects(m, VALLEY)
     return m
 
@@ -288,6 +301,11 @@ def make_east():
     for y in range(MAP_H):                       # the dry riverbed splits the steppe
         for x in DRY_RIVER_X:
             m[y][x] = DRY_RIVER
+    for x in DRY_RIVER_X:                        # Vael's dam holds the water back at the north end
+        m[0][x] = DAM
+    lx, ly = DAM_LEVER
+    open_around(m, lx, ly)
+    m[ly][lx] = LEVER
     # Pebble's resting place: a clearing among boulders (it looks like one of them while asleep)
     sx, sy = STONE_SPOT
     for y in range(sy - 1, sy + 2):
@@ -393,6 +411,7 @@ def main():
     out.append(f"#define RIPPLE_SPOT_X {RIPPLE_SPOT[0]}\n#define RIPPLE_SPOT_Y {RIPPLE_SPOT[1]}")
     out.append(f"#define STONE_SPOT_X {STONE_SPOT[0]}\n#define STONE_SPOT_Y {STONE_SPOT[1]}")
     out.append(f"#define STONE_AREA {STONE_AREA}\n#define BREEZE_AREA {BREEZE_AREA}")
+    out.append(f"#define LEVER_X {DAM_LEVER[0]}\n#define LEVER_Y {DAM_LEVER[1]}")
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")

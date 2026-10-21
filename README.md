@@ -20,8 +20,13 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - Flower beds and fruit trees regrow, so you can farm your own materials.
 - Upgrade a spirit's home to make it reach farther and its bonus stronger.
 
+## Friendship
+- Tap B while facing a spirit to give its favorite item. Spirits also warm up as you use their powers and build their homes.
+- At 2 hearts a spirit asks for help; its quest unlocks a new thing to build. At 3 hearts its power grows.
+- At 5 hearts you can bond one spirit as your lifelong companion. Choose carefully: it cannot be undone.
+
 ## Controls
-- D-pad: move, B: run
+- D-pad: move. Hold B: run. Tap B facing a spirit: give a gift
 - A: greet a spirit / use the active spirit's power
 - R / L: next / previous spirit
 - Hold SELECT: build. SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it

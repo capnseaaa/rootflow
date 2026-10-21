@@ -57,7 +57,8 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "tree", "dead_tree", "rock", "water", "water_b", "bridge",
         "thorn", "homesite", "chest", "chest_open", "wreck", "dry_grass", "pebbles", "menhir",
         "dry_river", "dry_bridge", "path", "flowerbed", "flowerbed_empty", "sapling",
-        "fruit_tree", "fruit_tree_bare", "lantern", "bench"]
+        "fruit_tree", "fruit_tree_bare", "lantern", "bench",
+        "dam", "lever", "lever_pulled", "lost_stone", "blossom", "fountain", "statue", "pinwheel"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -435,6 +436,95 @@ def bench(rng):
     return px
 
 
+def dam(rng):
+    """A rusted Vael dam gate across the riverbed: riveted plates and a dark seam."""
+    px = dry_river(rng)
+    for y in range(1, 15):
+        for x in range(0, 16):
+            px[y][x] = 3 if (x // 4 + y // 5) % 2 else 2
+            if y in (1, 14) or x % 4 == 0:
+                px[y][x] = 15
+    for x in range(1, 15, 2):
+        px[3][x] = 14; px[12][x] = 14              # rivets
+    for y in range(5, 11):
+        px[y][7] = 13; px[y][8] = 13               # rust streak
+    return px
+
+
+def lever(rng, pulled=False):
+    """A Vael lever on a post; pulled, the handle points the other way."""
+    px = dead(rng)
+    for y in range(9, 15):
+        for x in range(5, 11):
+            px[y][x] = 15 if x in (5, 10) or y in (9, 14) else 3
+    sx, dx = (7, 1) if pulled else (8, -1)
+    for k in range(7):
+        px[8 - k][sx + dx * (k // 2)] = 12
+    hx = sx + dx * 3
+    px[1][hx] = px[1][hx + 1] = px[2][hx] = px[2][hx + 1] = 13
+    return px
+
+
+def lost_stone(rng):
+    """Pebble's lost standing stone: a small menhir with a glowing mark."""
+    px = menhir(rng)
+    for y, x in ((6, 7), (7, 6), (7, 8), (8, 7), (9, 7)):
+        px[y][x] = 14
+    return px
+
+
+def blossom(rng):
+    """Sprout's reward: a blossom tree with pink-orange flowers."""
+    px = tree(rng)
+    for x, y in ((4, 3), (8, 2), (11, 4), (5, 7), (9, 6), (7, 9), (3, 6), (11, 8)):
+        px[y][x] = 14; px[y][x + 1] = 13; px[y + 1][x] = 13
+    return px
+
+
+def fountain(rng):
+    """Ripple's reward: a stone basin with a jet of water."""
+    px = grass(rng)
+    for y in range(8, 15):
+        for x in range(2, 14):
+            edge = y in (8, 14) or x in (2, 13)
+            px[y][x] = 15 if edge else (3 if y > 11 else 10)
+    for y in range(2, 9):
+        px[y][7] = 11; px[y][8] = 10
+    px[2][6] = px[3][9] = px[1][7] = 11
+    return px
+
+
+def statue(rng):
+    """Pebble's reward: a small stone statue of Pebble on a plinth."""
+    px = grass(rng)
+    for y in range(11, 15):
+        for x in range(3, 13):
+            px[y][x] = 15 if y in (11, 14) or x in (3, 12) else 2
+    for y in range(3, 11):
+        for x in range(4, 12):
+            d = ((x - 7.5) / 4) ** 2 + ((y - 7) / 4) ** 2
+            if d < 1:
+                px[y][x] = 3
+            if 0.75 <= d < 1:
+                px[y][x] = 15
+    px[6][6] = px[6][9] = 15
+    px[3][7] = px[2][8] = 6                        # moss cap
+    return px
+
+
+def pinwheel(rng):
+    """Breeze's reward: a pinwheel on a stick, spinning in the wind."""
+    px = grass(rng)
+    for y in range(7, 15):
+        px[y][7] = 12
+    blades = [((7, 2), (8, 3), (8, 4)), ((10, 6), (9, 5), (8, 5)), ((6, 9), (6, 8), (7, 7)), ((3, 5), (5, 5), (6, 6))]
+    for i, blade in enumerate(blades):
+        for x, y in blade:
+            px[y][x] = 13 if i % 2 else 14
+    px[6][7] = 15
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
@@ -445,6 +535,8 @@ def make_terrain():
         dry_grass(rng), pebbles(rng), menhir(rng),
         dry_river(rng), dry_bridge(rng), path(rng), flowerbed(rng), flowerbed(rng, empty=True), sapling(rng),
         fruit_tree(rng), fruit_tree(rng, fruit=False), lantern(rng), bench(rng),
+        dam(rng), lever(rng), lever(rng, pulled=True), lost_stone(rng), blossom(rng), fountain(rng),
+        statue(rng), pinwheel(rng),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
