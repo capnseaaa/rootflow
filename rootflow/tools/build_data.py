@@ -9,16 +9,21 @@ OUT = os.path.join(ROOT, "src", "data.h")
 
 # Metatile indices (must match make_art.py META and main.c enum)
 (DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE, THORN, HOMESITE,
- CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR) = range(20)
+ CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE, PATH, FLOWERBED, FLOWERBED_EMPTY,
+ SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH) = range(30)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
 SPIRIT_SPOT = (13, 9)
 RIPPLE_SPOT = (14, 24)
-STONE_SPOT = (27, 16)
+# Pebble sleeps in the Windy Steppe, past a dry riverbed (Ripple bridges it), among boulders.
+STONE_AREA, STONE_SPOT = 1, (27, 23)
+DRY_RIVER_X = (13, 14)            # steppe: a dry riverbed, two tiles wide, top to bottom
 # Hidden spring: interior rectangle (x0, y0, x1, y1), walled by a ring of rocks.
 POCKET = (26, 2, 30, 6)
-BREEZE_SPOT = (27, 2)          # sleeps inside the hidden spring
+# Breeze sleeps in Stone Hollow, sealed in a boulder pocket (Pebble breaks in).
+BREEZE_AREA, BREEZE_SPOT = 2, (3, 26)
+BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
@@ -29,7 +34,7 @@ SOUTH_GATE_COLS = (14, 15, 16)     # valley y=31 <-> hollow y=0
 # Home sites, one per spirit kind (Sprout, Ripple, Pebble, Breeze): (area, x, y).
 HOME_SITES = [(VALLEY, 3, 28), (VALLEY, 28, 5), (SOUTH, 16, 15), (EAST, 20, 15)]
 # Treasure chests (area, x, y); the reward for each is in main.c (chest_reward).
-CHESTS = [(VALLEY, 5, 30), (EAST, 28, 4), (SOUTH, 26, 27)]
+CHESTS = [(VALLEY, 5, 30), (EAST, 28, 4), (SOUTH, 26, 27), (VALLEY, 27, 2)]   # last: in the hidden spring
 # Rusted Vael machines with lore (area, x, y).
 WRECKS = [(VALLEY, 18, 6), (EAST, 9, 25), (SOUTH, 5, 6)]
 
@@ -181,7 +186,7 @@ def make_valley():
             inside = x0 <= x <= x1 and y0 <= y <= y1
             m[y][x] = (DEAD_TREE if (x * 7 + y * 3) % 5 == 0 else DEAD) if inside else THORN
     # keep the start and spirit areas open
-    for cx, cy in (PLAYER_START, SPIRIT_SPOT, RIPPLE_SPOT, STONE_SPOT):
+    for cx, cy in (PLAYER_START, SPIRIT_SPOT, RIPPLE_SPOT):
         for y in range(cy - 1, cy + 2):
             for x in range(cx - 1, cx + 2):
                 m[y][x] = DEAD
@@ -197,9 +202,9 @@ def make_valley():
     return m
 
 
-def open_around(m, x, y):
+def open_around(m, x, y, solid=(ROCK, DEAD_TREE, THORN)):
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-        if 0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H and m[y + dy][x + dx] in (ROCK, DEAD_TREE, THORN):
+        if 0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H and m[y + dy][x + dx] in solid:
             m[y + dy][x + dx] = DEAD
 
 
@@ -211,7 +216,7 @@ def place_objects(m, area):
             m[y][x] = HOMESITE
     for a, x, y in CHESTS:
         if a == area:
-            open_around(m, x, y)
+            open_around(m, x, y, solid=(DEAD_TREE,))   # chests sit inside walls: never open them
             m[y][x] = CHEST
     for a, x, y in WRECKS:
         if a == area:
@@ -262,6 +267,16 @@ def make_east():
         for x in range(0, 5):
             m[y][x] = DEAD
     retile(m, DEAD_CRACK, DRY_GRASS)             # steppe ground: tall dry grass
+    for y in range(MAP_H):                       # the dry riverbed splits the steppe
+        for x in DRY_RIVER_X:
+            m[y][x] = DRY_RIVER
+    # Pebble's resting place: a clearing among boulders (it looks like one of them while asleep)
+    sx, sy = STONE_SPOT
+    for y in range(sy - 1, sy + 2):
+        for x in range(sx - 1, sx + 2):
+            m[y][x] = DEAD
+    for x, y in ((sx - 2, sy - 1), (sx + 2, sy), (sx - 1, sy + 2), (sx + 1, sy - 2), (sx + 2, sy + 2)):
+        m[y][x] = ROCK
     place_objects(m, EAST)
     return m
 
@@ -286,6 +301,7 @@ def make_south():
         for y in range(0, 5):
             m[y][x] = DEAD
     retile(m, DEAD_CRACK, PEBBLES)               # hollow ground: loose pebbles
+    ring(m, *BREEZE_POCKET, ROCK)                # Breeze's boulder pocket
     # landmark: a ring of standing stones around open ground
     cx, cy = 6, 13
     for dx, dy in ((0, -2), (2, -1), (2, 1), (0, 2), (-2, 1), (-2, -1)):
@@ -358,6 +374,7 @@ def main():
     out.append(f"#define SPIRIT_SPOT_X {SPIRIT_SPOT[0]}\n#define SPIRIT_SPOT_Y {SPIRIT_SPOT[1]}")
     out.append(f"#define RIPPLE_SPOT_X {RIPPLE_SPOT[0]}\n#define RIPPLE_SPOT_Y {RIPPLE_SPOT[1]}")
     out.append(f"#define STONE_SPOT_X {STONE_SPOT[0]}\n#define STONE_SPOT_Y {STONE_SPOT[1]}")
+    out.append(f"#define STONE_AREA {STONE_AREA}\n#define BREEZE_AREA {BREEZE_AREA}")
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")

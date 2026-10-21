@@ -1,7 +1,7 @@
 // Rootflow spirit toy (GBA).
 // Walk the dead valley, find the sprout spirit, and bloom life into the land.
 // D-pad: move   B: run   A: greet / use spirit   R / L: next / previous spirit   START: reset
-// (SELECT also swaps to the next spirit, as in v0.4.)
+// Hold SELECT to build: L/R pick an item, A places it, B removes one.
 // Spirits: Sprout blooms life, Ripple bridges water, Pebble breaks rocks, Breeze clears thorns.
 // Powers cost energy. Spirits can be housed at home sites; a home spreads life around it.
 
@@ -54,7 +54,8 @@ typedef signed int     s32;
 #define MAP_SB    28
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
-       THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR };
+       THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
+       PATH, FLOWERBED, FLOWERBED_EMPTY, SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -128,15 +129,21 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 
 static int is_solid(u8 t) {
     return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN ||
-           t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR;
+           t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR || t == DRY_RIVER ||
+           t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH;
+}
+// Built things stand on living land, so they count as living (LIFE %, resting, waking).
+static int is_built(u8 t) {
+    return t == PATH || t == FLOWERBED || t == FLOWERBED_EMPTY || t == SAPLING || t == FRUIT_TREE ||
+           t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH;
 }
 static int is_alive(u8 t) {
-    return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE;
+    return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || is_built(t);
 }
 
 static int is_restorable(u8 t) {
     return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
-             t == WRECK || t == MENHIR);
+             t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE);
 }
 
 static void draw_area(void) {
@@ -330,8 +337,14 @@ static const char *home_bonus[] = { "BONUS: BLOOMS GROW BIGGER", "BONUS: CHARGES
                                     "BONUS: BREAK TWO ROCKS", "BONUS: YOU WALK FASTER" };
 #define REST_TIP "REST ON GREEN LAND TO REFILL"
 static u8 home_done[NUM_SPIRITS];
-// Homes pulse life outward: ring pulse_r[k] grows every HOME_PULSE frames, up to HOME_REACH.
-#define HOME_REACH 8
+// Homes pulse life outward: ring pulse_r[k] grows every HOME_PULSE frames, up to the home's reach
+// (8 tiles; 12 after the level-2 upgrade).
+#define HOME_REACH 12                  // largest reach (sizes the distance maps)
+#define HOME_REACH_L1 8
+static u8 home_level[NUM_SPIRITS];     // 0 = not built, 1, 2
+static s32 build_item;                 // the item SELECT-building places
+static u32 grow_timer;                 // built things grow every 10 s
+static s32 home_reach(s32 k) { return home_level[k] >= 2 ? HOME_REACH : HOME_REACH_L1; }
 #define HOME_PULSE 360
 static s32 pulse_r[NUM_SPIRITS], pulse_timer[NUM_SPIRITS];
 // Each home's distance map is computed once, when it is built; pulses only paint rings.
@@ -357,7 +370,7 @@ static u8 picked[NUM_AREAS][MAP_W * MAP_H / 8];   // one bit per tile: a tree al
 static s32 pulse_div = 1;                          // 2 after the hollow chest: homes pulse twice as fast
 
 // ---------- blooms ----------
-#define BR 5                      // max bloom radius in tiles (4 near water, +1 with Sprout's grove)
+#define BR 6                      // max bloom radius in tiles (4 near water, +1 grove, +2 grove level 2)
 #define BGRID (BR * 2 + 1)
 typedef struct { s32 cx, cy, r, maxr, timer, active; u8 dist[BGRID * BGRID]; } Bloom;
 #define MAX_BLOOMS 6
@@ -405,8 +418,13 @@ static void reset_game(void) {
     spirit_init(KIND_RIPPLE, RIPPLE_SPOT_X, RIPPLE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_STONE, STONE_SPOT_X, STONE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
+    spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
+    spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
     told_ending = 0;
+    for (s32 i = 0; i < NUM_SPIRITS; i++) home_level[i] = 0;
+    build_item = 0;
+    grow_timer = 0;
     msgq_len = 0;
     party_count = 0; active = 0;
     for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
@@ -452,7 +470,7 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
     for (s32 gy = 0; gy < g; gy++)
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
-            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR);
+            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR || t == DRY_RIVER);
             dist[gy * g + gx] = 255;
         }
     dist[R * g + R] = 0;
@@ -489,7 +507,7 @@ static void start_bloom(s32 mx, s32 my) {
         Bloom *b = &blooms[i];
         b->cx = mx; b->cy = my; b->r = -1; b->timer = 0; b->active = 1;
         int wet = water_near(mx, my, 3);
-        b->maxr = (wet ? 4 : 2) + (home_done[KIND_SPROUT] ? 1 : 0);   // grove bonus
+        b->maxr = (wet ? 4 : 2) + home_level[KIND_SPROUT];   // grove bonus: +1, or +2 at level 2
         bloom_distances(b);
         sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 40;
         if (wet && !told_river) { show_message("THE RIVER FEEDS THE ROOTS"); told_river = 1; }
@@ -594,7 +612,9 @@ static void check_exits(void) {
 
 static void update_player(void) {
     s32 speed = HELD(KEY_B) ? 2 : 1;
-    if (home_done[KIND_BREEZE]) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
+    if (home_level[KIND_BREEZE] == 1) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
+    if (home_level[KIND_BREEZE] == 2) speed += 1;                              // level 2: 2x walk, 3 run
+    if (tile_at((px + 8) >> 4, (py + 12) >> 4) == PATH) speed += 1;            // paths are quick
     s32 dx = 0, dy = 0;
     if (HELD(KEY_LEFT))  { dx = -speed; pdir = DIR_LEFT; }
     if (HELD(KEY_RIGHT)) { dx =  speed; pdir = DIR_RIGHT; }
@@ -636,8 +656,8 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         if (t == WATER || t == ROCK || t == BRIDGE || t == THORN || t == MENHIR) return 0;
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE) {
-        if (t != WATER) return 0;
-        set_tile(mx, my, BRIDGE);
+        if (t != WATER && t != DRY_RIVER) return 0;
+        set_tile(mx, my, t == WATER ? BRIDGE : DRY_BRIDGE);
         chime(392, 12);
         sparkle_at(mx, my);
     } else if (kind == KIND_STONE) {
@@ -645,7 +665,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
         s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
         s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
-        s32 reach = home_done[KIND_STONE] ? 2 : 1;
+        s32 reach = 1 + home_level[KIND_STONE];   // cairn bonus: 2 rocks, 3 at level 2
         for (s32 k = 0; k < reach && tile_at(mx, my) == ROCK; k++, mx += sx, my += sy) {
             if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
             set_tile(mx, my, DIRT);
@@ -692,6 +712,7 @@ static const char *lore[NUM_WRECKS][3] = {
 };
 static const char *chest_reward[NUM_CHESTS] = {
     "+5 SEEDS AND +3 FRUIT!", "EVERY SPIRIT: +1 MAX CHARGE!", "HOMES NOW PULSE TWICE AS FAST!",
+    "+6 STONE FOR BUILDING!",
 };
 
 static int find_at(const u8 *ax, const u8 *ay, const u8 *aa, s32 n, s32 mx, s32 my) {
@@ -710,6 +731,7 @@ static void open_chest(s32 i, s32 mx, s32 my) {
         draw_active();
     }
     if (i == 2) pulse_div = 2;
+    if (i == 3) stone += 6;
     chime(1319, 14);
     sparkle_at(mx, my);
     show_message("YOU FOUND A RELIC!");
@@ -748,6 +770,28 @@ static int interact(s32 mx, s32 my) {
         chime(784, 8);
         sparkle_at(mx, my);
         show_message("+1 FRUIT");
+        return 1;
+    }
+    if (t == FLOWERBED) {
+        set_tile(mx, my, FLOWERBED_EMPTY);
+        seeds++;
+        chime(880, 8);
+        show_message("+1 SEED");
+        return 1;
+    }
+    if (t == FRUIT_TREE) {
+        set_tile(mx, my, FRUIT_TREE_BARE);
+        fruit++;
+        chime(784, 8);
+        sparkle_at(mx, my);
+        show_message("+1 FRUIT");
+        return 1;
+    }
+    if (t == BENCH) {
+        for (s32 p = 0; p < party_count; p++) spirits[party[p]].energy = energy_max(&spirits[party[p]]);
+        draw_active();
+        chime(659, 10);
+        show_message("YOU REST. CHARGES REFILLED.");
         return 1;
     }
     if (t == FLOWERS) {
@@ -832,7 +876,8 @@ static void try_build_home(s32 k) {
     sparkle_at(hx, hy);
     pulse_r[k] = 0;
     pulse_timer[k] = HOME_PULSE - 120;   // first pulse two seconds after building
-    flood_dist(home_dist[k], hx, hy, HOME_REACH);
+    home_level[k] = 1;
+    flood_dist(home_dist[k], hx, hy, HOME_REACH_L1);
     s32 all = 1;
     for (s32 i = 0; i < NUM_SPIRITS; i++) all &= home_done[i];
     if (all && !told_ending) {
@@ -848,9 +893,105 @@ static int near_px(s32 x, s32 y, s32 r) {
     return dx * dx + dy * dy < r * r;
 }
 
+// ---------- building (hold SELECT) ----------
+enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, NUM_BUILDS };
+static const u8 build_tile[NUM_BUILDS] = { PATH, FLOWERBED, SAPLING, LANTERN, BENCH, 0 };
+static const u8 build_cost[NUM_BUILDS][3] = {   // stone, seeds, fruit
+    { 1, 0, 0 }, { 0, 2, 0 }, { 0, 1, 1 }, { 3, 0, 0 }, { 2, 0, 1 }, { 5, 5, 3 },
+};
+static const char *build_text[NUM_BUILDS] = {
+    "PATH: 1 STONE", "FLOWER BED: 2 SEEDS", "SAPLING: 1 SEED 1 FRUIT", "LANTERN: 3 STONE",
+    "BENCH: 2 STONE 1 FRUIT", "HOME: 5 STONE 5 SEED 3 FRUIT",
+};
+
+static s32 build_of_tile(u8 t) {
+    switch (t) {
+    case PATH: return B_PATH;
+    case FLOWERBED: case FLOWERBED_EMPTY: return B_BED;
+    case SAPLING: case FRUIT_TREE: case FRUIT_TREE_BARE: return B_SAPLING;
+    case LANTERN: return B_LANTERN;
+    case BENCH: return B_BENCH;
+    }
+    return -1;
+}
+static int can_pay(s32 b) {
+    return stone >= build_cost[b][0] && seeds >= build_cost[b][1] && fruit >= build_cost[b][2];
+}
+static void pay(s32 b, s32 sign) {
+    stone += sign * build_cost[b][0]; seeds += sign * build_cost[b][1]; fruit += sign * build_cost[b][2];
+}
+
+// Upgrade the built home next to the player to level 2: it reaches 12 tiles and its bonus grows.
+static void upgrade_home(void) {
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (home_site_area[k] != cur_area || !near_px(home_site_x[k] * 16, home_site_y[k] * 16, 28)) continue;
+        if (!home_done[k]) { chime(262, 6); show_message("BUILD THIS HOME FIRST"); return; }
+        if (home_level[k] >= 2) { chime(262, 6); show_message("THIS HOME IS FULLY GROWN"); return; }
+        if (!can_pay(B_UPGRADE)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
+        pay(B_UPGRADE, -1);
+        home_level[k] = 2;
+        flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);   // pulses go on to 12
+        chime(1319, 14);
+        sparkle_at(home_site_x[k], home_site_y[k]);
+        show_message("THE HOME GREW STRONGER!");
+        return;
+    }
+    chime(262, 6);
+    show_message("STAND BY A HOME TO UPGRADE");
+}
+
+static void build_mode(void) {
+    if (HIT(KEY_R)) build_item = (build_item + 1) % NUM_BUILDS;
+    if (HIT(KEY_L)) build_item = (build_item + NUM_BUILDS - 1) % NUM_BUILDS;
+    if (HIT(KEY_SELECT | KEY_R | KEY_L) || msg_timer < 30) { show_message(build_text[build_item]); msg_timer = 40; }
+    s32 fx = px + 8, fy = py + 12;
+    if (pdir == DIR_LEFT)  fx -= 14;
+    if (pdir == DIR_RIGHT) fx += 14;
+    if (pdir == DIR_UP)    fy -= 14;
+    if (pdir == DIR_DOWN)  fy += 14;
+    s32 mx = fx >> 4, my = fy >> 4;
+    u8 t = tile_at(mx, my);
+    if (HIT(KEY_A)) {
+        if (build_item == B_UPGRADE) { upgrade_home(); return; }
+        if (!(t == GRASS || t == GRASS_TUFT || t == FLOWERS)) { chime(262, 6); show_message("BUILD ON GREEN LAND"); return; }
+        if (!can_pay(build_item)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
+        pay(build_item, -1);
+        set_tile(mx, my, build_tile[build_item]);
+        chime(659, 10);
+        sparkle_at(mx, my);
+    }
+    if (HIT(KEY_B)) {
+        s32 b = build_of_tile(t);
+        if (b < 0) { chime(262, 6); return; }
+        pay(b, 1);                                  // materials come back
+        set_tile(mx, my, GRASS);
+        chime(392, 8);
+        show_message("REMOVED. MATERIALS BACK.");
+    }
+}
+
+// Every 10 s, built things grow: picked beds regrow flowers, saplings become fruit trees,
+// and picked fruit trees ripen again. Works in all three areas.
+static void update_growth(void) {
+    if (++grow_timer < 600) return;
+    grow_timer = 0;
+    for (s32 a = 0; a < NUM_AREAS; a++) {
+        use_area(a);
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 t = world[i], nt = t;
+            if (t == FLOWERBED_EMPTY && (rng() & 1)) nt = FLOWERBED;
+            else if (t == FRUIT_TREE_BARE && (rng() & 1)) nt = FRUIT_TREE;
+            else if (t == SAPLING && rng() % 3 == 0) nt = FRUIT_TREE;
+            if (nt != t) set_tile(i % MAP_W, i / MAP_W, nt);
+        }
+    }
+    use_area(cur_area);
+}
+
 static void handle_action(void) {
-    // R (or SELECT) swaps to the next spirit, L to the previous one.
-    s32 step = HIT(KEY_R | KEY_SELECT) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
+    // R swaps to the next spirit, L to the previous one.
+    if (HELD(KEY_SELECT)) { build_mode(); return; }   // SELECT is the builder
+    s32 step = HIT(KEY_R) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
     if (party_count > 1 && step) {
         active = (active + step) % party_count;
         chime(active ? 659 : 523, 8);
@@ -923,7 +1064,7 @@ static void handle_action(void) {
 static void update_homes(void) {
     int changed = 0;
     s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4;
-    u32 regen = home_done[KIND_RIPPLE] ? REGEN_FRAMES / 2 : REGEN_FRAMES;
+    u32 regen = REGEN_FRAMES / (1 + home_level[KIND_RIPPLE]);   // spring bonus: 2x, 3x at level 2
     if (is_alive(tile_at(fx, fy)) && ++regen_timer >= regen) {
         regen_timer = 0;
         int got = 0;
@@ -948,9 +1089,9 @@ static void update_homes(void) {
     // distance rules as blooms, so rock walls and water stop them.
     // Homes in other areas keep pulsing: their map changes in memory only.
     int grew = 0;
-    s32 g = HOME_REACH * 2 + 1;
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
-        if (!home_done[k] || pulse_r[k] >= HOME_REACH || ++pulse_timer[k] < HOME_PULSE / pulse_div) continue;
+        s32 reach = home_reach(k), g = reach * 2 + 1;
+        if (!home_done[k] || pulse_r[k] >= reach || ++pulse_timer[k] < HOME_PULSE / pulse_div) continue;
         pulse_timer[k] = 0;
         s32 r = ++pulse_r[k];
         s32 hx = home_site_x[k], hy = home_site_y[k];
@@ -959,7 +1100,7 @@ static void update_homes(void) {
             for (s32 gx = 0; gx < g; gx++) {
                 s32 d = home_dist[k][gy * g + gx];
                 if (d <= 10 * (r - 1) + 5 || d > 10 * (r + 1) + 5) continue;
-                grow_tile(hx + gx - HOME_REACH, hy + gy - HOME_REACH, d > 10 * r + 5);
+                grow_tile(hx + gx - reach, hy + gy - reach, d > 10 * r + 5);
             }
         check_wake();
         if (work_area == cur_area) { sparkle_at(hx, hy); chime(scale[r & 7], 7); }
@@ -1058,12 +1199,13 @@ static void draw_panel(void) {
     panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 0, 0, -1);
     panel_line(11, "VALLEY ", life_percent_of(0), -2, "STEPPE ", life_percent_of(1), -2);
     panel_line(12, "HOLLOW ", life_percent_of(2), -2, 0, 0, -1);
-    put_text(4, 13, " A: SAVE GAME         ");
-    put_text(4, 14, " L+R+START: NEW GAME  ");
-    put_text(4, 15, "                      ");
+    put_text(4, 13, " HOLD SELECT: BUILD   ");
+    put_text(4, 14, " A: SAVE GAME         ");
+    put_text(4, 15, " L+R+START: NEW GAME  ");
+    put_text(4, 16, "                      ");
 }
 static void close_panel(void) {
-    for (s32 r = 5; r <= 15; r++) clear_row(r);
+    for (s32 r = 5; r <= 16; r++) clear_row(r);
 }
 
 // ---------- saving (manual: A in the pause panel) ----------
@@ -1072,7 +1214,7 @@ static void close_panel(void) {
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x31534652u   // "RFS1"
+#define SAVE_MAGIC 0x32534652u   // "RFS2" (v0.7: new spirit places, home levels, built things)
 
 // Everything that makes up a game in progress, in save order.
 static const struct { void *p; u32 n; } save_fields[] = {
@@ -1082,7 +1224,7 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { home_done, sizeof(home_done) }, { pulse_r, sizeof(pulse_r) }, { pulse_timer, sizeof(pulse_timer) },
     { &stone, 4 }, { &fruit, 4 }, { &seeds, 4 },
     { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked) },
-    { &bonus_charge, 4 }, { &pulse_div, 4 },
+    { &bonus_charge, 4 }, { &pulse_div, 4 }, { home_level, sizeof(home_level) }, { &build_item, 4 },
     { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
@@ -1120,7 +1262,7 @@ static int load_game(void) {
     for (s32 k = 0; k < NUM_SPIRITS; k++)
         if (home_done[k]) {
             use_area(home_site_area[k]);
-            flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);
+            flood_dist(home_dist[k], home_site_x[k], home_site_y[k], home_reach(k));
         }
     use_area(cur_area);
     for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
@@ -1194,6 +1336,7 @@ int main(void) {
         handle_action();
         check_spring();
         update_homes();
+        update_growth();
         update_blooms();
         update_camera();
         draw_sprites();

@@ -55,7 +55,9 @@ OBJ_PAL = [
 # Metatile order matters: the game refers to these by index.
 META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "tree", "dead_tree", "rock", "water", "water_b", "bridge",
-        "thorn", "homesite", "chest", "chest_open", "wreck", "dry_grass", "pebbles", "menhir"]
+        "thorn", "homesite", "chest", "chest_open", "wreck", "dry_grass", "pebbles", "menhir",
+        "dry_river", "dry_bridge", "path", "flowerbed", "flowerbed_empty", "sapling",
+        "fruit_tree", "fruit_tree_bare", "lantern", "bench"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -320,6 +322,119 @@ def menhir(rng):
     return px
 
 
+def dry_river(rng):
+    """A dried-up riverbed: a sunken channel of cracked mud and stones."""
+    px = blank(12)
+    speckle(px, rng, [4, 15], 30)
+    for _ in range(3):                      # cracks
+        x, y = rng.randrange(2, 14), rng.randrange(2, 14)
+        for k in range(4):
+            px[min(15, y + k)][min(15, x + (k & 1))] = 15
+    for _ in range(4):                      # dry stones
+        x, y = rng.randrange(1, 14), rng.randrange(1, 14)
+        px[y][x] = px[y][x + 1] = 3
+        px[y + 1][x] = 1
+    for x in range(16):                     # dark banks top and bottom of the tile edge
+        if rng.random() < 0.5:
+            px[0][x] = 15
+    return px
+
+
+def dry_bridge(rng):
+    """Ripple's planks laid over a dry riverbed."""
+    px = dry_river(rng)
+    for x in range(1, 15):
+        if x % 4 == 0:
+            continue
+        c = 5 if x % 4 == 1 else 4
+        for y in range(2, 14):
+            px[y][x] = c
+        px[rng.randrange(3, 13)][x] = 12
+    for x in range(16):
+        px[1][x] = 12; px[14][x] = 12; px[0][x] = 15; px[15][x] = 15
+    return px
+
+
+def path(rng):
+    """Stone path slabs set into the grass."""
+    px = grass(rng)
+    slabs = [(1, 1, 6, 6), (8, 1, 14, 5), (1, 8, 5, 14), (7, 7, 14, 14)]
+    for x0, y0, x1, y1 in slabs:
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                edge = x in (x0, x1) or y in (y0, y1)
+                px[y][x] = 15 if edge else (14 if (x + y) % 5 == 0 else 3)
+    return px
+
+
+def flowerbed(rng, empty=False):
+    """A wooden-edged bed of soil; full of flowers, or freshly picked with green shoots."""
+    px = grass(rng)
+    for y in range(2, 14):
+        for x in range(1, 15):
+            edge = x in (1, 14) or y in (2, 13)
+            px[y][x] = 12 if edge else 4
+    for y in range(4, 12, 3):
+        for x in range(3, 13, 3):
+            if empty:
+                px[y][x] = 8; px[y + 1][x] = 6
+            else:
+                c = 13 if (x + y) % 2 else 14
+                px[y][x] = c; px[y - 1][x] = c; px[y][x - 1] = c; px[y][x + 1] = c
+                px[y + 1][x] = 6
+    return px
+
+
+def sapling(rng):
+    """A young fruit tree: a thin trunk and a few leaves."""
+    px = grass(rng)
+    for y in range(8, 14):
+        px[y][7] = 12
+    for x, y in ((6, 6), (7, 5), (8, 6), (5, 7), (9, 7), (7, 7), (6, 8), (8, 8)):
+        px[y][x] = 8 if (x + y) % 2 else 6
+    px[13][6] = px[13][8] = 15
+    return px
+
+
+def fruit_tree(rng, fruit=True):
+    """A planted fruit tree; with ripe orange fruit, or bare after picking."""
+    px = tree(rng)
+    if fruit:
+        for x, y in ((4, 4), (9, 3), (6, 7), (11, 6), (8, 9), (3, 8)):
+            px[y][x] = 13; px[y][x + 1] = 13; px[y + 1][x] = 13; px[y - 1][x + 1] = 14
+    return px
+
+
+def lantern(rng):
+    """A small stone lantern with a warm light."""
+    px = grass(rng)
+    for y in range(3, 15):
+        for x in range(5, 11):
+            w = 2 if y < 5 else (3 if y < 11 else 2)
+            if abs(x - 7.5) <= w:
+                px[y][x] = 3
+                if abs(x - 7.5) > w - 1 or y in (3, 14):
+                    px[y][x] = 15
+    px[2][7] = px[2][8] = 15
+    for y in range(6, 10):
+        for x in (7, 8):
+            px[y][x] = 14 if y in (7, 8) else 13
+    return px
+
+
+def bench(rng):
+    """A wooden bench for resting."""
+    px = grass(rng)
+    for x in range(1, 15):
+        px[6][x] = 15; px[7][x] = 5; px[8][x] = 4      # back rest
+        px[10][x] = 15; px[11][x] = 5; px[12][x] = 4   # seat
+    for x in (2, 13):
+        for y in range(6, 15):
+            px[y][x] = 12
+        px[14][x] = 15
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
@@ -328,6 +443,8 @@ def make_terrain():
         dead_tree(rng), rock(rng), water(rng, 0), water(rng, 1), bridge(rng),
         thorn(rng), homesite(rng), chest(rng), chest(rng, True), wreck(rng),
         dry_grass(rng), pebbles(rng), menhir(rng),
+        dry_river(rng), dry_bridge(rng), path(rng), flowerbed(rng), flowerbed(rng, empty=True), sapling(rng),
+        fruit_tree(rng), fruit_tree(rng, fruit=False), lantern(rng), bench(rng),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))

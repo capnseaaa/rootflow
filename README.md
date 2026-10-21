@@ -12,12 +12,19 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 
 ## World
 - The valley, the Windy Steppe to the east, and Stone Hollow to the south. Walk off an open edge to travel.
+- Pebble sleeps past a dried-up river in the steppe; Breeze is sealed among the boulders of the hollow.
 - Collect stone, fruit, and seeds; find hidden chests and the rusted machines Vael left behind.
+
+## Building
+- Paths, flower beds, fruit saplings, lanterns, and benches, on any land you brought back to life.
+- Flower beds and fruit trees regrow, so you can farm your own materials.
+- Upgrade a spirit's home to make it reach farther and its bonus stronger.
 
 ## Controls
 - D-pad: move, B: run
 - A: greet a spirit / use the active spirit's power
-- R / L: next / previous spirit (SELECT also works)
+- R / L: next / previous spirit
+- Hold SELECT: build. SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it
 - START: pause (materials, relics, lore). In the pause panel, A saves.
 - L + R + START: new game (your save stays until you save again)
 
