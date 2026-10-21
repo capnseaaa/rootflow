@@ -55,7 +55,7 @@ OBJ_PAL = [
 # Metatile order matters: the game refers to these by index.
 META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "tree", "dead_tree", "rock", "water", "water_b", "bridge",
-        "thorn", "homesite", "chest", "chest_open", "wreck"]
+        "thorn", "homesite", "chest", "chest_open", "wreck", "dry_grass", "pebbles", "menhir"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -281,6 +281,45 @@ def wreck(rng):
     return px
 
 
+def dry_grass(rng):
+    """Steppe ground: dead land with tall dry tufts."""
+    px = dead(rng)
+    for _ in range(9):
+        x, y = rng.randrange(1, 15), rng.randrange(5, 16)
+        h = rng.randrange(3, 6)
+        for k in range(h):
+            px[y - k][x] = 14 if k == h - 1 else 3
+        px[y - 2][x - 1] = 3
+        px[y - 1][min(15, x + 1)] = 1
+    return px
+
+
+def pebbles(rng):
+    """Hollow ground: dead land strewn with small stones."""
+    px = dead(rng)
+    for _ in range(5):
+        x, y = rng.randrange(1, 14), rng.randrange(1, 14)
+        px[y][x] = px[y][x + 1] = 3
+        px[y + 1][x] = px[y + 1][x + 1] = 1
+        px[y][x] = 14
+    return px
+
+
+def menhir(rng):
+    """A standing stone: a tall weathered slab with a patch of moss."""
+    px = dead(rng)
+    for y in range(0, 15):
+        for x in range(2, 14):
+            d = abs(x - 7.5) - (5.5 if y > 3 else y + 2)
+            if d < 0:
+                px[y][x] = 3 if x < 8 else 2
+            if -1 <= d < 0 or y == 14:
+                px[y][x] = 15
+    px[3][6] = px[4][6] = px[5][5] = 14
+    px[10][6] = px[10][7] = px[11][6] = 6
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
@@ -288,6 +327,7 @@ def make_terrain():
         grass(rng, tufts=5), grass(rng, tufts=1, flowers=3), tree(rng),
         dead_tree(rng), rock(rng), water(rng, 0), water(rng, 1), bridge(rng),
         thorn(rng), homesite(rng), chest(rng), chest(rng, True), wreck(rng),
+        dry_grass(rng), pebbles(rng), menhir(rng),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))

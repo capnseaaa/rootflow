@@ -9,7 +9,7 @@ OUT = os.path.join(ROOT, "src", "data.h")
 
 # Metatile indices (must match make_art.py META and main.c enum)
 (DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE, THORN, HOMESITE,
- CHEST, CHEST_OPEN, WRECK) = range(17)
+ CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR) = range(20)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -261,6 +261,7 @@ def make_east():
     for y in EAST_GATE_ROWS:                     # entry path from the valley
         for x in range(0, 5):
             m[y][x] = DEAD
+    retile(m, DEAD_CRACK, DRY_GRASS)             # steppe ground: tall dry grass
     place_objects(m, EAST)
     return m
 
@@ -284,8 +285,23 @@ def make_south():
     for x in SOUTH_GATE_COLS:                    # entry path from the valley
         for y in range(0, 5):
             m[y][x] = DEAD
+    retile(m, DEAD_CRACK, PEBBLES)               # hollow ground: loose pebbles
+    # landmark: a ring of standing stones around open ground
+    cx, cy = 6, 13
+    for dx, dy in ((0, -2), (2, -1), (2, 1), (0, 2), (-2, 1), (-2, -1)):
+        m[cy + dy][cx + dx] = MENHIR
+    for y in range(cy - 1, cy + 2):
+        for x in range(cx - 1, cx + 2):
+            m[y][x] = DEAD
     place_objects(m, SOUTH)
     return m
+
+
+def retile(m, old, new):
+    for row in m:
+        for x, t in enumerate(row):
+            if t == old:
+                row[x] = new
 
 
 def make_maps():

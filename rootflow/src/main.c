@@ -54,7 +54,7 @@ typedef signed int     s32;
 #define MAP_SB    28
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
-       THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK };
+       THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -101,7 +101,7 @@ static const u16 scale[] = { 523, 587, 659, 784, 880, 1047, 1175, 1319 };
 static u8 maps[NUM_AREAS][MAP_W * MAP_H];
 static u8 *world = maps[0];
 static s32 cur_area, work_area;
-static u32 restorable_count;
+static u32 restorable[NUM_AREAS];   // tiles that can become living, per area
 
 static void use_area(s32 a) { work_area = a; world = maps[a]; }
 
@@ -128,7 +128,7 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 
 static int is_solid(u8 t) {
     return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN ||
-           t == CHEST || t == CHEST_OPEN || t == WRECK;
+           t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR;
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE;
@@ -136,7 +136,7 @@ static int is_alive(u8 t) {
 
 static int is_restorable(u8 t) {
     return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
-             t == WRECK);
+             t == WRECK || t == MENHIR);
 }
 
 static void draw_area(void) {
@@ -146,25 +146,38 @@ static void draw_area(void) {
 }
 
 static void load_world(void) {
-    restorable_count = 0;
-    for (s32 a = 0; a < NUM_AREAS; a++)
+    for (s32 a = 0; a < NUM_AREAS; a++) {
+        restorable[a] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
             u8 t = start_maps[a * MAP_W * MAP_H + i];
             maps[a][i] = t;
-            if (is_restorable(t)) restorable_count++;
+            if (is_restorable(t)) restorable[a]++;
         }
+    }
     cur_area = 0;
     use_area(0);
     draw_area();
 }
 
-// LIFE % counts all three areas.
-static u32 life_percent(void) {
+// LIFE % of one area (the HUD shows the area you are in; the pause panel shows all three).
+static u32 life_percent_of(s32 a) {
     u32 alive = 0;
-    for (s32 a = 0; a < NUM_AREAS; a++)
-        for (s32 i = 0; i < MAP_W * MAP_H; i++)
-            if (is_alive(maps[a][i])) alive++;
-    return alive * 100 / restorable_count;
+    for (s32 i = 0; i < MAP_W * MAP_H; i++)
+        if (is_alive(maps[a][i])) alive++;
+    return alive * 100 / restorable[a];
+}
+static u32 life_percent(void) { return life_percent_of(cur_area); }
+
+// Each area tints its dead ground (BG colors 1-3): gray valley, straw steppe, blue-gray hollow.
+static const u16 ground_pal[NUM_AREAS][3] = {
+    { 0, 0, 0 },   // valley: the colors from terrain.png (filled in at startup)
+    { (96 >> 3) | ((86 >> 3) << 5) | ((56 >> 3) << 10), (140 >> 3) | ((126 >> 3) << 5) | ((82 >> 3) << 10),
+      (178 >> 3) | ((164 >> 3) << 5) | ((110 >> 3) << 10) },
+    { (62 >> 3) | ((66 >> 3) << 5) | ((80 >> 3) << 10), (94 >> 3) | ((100 >> 3) << 5) | ((116 >> 3) << 10),
+      (132 >> 3) | ((138 >> 3) << 5) | ((154 >> 3) << 10) },
+};
+static void set_ground_palette(s32 a) {
+    for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 ? bg_pal[1 + i] : ground_pal[a][i];
 }
 
 // ---------- text (BG0) ----------
@@ -386,6 +399,7 @@ static void spirit_init(s32 kind, s32 mx, s32 my, s32 state) {
 
 static void reset_game(void) {
     load_world();
+    set_ground_palette(0);
     px = PLAYER_START_X * 16; py = PLAYER_START_Y * 16; pdir = DIR_DOWN;
     spirit_init(KIND_SPROUT, SPIRIT_SPOT_X, SPIRIT_SPOT_Y, SP_AWAKE);
     spirit_init(KIND_RIPPLE, RIPPLE_SPOT_X, RIPPLE_SPOT_Y, SP_ASLEEP);
@@ -438,7 +452,7 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
     for (s32 gy = 0; gy < g; gy++)
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
-            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN);
+            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR);
             dist[gy * g + gx] = 255;
         }
     dist[R * g + R] = 0;
@@ -493,7 +507,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
     u8 t = tile_at(mx, my);
     int here = work_area == cur_area;   // the player only stands in the area on screen
     if (t == DEAD_TREE) { if (!(here && player_on_tile(mx, my))) set_tile(mx, my, TREE); return; }
-    if (t != DEAD && t != DEAD_CRACK && t != DIRT) return;
+    if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES) return;
     if (edge && t != DIRT) { set_tile(mx, my, DIRT); return; }
     u32 r = rng() % 100;
     u8 nt = r < 55 ? GRASS : r < 80 ? GRASS_TUFT : r < 95 ? FLOWERS : TREE;
@@ -557,7 +571,9 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
         s->area = a; s->x = px; s->y = py;
     }
     REG_DISPCNT |= 0x0080;              // blank the screen while the new map is drawn
+    set_ground_palette(a);
     draw_area();
+    draw_life();
     REG_DISPCNT &= ~0x0080;
     show_message(area_name[a]);
     chime(523, 8);
@@ -617,7 +633,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
     int in_map = mx >= 0 && my >= 0 && mx < MAP_W && my < MAP_H;
     if (!in_map) return 0;
     if (kind == KIND_SPROUT) {
-        if (t == WATER || t == ROCK || t == BRIDGE || t == THORN) return 0;
+        if (t == WATER || t == ROCK || t == BRIDGE || t == THORN || t == MENHIR) return 0;
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE) {
         if (t != WATER) return 0;
@@ -633,7 +649,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         for (s32 k = 0; k < reach && tile_at(mx, my) == ROCK; k++, mx += sx, my += sy) {
             if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
             set_tile(mx, my, DIRT);
-            restorable_count++;
+            restorable[work_area]++;
             stone++;
             sparkle_at(mx, my);
         }
@@ -646,7 +662,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
         for (s32 k = 0; k < 3 && tile_at(mx, my) == THORN; k++, mx += sx, my += sy) {
             set_tile(mx, my, DEAD);
-            restorable_count++;
+            restorable[work_area]++;
             sparkle_at(mx, my);
         }
         draw_life();
@@ -1023,11 +1039,13 @@ static void panel_line(s32 row, const char *label, u32 a, s32 of, const char *la
     str_cat(&p, label);
     p = fmt_num(p, a);
     if (of >= 0) { *p++ = '/'; p = fmt_num(p, of); }
+    if (of == -2) *p++ = '%';   // -2: a percentage
     if (label2) {
         p = buf + 12;
         str_cat(&p, label2);
         p = fmt_num(p, b);
         if (of2 >= 0) { *p++ = '/'; p = fmt_num(p, of2); }
+        if (of2 == -2) *p++ = '%';
     }
     put_text(4, row, buf);
 }
@@ -1037,13 +1055,15 @@ static void draw_panel(void) {
     put_text(4, 7, "                      ");
     panel_line(8, "STONE  ", stone, -1, "FRUIT  ", fruit, -1);
     panel_line(9, "SEEDS  ", seeds, -1, "RELICS ", count_set(chest_open, NUM_CHESTS), NUM_CHESTS);
-    panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, "LIFE % ", life_percent(), -1);
-    put_text(4, 11, "                      ");
-    put_text(4, 12, " L+R+START: NEW GAME  ");
+    panel_line(10, "LORE   ", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 0, 0, -1);
+    panel_line(11, "VALLEY ", life_percent_of(0), -2, "STEPPE ", life_percent_of(1), -2);
+    panel_line(12, "HOLLOW ", life_percent_of(2), -2, 0, 0, -1);
     put_text(4, 13, "                      ");
+    put_text(4, 14, " L+R+START: NEW GAME  ");
+    put_text(4, 15, "                      ");
 }
 static void close_panel(void) {
-    for (s32 r = 5; r <= 13; r++) clear_row(r);
+    for (s32 r = 5; r <= 15; r++) clear_row(r);
 }
 
 int main(void) {
