@@ -1,4 +1,4 @@
-"""Replace $name and $name+offset in a test script with addresses from the ELF symbol table.
+"""Replace $name and $name+offset(+offset...) in a test script with addresses from the ELF symbol table.
 Usage: python3 resolve.py SCRIPT ELF > resolved.txt"""
 import re, subprocess, sys
 
@@ -10,11 +10,15 @@ for line in subprocess.run(["arm-none-eabi-nm", sys.argv[2]], capture_output=Tru
 
 
 def sub(m):
-    name, off = m.group(1), int(m.group(2) or 0)
+    name = m.group(1)
+    off = sum(int(n) for n in re.findall(r"\+(\d+)", m.group(2) or ""))
     if name not in syms:
         sys.exit(f"unknown symbol ${name}")
     return "%08x" % (syms[name] + off)
 
 
 for line in open(sys.argv[1]):
-    sys.stdout.write(re.sub(r"\$([A-Za-z_]\w*)(?:\+(\d+))?", sub, line))
+    if line.startswith("#"):          # comments may mention $names freely
+        sys.stdout.write(line)
+        continue
+    sys.stdout.write(re.sub(r"\$([A-Za-z_]\w*)((?:\+\d+)*)", sub, line))

@@ -27,7 +27,7 @@
 # cross the river
 48 16
 # swap to Sprout and bloom the far bank
-2 4
+2 256
 10 0
 2 1
 70 0 v6_farbank.ppm
@@ -54,7 +54,7 @@
 40 64
 20 0 v12_spring.ppm
 # swap to Sprout (Pebble -> Sprout) and bloom beside the spring
-2 4
+2 256
 10 0
 2 1
 70 0 v13_spring_bloom.ppm
