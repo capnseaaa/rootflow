@@ -57,7 +57,7 @@ typedef signed int     s32;
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
        THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
        PATH, FLOWERBED, FLOWERBED_EMPTY, SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH,
-       DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL };
+       DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL, VAEL_PUMP, VAEL_PUMP_B };
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -176,7 +176,7 @@ static int is_solid(u8 t) {
            t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR || t == DRY_RIVER ||
            t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH ||
            t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
-           t == STATUE || t == PINWHEEL;
+           t == STATUE || t == PINWHEEL || t == VAEL_PUMP;
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -429,6 +429,17 @@ static u32 thorn_quest;                // thorns cleared since Breeze asked
 static s32 hearts(s32 k) { return fp[k] / 20; }
 static int boosted(s32 k) { return hearts(k) >= 3; }   // the 3-heart power boost
 
+// ---------- Vael pumps ----------
+// After the first home is built, Vael pumps start up on living land (one per area at most),
+// outside every home's reach. Each drains the nearest living tile within PUMP_REACH every
+// PUMP_DRAIN frames. Pressing A on one (with a spirit's help: 1 charge) shuts it down.
+#define PUMP_REACH 6
+#define PUMP_DRAIN 240
+#define PUMP_FIRST 7200     // 2 minutes after the first home
+#define PUMP_EVERY 10800    // then every 3 minutes, while an area has none
+static u8 pump_on[NUM_AREAS], pump_x[NUM_AREAS], pump_y[NUM_AREAS];
+static u32 pump_drain[NUM_AREAS], pump_timer, pumps_stopped;
+
 // ---------- materials and relics ----------
 static u32 stone, fruit, seeds;
 static u8 chest_open[NUM_CHESTS], wreck_read[NUM_WRECKS];
@@ -495,6 +506,8 @@ static void reset_game(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) fp[i] = quest[i] = unlocked[i] = 0;
     bonded = -1;
     thorn_quest = 0;
+    for (s32 a = 0; a < NUM_AREAS; a++) pump_on[a] = 0, pump_drain[a] = 0;
+    pump_timer = pumps_stopped = 0;
     msgq_len = 0;
     party_count = 0; active = 0;
     for (s32 i = 0; i < HIST; i++) { hist_x[i] = px; hist_y[i] = py; }
@@ -885,6 +898,23 @@ static int interact(s32 mx, s32 my) {
     if (t == WRECK && (i = find_at(wreck_x, wreck_y, wreck_area, NUM_WRECKS, mx, my)) >= 0) {
         read_wreck(i); return 1;
     }
+    if (t == VAEL_PUMP) {
+        if (!party_count) { show_message("IT'S TOO STRONG ALONE."); return 1; }
+        Spirit *sp = &spirits[party[active]];
+        if (sp->energy == 0) { chime(220, 6); show_message(spirit_tired[sp->kind]); return 1; }
+        sp->energy--;
+        draw_active();
+        set_tile(mx, my, DEAD);
+        pump_on[cur_area] = 0;
+        stone += 3;
+        add_fp(sp->kind, 5);
+        chime(196, 14);
+        sparkle_at(mx, my);
+        show_message("YOU SHUT DOWN THE PUMP!");
+        queue_message("+3 STONE OF SCRAP");
+        if (pumps_stopped++ == 0) queue_message("VAEL STILL WANTS OUR WATER.");
+        return 1;
+    }
     if (t == LEVER) {
         if (quest[KIND_RIPPLE] != 1) { show_message("A RUSTED VAEL LEVER."); queue_message("IT IS STUCK FAST."); return 1; }
         if (!in_party(KIND_RIPPLE)) { show_message("IT WON'T MOVE. RIPPLE"); queue_message("SHOULD BE HERE TO HELP."); return 1; }
@@ -1165,6 +1195,79 @@ static void update_growth(void) {
     check_sprout_quest();
 }
 
+// A tile is safe when a built home in that area reaches it.
+static int home_protects(s32 a, s32 x, s32 y) {
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (!home_done[k] || home_site_area[k] != a) continue;
+        s32 dx = x - home_site_x[k], dy = y - home_site_y[k], r = home_reach(k);
+        if (dx * dx + dy * dy <= r * r) return 1;
+    }
+    return 0;
+}
+static int is_grassy(u8 t) { return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE; }
+
+static int spawn_pump(s32 a) {
+    use_area(a);
+    for (s32 tries = 0; tries < 80; tries++) {
+        s32 x = 1 + rng() % (MAP_W - 2), y = 1 + rng() % (MAP_H - 2);
+        u8 t = world[y * MAP_W + x];
+        if (!(t == GRASS || t == GRASS_TUFT || t == FLOWERS) || home_protects(a, x, y)) continue;
+        if (a == cur_area) {                               // never right next to the player
+            s32 dx = x - ((px + 8) >> 4), dy = y - ((py + 12) >> 4);
+            if (dx * dx + dy * dy < 36) continue;
+        }
+        // reachable: at least one walkable neighbor
+        if (is_solid(tile_at(x + 1, y)) && is_solid(tile_at(x - 1, y)) &&
+            is_solid(tile_at(x, y + 1)) && is_solid(tile_at(x, y - 1))) continue;
+        set_tile(x, y, VAEL_PUMP);
+        pump_on[a] = 1; pump_x[a] = x; pump_y[a] = y; pump_drain[a] = 0;
+        use_area(cur_area);
+        return 1;
+    }
+    use_area(cur_area);
+    return 0;
+}
+
+static void update_pumps(void) {
+    s32 any_home = 0;
+    for (s32 k = 0; k < NUM_SPIRITS; k++) any_home |= home_done[k];
+    if (!any_home) return;
+    // start a new pump now and then, in an area that has none
+    u32 wait = pumps_stopped || pump_on[0] || pump_on[1] || pump_on[2] ? PUMP_EVERY : PUMP_FIRST;
+    if (++pump_timer >= wait) {
+        pump_timer = 0;
+        s32 start = rng() % NUM_AREAS;
+        for (s32 i = 0; i < NUM_AREAS; i++) {
+            s32 a = (start + i) % NUM_AREAS;
+            if (pump_on[a] || !spawn_pump(a)) continue;
+            chime(147, 15);
+            queue_message("A VAEL PUMP STARTED UP:");
+            queue_message(area_name[a]);
+            break;
+        }
+    }
+    // each running pump drains the nearest living tile it can reach
+    for (s32 a = 0; a < NUM_AREAS; a++) {
+        if (!pump_on[a] || ++pump_drain[a] < PUMP_DRAIN) continue;
+        pump_drain[a] = 0;
+        use_area(a);
+        s32 best = 1 << 30, bx = -1, by = -1, cx = pump_x[a], cy = pump_y[a];
+        for (s32 y = cy - PUMP_REACH; y <= cy + PUMP_REACH; y++)
+            for (s32 x = cx - PUMP_REACH; x <= cx + PUMP_REACH; x++) {
+                if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
+                s32 d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
+                if (d > PUMP_REACH * PUMP_REACH || d >= best) continue;
+                if (!is_grassy(world[y * MAP_W + x]) || home_protects(a, x, y)) continue;
+                best = d; bx = x; by = y;
+            }
+        if (bx >= 0) {
+            set_tile(bx, by, world[by * MAP_W + bx] == TREE ? DEAD_TREE : DEAD);
+            if (a == cur_area) draw_life();
+        }
+        use_area(cur_area);
+    }
+}
+
 // ---------- gifts: tap B while facing a spirit ----------
 static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2 };          // 0 stone, 1 fruit, 2 seeds
 static const char *favorite_name[3] = { "STONE", "FRUIT", "SEEDS" };
@@ -1356,6 +1459,9 @@ static void animate_water(void) {
     // Swap the water tile graphics between two frames.
     u32 src = ((frame >> 5) & 1) ? WATER_B : WATER;
     copy32(CHARBLOCK(0) + WATER * 32, terrain_tiles + src * 32, 32);
+    // Vael pumps work in the same rhythm: their light blinks and the piston moves.
+    u32 pump = ((frame >> 5) & 1) ? VAEL_PUMP_B : VAEL_PUMP;
+    copy32(CHARBLOCK(0) + VAEL_PUMP * 32, terrain_tiles + pump * 32, 32);
 }
 
 static void draw_sprites(void) {
@@ -1410,7 +1516,7 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x33534652u   // "RFS3" (v0.9: friendship, quests, bond)
+#define SAVE_MAGIC 0x34534652u   // "RFS4" (v0.11: Vael pumps)
 
 // Everything that makes up a game in progress, in save order.
 static const struct { void *p; u32 n; } save_fields[] = {
@@ -1422,6 +1528,8 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked) },
     { &bonus_charge, 4 }, { &pulse_div, 4 }, { home_level, sizeof(home_level) }, { &build_item, 4 },
     { fp, sizeof(fp) }, { quest, sizeof(quest) }, { unlocked, sizeof(unlocked) }, { &bonded, 4 }, { &thorn_quest, 4 },
+    { pump_on, sizeof(pump_on) }, { pump_x, sizeof(pump_x) }, { pump_y, sizeof(pump_y) },
+    { pump_drain, sizeof(pump_drain) }, { &pump_timer, 4 }, { &pumps_stopped, 4 },
     { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
@@ -1639,6 +1747,8 @@ static void draw_page(void) {
         put_text_win(2, r++, num_line("HOLLOW", life_percent_of(2), -2, 16));
         r++;
         put_text_win(2, r++, num_line("LORE FOUND", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 16));
+        put_text_win(2, r++, num_line("PUMPS RUNNING", pump_on[0] + pump_on[1] + pump_on[2], -1, 16));
+        put_text_win(2, r++, num_line("PUMPS STOPPED", pumps_stopped, -1, 16));
         r++;
         put_text_win(2, r++, "YOU ARE IN");
         put_text_win(2, r++, area_name[cur_area]);
@@ -1838,6 +1948,7 @@ int main(void) {
         check_spring();
         update_homes();
         update_growth();
+        update_pumps();
         update_blooms();
         update_camera();
         draw_sprites();

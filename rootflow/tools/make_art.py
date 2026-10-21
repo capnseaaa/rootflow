@@ -58,7 +58,8 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "thorn", "homesite", "chest", "chest_open", "wreck", "dry_grass", "pebbles", "menhir",
         "dry_river", "dry_bridge", "path", "flowerbed", "flowerbed_empty", "sapling",
         "fruit_tree", "fruit_tree_bare", "lantern", "bench",
-        "dam", "lever", "lever_pulled", "lost_stone", "blossom", "fountain", "statue", "pinwheel"]
+        "dam", "lever", "lever_pulled", "lost_stone", "blossom", "fountain", "statue", "pinwheel",
+        "vael_pump", "vael_pump_b"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -525,6 +526,31 @@ def pinwheel(rng):
     return px
 
 
+def vael_pump(rng, frame):
+    """A running Vael pump on dried ground: a dark riveted tank, a pipe sunk into the earth,
+    and a red light that blinks between the two frames (the game swaps them like water)."""
+    px = dead(rng)
+    for y in range(4, 15):
+        for x in range(3, 13):
+            edge = y in (4, 14) or x in (3, 12)
+            px[y][x] = 15 if edge else (1 if (x + y) % 3 else 2)
+    for x in range(4, 12):
+        px[9][x] = 12                       # band
+    for x, y in ((4, 6), (11, 6), (4, 12), (11, 12)):
+        px[y][x] = 14                       # rivets
+    for y in range(0, 5):                   # exhaust pipe
+        px[y][9] = 15; px[y][10] = 2
+    px[0][8] = px[0][11] = 15
+    px[6][7] = px[6][8] = 13 if frame == 0 else 12   # the warning light
+    px[7][7] = px[7][8] = 13 if frame == 0 else 15
+    piston = 11 if frame == 0 else 12
+    for x in range(5, 11):
+        px[piston][x] = 3                   # moving piston line
+    for x in (2, 13):                       # drained cracks spreading from the base
+        px[14][x] = px[15][x] = 1
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
@@ -536,7 +562,7 @@ def make_terrain():
         dry_river(rng), dry_bridge(rng), path(rng), flowerbed(rng), flowerbed(rng, empty=True), sapling(rng),
         fruit_tree(rng), fruit_tree(rng, fruit=False), lantern(rng), bench(rng),
         dam(rng), lever(rng), lever(rng, pulled=True), lost_stone(rng), blossom(rng), fountain(rng),
-        statue(rng), pinwheel(rng),
+        statue(rng), pinwheel(rng), vael_pump(rng, 0), vael_pump(rng, 1),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))

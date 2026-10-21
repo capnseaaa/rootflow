@@ -15,6 +15,11 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - Pebble sleeps past a dried-up river in the steppe; Breeze is sealed among the boulders of the hollow.
 - Collect stone, fruit, and seeds; find hidden chests and the rusted machines Vael left behind.
 
+## Vael's pumps
+- Once you build a home, Vael starts pumps on your living land. A pump slowly drains the land around it.
+- Find it and press A to shut it down (your spirit helps, 1 charge). You get scrap stone.
+- Land inside a home's reach is safe, so homes and upgrades protect what you restored.
+
 ## Building
 - Paths, flower beds, fruit saplings, lanterns, and benches, on any land you brought back to life.
 - Flower beds and fruit trees regrow, so you can farm your own materials.
