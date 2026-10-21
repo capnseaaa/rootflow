@@ -61,6 +61,9 @@ enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK
        DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL, VAEL_PUMP, VAEL_PUMP_B,
        HOME_FIRST };   // then 16 home tiles: per spirit, level 1 roof + base, level 2 roof + base
 #define NUM_HOME_TILES 16
+// After the homes: animation frames, never placed on the map (animate_homes copies them over a home).
+enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1, SPRING2_RING2, SPRING2_SPRAY,
+       CAIRN1_GLOW, CAIRN2_GLOW, NOOK1_SWING, NOOK2_SPIN };
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
 static u8 home_tile(s32 k, s32 level, int roof) { return HOME_FIRST + k * 4 + (level - 1) * 2 + (roof ? 0 : 1); }
@@ -385,15 +388,19 @@ static u32 frame;
 static s32 hist_x[HIST], hist_y[HIST], hist_head;
 static const signed char bob[16] = { 0, 1, 1, 2, 2, 2, 1, 1, 0, -1, -1, -2, -2, -2, -1, -1 };
 
-// A spirit at home lives inside it. x, y = the site's top-left on screen; b = bob; anim = idle frame.
-// Sprout sits on its pad, and in the level 2 tree house peeks out of the hole now and then (frames
-// cut to the hole by build_data.py). Ripple floats in its pool. Pebble sits on top of its cairn as
-// the top stone. Breeze drifts in a small loop around its post or windmill.
+// A spirit at home lives inside it and makes its home move (draw_home_spirit, animate_homes).
+// Sprout sits on its pad; in the level 2 tree house it peeks out of the hole now and then (frames
+// cut to the hole by build_data.py). Ripple floats in its pool, dives (rings spread), and comes back
+// up (at level 2 the dome's jet sprays). Pebble sits on top of its cairn and hops; when it lands the
+// rune glows. Breeze perches on its chime bar and puffs (the chimes swing); at level 2 it is the
+// windmill's hub and the blades spin faster when it puffs.
 #define SPR_PEEK (TILE_PEEK / 4)
 static const u8 peek_frame[16] = { 9, 9, 9, 9, 9, 9, 9, 9, 0, 1, 2, 3, 2, 4, 2, 1 };   // 9 = hidden
 static const u8 peek_len[16]   = { 30, 30, 30, 30, 30, 30, 30, 30, 8, 8, 60, 40, 20, 40, 30, 8 };
-static const signed char loop_x[16] = { 0, 2, 4, 5, 6, 5, 4, 2, 0, -2, -4, -5, -6, -5, -4, -2 };
-static const signed char loop_y[16] = { -3, -3, -2, -1, 0, 1, 2, 3, 3, 3, 2, 1, 0, -1, -2, -3 };
+#define RIPPLE_CYCLE 360   // float until 200, dive 200-230 (rings), under until 290, up 290-320 (rings)
+#define PEBBLE_CYCLE 280   // sit until 200, hop 200-224, rune glows 224-270
+#define BREEZE_CYCLE 300   // calm until 240, puff 240-300
+static u32 home_t(s32 k, u32 cycle) { return (frame + k * 71) % cycle; }
 static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim);
 
 // ---------- spirits ----------
@@ -468,16 +475,57 @@ static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim) {
             else sprite_set(id, x, y, SPR_PEEK + peek_frame[k], 0, PAL_SPROUT);
         }
         return;
-    case KIND_RIPPLE:
-        sprite_set(id, x, y - 2 + (b >> 1), SPR_RIPPLE + anim, 0, PAL_RIPPLE);
+    case KIND_RIPPLE: {
+        u32 t = home_t(i, RIPPLE_CYCLE);
+        if (t >= 200 && t < 290) { sprite_hide(id); return; }            // under the water
+        s32 dy = t >= 290 && t < 300 ? 4 - (s32)(t - 290) / 2 : 0;       // rising out of the pool
+        if (t >= 190 && t < 200) dy = (t - 190) / 2;                     // sinking in
+        sprite_set(id, x, y - 2 + (b >> 1) + dy, SPR_RIPPLE + anim, 0, PAL_RIPPLE);
         return;
-    case KIND_STONE:
-        sprite_set(id, x, y - 16 - (lv < 2 ? 7 : 14) + (b > 1), SPR_STONE + anim, 0, PAL_STONE);
-        return;
-    default: {
-        u32 k = (frame >> 3) & 15;
-        sprite_set(id, x + loop_x[k], y - 22 + loop_y[k], SPR_BREEZE + anim, 0, PAL_BREEZE);
     }
+    case KIND_STONE: {
+        u32 t = home_t(i, PEBBLE_CYCLE);
+        s32 hop = t >= 200 && t < 224 ? (s32)((t - 200) * (224 - t)) / 24 : 0;   // up to 6 px
+        sprite_set(id, x, y - 16 - (lv < 2 ? 7 : 14) - hop, SPR_STONE + (hop ? 1 : 0), 0, PAL_STONE);
+        return;
+    }
+    default: {
+        if (lv >= 2) { sprite_hide(id); return; }                          // it is the windmill's hub
+        u32 t = home_t(i, BREEZE_CYCLE);
+        s32 puff = t >= 240 && ((t >> 3) & 1);
+        sprite_set(id, x + puff, y - 16 - 7 - puff, SPR_BREEZE + (t >= 240 ? 1 : anim), 0, PAL_BREEZE);
+    }
+    }
+}
+
+// Copy a 16x16 metatile's graphics into another metatile's slot in VRAM.
+static void set_meta_gfx(u32 slot, u32 src) { copy32(CHARBLOCK(0) + slot * 32, terrain_tiles + src * 32, 32); }
+
+// Run every frame: each home whose spirit is inside shows that spirit's animation frame.
+static void animate_homes(void) {
+    for (s32 k = 0; k < NUM_SPIRITS; k++) {
+        if (!home_done[k]) continue;
+        s32 lv = home_level[k];
+        u32 roof = home_tile(k, lv, 1), base = home_tile(k, lv, 0);
+        u32 r = roof, bs = base;
+        if (spirits[k].state == SP_HOME) {
+            if (k == KIND_RIPPLE) {
+                u32 t = home_t(k, RIPPLE_CYCLE);
+                u32 ring1 = lv < 2 ? SPRING1_RING1 : SPRING2_RING1;
+                if ((t >= 200 && t < 215) || (t >= 290 && t < 305)) bs = ring1;
+                else if ((t >= 215 && t < 230) || (t >= 305 && t < 320)) bs = ring1 + 1;
+                if (lv >= 2 && t >= 290 && t < 350) r = SPRING2_SPRAY;
+            } else if (k == KIND_STONE) {
+                u32 t = home_t(k, PEBBLE_CYCLE);
+                if (t >= 224 && t < 270 && ((t - 224) < 30 || (t & 4))) r = lv < 2 ? CAIRN1_GLOW : CAIRN2_GLOW;
+            } else if (k == KIND_BREEZE) {
+                u32 t = home_t(k, BREEZE_CYCLE);
+                if (lv < 2) { if (t >= 240 && ((t >> 3) & 1)) r = NOOK1_SWING; }
+                else if ((frame >> (t >= 240 ? 2 : 4)) & 1) r = NOOK2_SPIN;   // fast while it puffs
+            }
+        }
+        set_meta_gfx(roof, r);
+        set_meta_gfx(base, bs);
     }
 }
 
@@ -1939,6 +1987,7 @@ static void title_screen(int has_save) {
         REG_BG1HOFS = pan >> 1;
         REG_BG1VOFS = cam_y;
         if ((frame & 31) == 0) animate_water();
+        animate_homes();
         poll_keys();
         frame++;
         pan += dir;                                    // drift slowly across the valley and back
@@ -2021,6 +2070,7 @@ int main(void) {
         REG_BG1VOFS = cam_y;
         oam_flush();
         if ((frame & 31) == 0) animate_water();
+        animate_homes();
 
         poll_keys();
         frame++;

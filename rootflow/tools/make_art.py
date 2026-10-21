@@ -64,7 +64,10 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "grove1_top", "grove1_base", "grove2_top", "grove2_base",
         "spring1_top", "spring1_base", "spring2_top", "spring2_base",
         "cairn1_top", "cairn1_base", "cairn2_top", "cairn2_base",
-        "nook1_top", "nook1_base", "nook2_top", "nook2_base"]
+        "nook1_top", "nook1_base", "nook2_top", "nook2_base",
+        # home animation frames (never placed on the map; copied over the home tiles)
+        "spring1_ring1", "spring1_ring2", "spring2_ring1", "spring2_ring2", "spring2_spray",
+        "cairn1_glow", "cairn2_glow", "nook1_swing", "nook2_spin"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -650,7 +653,7 @@ def grove_base(rng, level):
     return px
 
 
-def spring_top(rng, level):
+def spring_top(rng, level, spray=False):
     """A water-drop dome standing on a pale stone plinth. Level 2: the drop is taller, sprays a
     jet of water from its tip, and has arched windows."""
     px = water(rng, 0)
@@ -688,15 +691,19 @@ def spring_top(rng, level):
     if level == 2:
         for wx in (4, 11):                                      # arched windows
             dots(px, [(wx, 8), (wx, 9)], 9)
-        # the jet from the tip, falling in two arcs
-        dots(px, [(7, 0), (8, 0), (7, 1), (8, 1)], 14)
-        dots(px, [(6, 0), (9, 0), (5, 1), (10, 1), (4, 2), (11, 2), (3, 3), (12, 3)], 11)
-        dots(px, [(2, 4), (13, 4), (2, 5), (13, 5), (1, 7), (14, 7)], 11)
-        dots(px, [(1, 8), (14, 8)], 14)
+        if spray:   # the animation frame when Ripple comes up: a jet falling in two arcs
+            dots(px, [(7, 0), (8, 0), (7, 1), (8, 1)], 14)
+            dots(px, [(6, 0), (9, 0), (5, 1), (10, 1), (4, 2), (11, 2), (3, 3), (12, 3)], 11)
+            dots(px, [(2, 4), (13, 4), (2, 5), (13, 5), (1, 7), (14, 7)], 11)
+            dots(px, [(1, 8), (14, 8)], 14)
+        else:       # otherwise a small spurt at the tip
+            dots(px, [(7, 0), (8, 0)], 11)
+            dots(px, [(7, 1), (8, 1)], 14)
     return px
 
 
-def spring_base(rng, level):
+def spring_base(rng, level, ring=0):
+    """ring 1 or 2: animation frames with a ripple ring spreading where Ripple dives or comes up."""
     px = grass(rng)
     # a round stone basin rim around a pool (both levels)
     for y in range(16):
@@ -707,6 +714,13 @@ def spring_base(rng, level):
             if 0.88 <= d < 1:
                 px[y][x] = 15
     dots(px, [(5, 6), (6, 6), (9, 10)], 11)                    # ripples
+    if ring:
+        lo, hi = ((0.06, 0.2), (0.36, 0.52))[ring - 1]
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) / 7.2) ** 2 + ((y - 8) / 6.8) ** 2
+                if lo <= d < hi:
+                    px[y][x] = 11
     if level == 2:
         for cx, cy in ((4, 9), (11, 6), (10, 11)):              # lily pads
             dots(px, [(cx, cy), (cx + 1, cy), (cx, cy + 1), (cx + 1, cy + 1)], 7)
@@ -716,8 +730,9 @@ def spring_base(rng, level):
     return px
 
 
-def cairn_top(rng, level):
-    """Rounded stones stacked smaller toward the top; level 2 is taller, mossy, with a rune."""
+def cairn_top(rng, level, glow=False):
+    """Rounded stones stacked smaller toward the top; level 2 is taller and mossy. A rune is carved
+    in a stone; glow = the animation frame when Pebble lands on top and the rune lights up."""
     px = grass(rng)
     stones = [(7.5, 12.5, 5.5, 3.0), (7.5, 8.0, 4.0, 2.4)]
     if level == 2:
@@ -732,8 +747,13 @@ def cairn_top(rng, level):
                     px[y][x] = 15
         hx, hy = int(cx - rx * 0.4), int(cy - ry * 0.35)
         px[hy][hx] = 14                                      # highlight
+    ry = 12 if level == 1 else 8
+    if glow:
+        dots(px, [(7, ry), (8, ry), (7, ry + 1), (8, ry + 1)], 14)
+        dots(px, [(6, ry), (9, ry), (7, ry - 1), (8, ry + 2)], 11)
+    else:
+        dots(px, [(7, ry), (8, ry + 1)], 2)                  # the rune, dark until Pebble lands
     if level == 2:
-        dots(px, [(7, 8), (8, 8)], 14)                       # glowing rune
         dots(px, [(6, 1), (9, 4), (5, 4), (10, 7)], 8)       # moss
     return px
 
@@ -749,7 +769,9 @@ def cairn_base(rng, level):
     return px
 
 
-def nook_top(rng, level):
+def nook_top(rng, level, frame=0):
+    """Level 1: a wind-chime post (frame 1: the chimes swing when Breeze puffs). Level 2: a little
+    windmill with Breeze's face as the hub (frame 1: the blades turned 45 degrees)."""
     px = grass(rng)
     for y in range(2, 16):                                     # wooden post
         px[y][7] = 12; px[y][8] = 5
@@ -758,16 +780,27 @@ def nook_top(rng, level):
             px[3][x] = 12
         for x, ln in ((4, 5), (6, 7), (9, 6), (11, 4)):
             for k in range(ln):
-                px[4 + k][x] = 14 if k < ln - 1 else 13
+                xx = x + (k + 1) // 2 if frame else x                 # swinging: the chimes lean
+                px[4 + k][xx] = 14 if k < ln - 1 else 13
     else:                                                      # a little windmill
-        blades = [((8, 1), (9, 2), (10, 3), (11, 4)), ((6, 4), (5, 3), (4, 2), (3, 1)),
-                  ((9, 6), (10, 7), (11, 8), (12, 9)), ((6, 6), (5, 7), (4, 8), (3, 9))]
+        if frame == 0:
+            blades = [((9, 2), (10, 1), (11, 0)), ((6, 2), (5, 1), (4, 0)),
+                      ((10, 8), (11, 9), (12, 10)), ((5, 8), (4, 9), (3, 10))]
+        else:
+            blades = [((7, 1), (7, 0), (8, 0)), ((12, 5), (13, 5), (14, 5)),
+                      ((8, 10), (8, 11), (7, 11)), ((3, 5), (2, 5), (1, 5))]
         for i, blade in enumerate(blades):
             for x, y in blade:
                 px[y][x] = 14 if i % 2 else 13
-                if y + 1 < 16:
+                if y + 1 < 16 and px[y + 1][x] not in (13, 14):
                     px[y + 1][x] = 15
-        px[5][7] = px[5][8] = 15
+        hub = {3: (6, 9), 4: (5, 10), 5: (4, 11), 6: (4, 11), 7: (5, 10), 8: (6, 9)}
+        for y, (x0, x1) in hub.items():                        # Breeze's cloud face as the hub
+            for x in range(x0, x1 + 1):
+                edge = x in (x0, x1) or y in (3, 8)
+                px[y][x] = 15 if edge else 14
+        dots(px, [(6, 5), (9, 5)], 15)                         # eyes
+        dots(px, [(7, 7), (8, 7)], 15)                         # a little mouth
     return px
 
 
@@ -792,10 +825,26 @@ def make_terrain():
         fruit_tree(rng), fruit_tree(rng, fruit=False), lantern(rng), bench(rng),
         dam(rng), lever(rng), lever(rng, pulled=True), lost_stone(rng), blossom(rng), fountain(rng),
         statue(rng), pinwheel(rng), vael_pump(rng, 0), vael_pump(rng, 1),
-        grove_top(rng, 1), grove_base(rng, 1), grove_top(rng, 2), grove_base(rng, 2),
-        spring_top(rng, 1), spring_base(rng, 1), spring_top(rng, 2), spring_base(rng, 2),
-        cairn_top(rng, 1), cairn_base(rng, 1), cairn_top(rng, 2), cairn_base(rng, 2),
-        nook_top(rng, 1), nook_base(rng, 1), nook_top(rng, 2), nook_base(rng, 2),
+    ]
+    states = {}                     # random state before each home tile, by tile index
+    for top, base in ((grove_top, grove_base), (spring_top, spring_base),
+                      (cairn_top, cairn_base), (nook_top, nook_base)):
+        for level in (1, 2):
+            for fn in (top, base):
+                states[len(tiles)] = rng.getstate()
+                tiles.append(fn(rng, level))
+    # Animation frames for the homes; main.c copies them over a home's tiles (animate_homes).
+    # Each uses the same random state as its home tile, so the grass or water around it matches.
+    def same(i):
+        r = random.Random()
+        r.setstate(states[i])
+        return r
+    tiles += [
+        spring_base(same(45), 1, ring=1), spring_base(same(45), 1, ring=2),
+        spring_base(same(47), 2, ring=1), spring_base(same(47), 2, ring=2),
+        spring_top(same(46), 2, spray=True),
+        cairn_top(same(48), 1, glow=True), cairn_top(same(50), 2, glow=True),
+        nook_top(same(52), 1, frame=1), nook_top(same(54), 2, frame=1),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
