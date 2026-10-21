@@ -53,8 +53,10 @@ All tiles share **one** 16-color palette, so plan the colors together. Three pal
 Current palette (slot 0 to 15):
 `#101418, #4A4440, #6B625A, #8A8078, #8B5E3C, #A8774C, #3F7A3A, #6AA84F, #9CCC65, #2F5F9E, #4F8FD6, #A8D4F0, #5A3A22, #D9603B, #F0E2B6, #1C2420`
 
-Tile order (38 tiles, keep this order):
-dead, dead_crack, dirt, grass, grass_tuft, flowers, tree, dead_tree, rock, water, water_b (2nd water frame), bridge, thorn, homesite, chest, chest_open, wreck (Vael pump), dry_grass, pebbles, menhir (standing stone), dry_river, dry_bridge, path, flowerbed, flowerbed_empty, sapling, fruit_tree, fruit_tree_bare, lantern, bench, dam, lever, lever_pulled, lost_stone, blossom, fountain, statue, pinwheel
+Tile order (56 tiles, keep this order):
+dead, dead_crack, dirt, grass, grass_tuft, flowers, tree, dead_tree, rock, water, water_b (2nd water frame), bridge, thorn, homesite, chest, chest_open, wreck (rusted Vael pump), dry_grass, pebbles, menhir (standing stone), dry_river, dry_bridge, path, flowerbed, flowerbed_empty, sapling, fruit_tree, fruit_tree_bare, lantern, bench, dam, lever, lever_pulled, lost_stone, blossom, fountain, statue, pinwheel, vael_pump, vael_pump_b (its 2nd animation frame), then the homes: for each of grove, spring, cairn, nook: level 1 roof, level 1 base, level 2 roof, level 2 base.
+
+Homes are two tiles tall: the roof sits on the tile above the home site and the base on the site, where the spirit rests. The bases share one look (a mossy pad) with small touches per spirit; the roofs are each spirit's own design. Roofs should sit on grass (the spring's roof sits on water).
 
 You do not have to redo all of them at once. Start with the ground (dead, grass, dirt, water) and trees; they cover most of the screen.
 

@@ -57,7 +57,12 @@ typedef signed int     s32;
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
        THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
        PATH, FLOWERBED, FLOWERBED_EMPTY, SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH,
-       DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL, VAEL_PUMP, VAEL_PUMP_B };
+       DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN, STATUE, PINWHEEL, VAEL_PUMP, VAEL_PUMP_B,
+       HOME_FIRST };   // then 16 home tiles: per spirit, level 1 roof + base, level 2 roof + base
+#define NUM_HOME_TILES 16
+static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
+// The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
+static u8 home_tile(s32 k, s32 level, int roof) { return HOME_FIRST + k * 4 + (level - 1) * 2 + (roof ? 0 : 1); }
 enum { DIR_DOWN, DIR_UP, DIR_LEFT, DIR_RIGHT };
 
 // ---------- small helpers ----------
@@ -176,13 +181,13 @@ static int is_solid(u8 t) {
            t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR || t == DRY_RIVER ||
            t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH ||
            t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
-           t == STATUE || t == PINWHEEL || t == VAEL_PUMP;
+           t == STATUE || t == PINWHEEL || t == VAEL_PUMP || is_home(t);
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
     return t == PATH || t == FLOWERBED || t == FLOWERBED_EMPTY || t == SAPLING || t == FRUIT_TREE ||
            t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH || t == BLOSSOM || t == FOUNTAIN ||
-           t == STATUE || t == PINWHEEL;
+           t == STATUE || t == PINWHEEL || is_home(t);
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || is_built(t);
@@ -219,7 +224,8 @@ static u32 life_percent_of(s32 a) {
     u32 alive = 0;
     for (s32 i = 0; i < MAP_W * MAP_H; i++)
         if (is_alive(maps[a][i])) alive++;
-    return alive * 100 / restorable[a];
+    u32 p = alive * 100 / restorable[a];
+    return p > 100 ? 100 : p;   // homes count as living but were not restorable ground
 }
 static u32 life_percent(void) { return life_percent_of(cur_area); }
 
@@ -1035,6 +1041,15 @@ static void send_home(s32 k) {
     s->energy = ENERGY_MAX_HOUSED + bonus_charge;
 }
 
+// Draw spirit k's home at its current level: the base on the site, the roof on the tile above.
+static void place_home_tiles(s32 k) {
+    s32 hx = home_site_x[k], hy = home_site_y[k];
+    use_area(home_site_area[k]);
+    set_tile(hx, hy, home_tile(k, home_level[k], 0));
+    if (hy > 0) set_tile(hx, hy - 1, home_tile(k, home_level[k], 1));
+    use_area(cur_area);
+}
+
 static void try_build_home(s32 k) {
     s32 hx = home_site_x[k], hy = home_site_y[k];
     const u8 *h = home_helper[k];
@@ -1054,6 +1069,7 @@ static void try_build_home(s32 k) {
     pulse_r[k] = 0;
     pulse_timer[k] = HOME_PULSE - 120;   // first pulse two seconds after building
     home_level[k] = 1;
+    place_home_tiles(k);
     flood_dist(home_dist[k], hx, hy, HOME_REACH_L1);
     add_fp(k, 20);
     s32 all = 1;
@@ -1130,6 +1146,7 @@ static void upgrade_home(void) {
         if (!can_pay(B_UPGRADE)) { chime(262, 6); show_message("NOT ENOUGH MATERIALS"); return; }
         pay(B_UPGRADE, -1);
         home_level[k] = 2;
+        place_home_tiles(k);
         add_fp(k, 20);
         flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);   // pulses go on to 12
         chime(1319, 14);
@@ -1563,7 +1580,8 @@ static int load_game(void) {
         u8 *b = save_fields[f].p;
         for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
     }
-    // rebuild what is not saved
+    // rebuild what is not saved (and draw homes from saves made before homes had their own look)
+    for (s32 k = 0; k < NUM_SPIRITS; k++) if (home_done[k]) place_home_tiles(k);
     for (s32 k = 0; k < NUM_SPIRITS; k++)
         if (home_done[k]) {
             use_area(home_site_area[k]);
@@ -1841,7 +1859,7 @@ static void title_screen(int has_save) {
     for (s32 ty = 0; ty < 3; ty++)
         for (s32 tx = 0; tx < BANNER_W; tx++)
             SCREENBLOCK(TEXT_SB)[(3 + ty) * 32 + 7 + tx] = (BANNER_BASE + ty * BANNER_W + tx) | (3 << 12);
-    put_text(3, 7, " SMALL ROOTS. BIG CHANGE. ");
+    put_text(2, 7, " SMALL ROOTS. BIG CHANGE. ");   // 26 wide: columns 2-27, centered
     music_play(SONG_TITLE);
     s32 choice = 0, pan = 0, dir = 1;
     cam_y = WORLD_PX / 2 - SCREEN_H / 2;
@@ -1863,7 +1881,7 @@ static void title_screen(int has_save) {
             put_text_win(11, 14, choice == 1 ? ">" : " ");
             put_text_win(12, 14, "NEW GAME");
         } else {
-            put_text(9, 14, (frame & 32) ? " PRESS START " : "             ");
+            put_text(8, 14, (frame & 32) ? " PRESS  START " : "              ");   // 14 wide, centered
         }
         if (HIT(KEY_START | KEY_A)) break;
     }

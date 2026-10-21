@@ -59,7 +59,12 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "dry_river", "dry_bridge", "path", "flowerbed", "flowerbed_empty", "sapling",
         "fruit_tree", "fruit_tree_bare", "lantern", "bench",
         "dam", "lever", "lever_pulled", "lost_stone", "blossom", "fountain", "statue", "pinwheel",
-        "vael_pump", "vael_pump_b"]
+        "vael_pump", "vael_pump_b",
+        # built homes: for each spirit, level 1 roof + base, then level 2 roof + base
+        "grove1_top", "grove1_base", "grove2_top", "grove2_base",
+        "spring1_top", "spring1_base", "spring2_top", "spring2_base",
+        "cairn1_top", "cairn1_base", "cairn2_top", "cairn2_base",
+        "nook1_top", "nook1_base", "nook2_top", "nook2_base"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -551,6 +556,168 @@ def vael_pump(rng, frame):
     return px
 
 
+# ---- built homes (two tiles tall: a roof above, a base where the spirit sits) ----
+def home_pad(rng):
+    """The shared base texture: a round mossy pad with a cream doorstep in the middle."""
+    px = grass(rng)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 7.5) ** 2 + ((y - 8.5) / 6.5) ** 2
+            if d < 1:
+                px[y][x] = 6 if d > 0.6 else 7
+            if 0.85 <= d < 1:
+                px[y][x] = 15
+            if ((x - 7.5) / 4) ** 2 + ((y - 9.5) / 3) ** 2 < 1:
+                px[y][x] = 14 if y < 10 else 5            # doorstep
+    return px
+
+
+def dots(px, pts, c):
+    for x, y in pts:
+        if 0 <= x < 16 and 0 <= y < 16:
+            px[y][x] = c
+
+
+def blob(px, cx, cy, rx, ry, fill, edge=15):
+    for y in range(16):
+        for x in range(16):
+            d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+            if d < 1:
+                px[y][x] = fill
+            elif d < 1.35 and edge is not None and px[y][x] in (6, 7, 8, 2, 3, 4):
+                pass
+    for y in range(16):
+        for x in range(16):
+            d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+            if 0.82 <= d < 1 and edge is not None:
+                px[y][x] = edge
+
+
+def grove_top(rng, level):
+    px = grass(rng)
+    if level == 1:      # a leafy bush arch
+        blob(px, 7.5, 9, 7, 6, 6)
+        dots(px, [(4, 7), (6, 5), (10, 6), (11, 9), (5, 10), (8, 6), (9, 9), (3, 9)], 8)
+        for y in range(11, 16):
+            px[y][5] = px[y][10] = 12                 # arch sides
+        for y in range(12, 16):
+            for x in range(6, 10):
+                px[y][x] = 6
+    else:               # a full canopy with blossoms
+        blob(px, 7.5, 8, 7.5, 7.5, 6)
+        blob(px, 7, 7, 5.5, 5, 7, edge=None)
+        dots(px, [(3, 6), (6, 3), (10, 4), (12, 8), (8, 9), (4, 11), (11, 12)], 13)
+        dots(px, [(4, 6), (7, 3), (11, 4), (12, 9), (9, 9), (5, 11), (11, 13)], 14)
+        for y in range(13, 16):
+            px[y][7] = px[y][8] = 12
+    return px
+
+
+def grove_base(rng, level):
+    px = home_pad(rng)
+    dots(px, [(2, 9), (13, 9), (3, 12), (12, 12)], 8)          # sprouts
+    if level == 2:
+        dots(px, [(2, 7), (13, 7), (1, 11), (14, 11)], 13)     # flowers
+        dots(px, [(3, 14), (12, 14)], 14)                       # mushrooms
+        dots(px, [(3, 15), (12, 15)], 12)
+    return px
+
+
+def spring_top(rng, level):
+    px = water(rng, 0)
+    for y in range(6, 16):                                     # stone spout column
+        for x in range(5, 11):
+            px[y][x] = 15 if x in (5, 10) else (14 if x < 8 else 5)
+    for x in range(4, 12):
+        px[6][x] = 15
+    px[7][7] = px[7][8] = 10                                   # spout mouth
+    if level == 1:
+        dots(px, [(7, 9), (8, 11), (7, 13)], 11)               # drip
+    else:                                                      # a water arc to both sides
+        arc = [(7, 1), (8, 1), (6, 1), (9, 1), (5, 2), (10, 2), (4, 3), (11, 3), (3, 4), (12, 4), (3, 5), (12, 5),
+               (2, 6), (13, 6), (2, 7), (13, 7)]
+        dots(px, arc, 11)
+        dots(px, [(x, y + 1) for x, y in arc], 10)
+    return px
+
+
+def spring_base(rng, level):
+    px = home_pad(rng)
+    for y in range(5, 13):                                     # a little pool
+        for x in range(3, 13):
+            d = ((x - 7.5) / 4.5) ** 2 + ((y - 8.5) / 3.5) ** 2
+            if d < 1:
+                px[y][x] = 9 if d > 0.5 else 10
+    if level == 2:
+        dots(px, [(4, 7), (5, 7), (11, 9), (10, 9)], 7)        # lily pads
+        dots(px, [(5, 6), (11, 8)], 13)                        # lily flowers
+    return px
+
+
+def cairn_top(rng, level):
+    """Rounded stones stacked smaller toward the top; level 2 is taller, mossy, with a rune."""
+    px = grass(rng)
+    stones = [(7.5, 12.5, 5.5, 3.0), (7.5, 8.0, 4.0, 2.4)]
+    if level == 2:
+        stones += [(7.5, 4.4, 3.0, 2.0), (7.5, 1.6, 1.8, 1.3)]
+    for cx, cy, rx, ry in stones:
+        for y in range(16):
+            for x in range(16):
+                d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+                if d < 1:
+                    px[y][x] = 2 if y > cy + ry * 0.4 else 3
+                if 0.72 <= d < 1:
+                    px[y][x] = 15
+        hx, hy = int(cx - rx * 0.4), int(cy - ry * 0.35)
+        px[hy][hx] = 14                                      # highlight
+    if level == 2:
+        dots(px, [(7, 8), (8, 8)], 14)                       # glowing rune
+        dots(px, [(6, 1), (9, 4), (5, 4), (10, 7)], 8)       # moss
+    return px
+
+
+def cairn_base(rng, level):
+    px = home_pad(rng)
+    dots(px, [(2, 8), (13, 8), (3, 13), (12, 13)], 3)          # ring of small stones
+    dots(px, [(2, 9), (13, 9), (3, 14), (12, 14)], 15)
+    if level == 2:
+        dots(px, [(1, 11), (14, 11)], 3)
+        dots(px, [(1, 12), (14, 12)], 15)
+        dots(px, [(2, 7), (13, 7)], 8)
+    return px
+
+
+def nook_top(rng, level):
+    px = grass(rng)
+    for y in range(2, 16):                                     # wooden post
+        px[y][7] = 12; px[y][8] = 5
+    if level == 1:                                             # wind-chime and ribbons
+        for x in range(4, 12):
+            px[3][x] = 12
+        for x, ln in ((4, 5), (6, 7), (9, 6), (11, 4)):
+            for k in range(ln):
+                px[4 + k][x] = 14 if k < ln - 1 else 13
+    else:                                                      # a little windmill
+        blades = [((8, 1), (9, 2), (10, 3), (11, 4)), ((6, 4), (5, 3), (4, 2), (3, 1)),
+                  ((9, 6), (10, 7), (11, 8), (12, 9)), ((6, 6), (5, 7), (4, 8), (3, 9))]
+        for i, blade in enumerate(blades):
+            for x, y in blade:
+                px[y][x] = 14 if i % 2 else 13
+                if y + 1 < 16:
+                    px[y + 1][x] = 15
+        px[5][7] = px[5][8] = 15
+    return px
+
+
+def nook_base(rng, level):
+    px = home_pad(rng)
+    dots(px, [(2, 8), (13, 8)], 12)                            # two ribbon posts
+    dots(px, [(2, 7), (13, 7)], 13 if level == 1 else 14)
+    if level == 2:
+        dots(px, [(1, 9), (14, 9), (1, 10), (14, 10)], 14)     # streamers
+    return px
+
+
 def make_terrain():
     rng = random.Random(7)
     tiles = [
@@ -563,6 +730,10 @@ def make_terrain():
         fruit_tree(rng), fruit_tree(rng, fruit=False), lantern(rng), bench(rng),
         dam(rng), lever(rng), lever(rng, pulled=True), lost_stone(rng), blossom(rng), fountain(rng),
         statue(rng), pinwheel(rng), vael_pump(rng, 0), vael_pump(rng, 1),
+        grove_top(rng, 1), grove_base(rng, 1), grove_top(rng, 2), grove_base(rng, 2),
+        spring_top(rng, 1), spring_base(rng, 1), spring_top(rng, 2), spring_base(rng, 2),
+        cairn_top(rng, 1), cairn_base(rng, 1), cairn_top(rng, 2), cairn_base(rng, 2),
+        nook_top(rng, 1), nook_base(rng, 1), nook_top(rng, 2), nook_base(rng, 2),
     ]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
