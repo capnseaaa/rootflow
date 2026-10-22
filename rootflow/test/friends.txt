@@ -200,7 +200,9 @@
 150 0 w22_ending3.ppm
 # --- A: tap B facing Sprout (at home in its grove) to give seeds; Sprout reaches 2 hearts and asks its quest
 0 0 !$seeds=20,$stone=20,$fruit=20
-1 128
+# test setup: stand below the grove (the home is solid since v0.12), face up at Sprout
+0 0 !$px=48,$py=462
+1 64
 3 2
 1 0
 20 0 f1_gift.ppm

@@ -574,13 +574,23 @@ static u32 told_river, told_spring;
 static u32 regen_timer;
 static s32 just_called = -1;   // spirit just called back from home (see handle_action)
 
-static int blocked_at(s32 x, s32 y) {
+static int on_solid(s32 x, s32 y) {
     // feet box: x+3..x+12, y+10..y+15
     s32 xs[2] = { x + 3, x + 12 }, ys[2] = { y + 10, y + 15 };
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++)
             if (is_solid(tile_at(xs[i] >> 4, ys[j] >> 4))) return 1;
-    return x < 0 || y < 0 || x > WORLD_PX - 16 || y > WORLD_PX - 16;
+    return 0;
+}
+static int in_world(s32 x, s32 y) { return x >= 0 && y >= 0 && x <= WORLD_PX - 16 && y <= WORLD_PX - 16; }
+static int blocked_at(s32 x, s32 y) { return on_solid(x, y) || !in_world(x, y); }
+// A tile can turn solid under the player (a home appears). Move the player to the nearest free spot.
+static void unstick_player(void) {
+    if (!blocked_at(px, py)) return;
+    static const signed char dir_x[4] = { 0, -1, 1, 0 }, dir_y[4] = { 1, 0, 0, -1 };   // down first
+    for (s32 d = 1; d <= 24; d++)
+        for (s32 k = 0; k < 4; k++)
+            if (!blocked_at(px + dir_x[k] * d, py + dir_y[k] * d)) { px += dir_x[k] * d; py += dir_y[k] * d; return; }
 }
 
 static void draw_active(void) {
@@ -825,9 +835,10 @@ static void update_player(void) {
     if (HELD(KEY_UP))    { dy = -speed; pdir = DIR_UP; }
     if (HELD(KEY_DOWN))  { dy =  speed; pdir = DIR_DOWN; }
 
-    int moved = 0;
-    if (dx && !blocked_at(px + dx, py)) { px += dx; moved = 1; }
-    if (dy && !blocked_at(px, py + dy)) { py += dy; moved = 1; }
+    // If the player is ever inside something solid, let them walk out instead of being stuck.
+    int moved = 0, stuck = on_solid(px, py);
+    if (dx && (stuck ? in_world(px + dx, py) : !blocked_at(px + dx, py))) { px += dx; moved = 1; }
+    if (dy && (stuck ? in_world(px, py + dy) : !blocked_at(px, py + dy))) { py += dy; moved = 1; }
 
     if (moved) {
         if ((frame & 7) == 0) pstep++;
@@ -840,10 +851,12 @@ static void update_player(void) {
 }
 
 static void update_spirits(void) {
-    // Party members follow the player's trail, one behind the other.
+    // Party members follow the player's trail, one behind the other. The active spirit walks
+    // first; the others keep their party order behind it (they glide to new places on a swap).
     for (s32 p = 0; p < party_count; p++) {
         Spirit *s = &spirits[party[p]];
-        s32 idx = (hist_head - 18 * (p + 1)) & (HIST - 1);
+        s32 place = p == active ? 0 : (p < active ? p + 1 : p);
+        s32 idx = (hist_head - 18 * (place + 1)) & (HIST - 1);
         s->x += (hist_x[idx] - s->x) / 4;
         s->y += (hist_y[idx] - s->y) / 4;
     }
@@ -1183,6 +1196,7 @@ static void try_build_home(s32 k) {
     pulse_timer[k] = HOME_PULSE - 120;   // first pulse two seconds after building
     home_level[k] = 1;
     place_home_tiles(k);
+    unstick_player();
     flood_dist(home_dist[k], hx, hy, HOME_REACH_L1);
     add_fp(k, 20);
     s32 all = 1;
@@ -1260,6 +1274,7 @@ static void upgrade_home(void) {
         pay(B_UPGRADE, -1);
         home_level[k] = 2;
         place_home_tiles(k);
+        unstick_player();
         add_fp(k, 20);
         flood_dist(home_dist[k], home_site_x[k], home_site_y[k], HOME_REACH);   // pulses go on to 12
         sfx_play(SFX_HOME);
