@@ -1227,22 +1227,22 @@ BARK_PAL = [
     (236, 196, 140),  # 6 rings / cheeks
 ] + [(0, 0, 0)] * 9
 
-# Wood spirit "Bark": a stubby little stump with a leaf sprout, drawn with BARK_PAL.
-BARK_SPRITES = {
+# Wood spirit "Bark": a grumpy little stump with a wilted leaf sprout, drawn with BARK_PAL.
+BARK_SPRITES = {     # grumpy: brows slanting down to the middle, a squint, and a frown
     "bark0": [
         "................",
-        ".........55.....",
+        "..........5.....",
         "........5551....",
         ".....1111511....",
         "....12266221....",
         "...1262222621...",
         "...1226666221...",
-        "...1333333331...",
+        "...1133333311...",
+        "...1311331131...",
         "...1313333131...",
-        "...1313333131...",
         "...1333333331...",
-        "...1343333431...",
-        "...1434334341...",
+        "...1333113331...",
+        "...1431331341...",
         "..14411441144...",
         "...11..11..11...",
         "................",

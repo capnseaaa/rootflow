@@ -1,4 +1,5 @@
-# v0.13 (generated with v4 first): Bark, wood, stumps, grass under chests, 100% message, harmony, region hint
+# v0.13 (generated with v4 first): Bark falls in after the last home upgrade, grumbles; wood, stumps,
+# grass under chests, 100% message, harmony, region hint
 # v0.7 full playthrough. Sprout and Ripple in the valley; Pebble in the Windy Steppe past a dry riverbed
 # (Ripple bridges it); Breeze in Stone Hollow inside a boulder pocket (Pebble breaks in); all four homes.
 # Lines with !$name=val are test setup (teleports, picking the active party slot).
@@ -197,18 +198,29 @@
 150 0 w20_ending1.ppm
 150 0 w21_ending2.ppm
 150 0 w22_ending3.ppm
-# 1: all four homes stand, so Bark sleeps among the valley stumps
-0 0 @$spirits+120,$spirits+136
-# 2: stand in the gap below Bark (test setup: wake it), greet it
-0 0 !$px=66,$py=182
-10 0 x0_bark_asleep.ppm
-0 0 !$spirits+120=1,$px=66,$py=182
+# 1: all four homes stand at level 1; Bark is still hidden (state 4)
+0 0 @$spirits+120
+# 2: three homes at level 2 (test setup); upgrade the grove for real: every home is now level 2
+0 0 !$home_level=33686017,$stone=10,$seeds=10,$fruit=10,$build_item=5,$px=55,$py=438
 10 0
-1 64
+1 4
+1 5
+10 4
+1 0
+0 0 @$home_level,$told_grown,$bark_step
+# the congratulations (2 x 150 frames), a pause, the crack, the fall
+1300 0 y1_crack.ppm
+50 0 y2_falling.ppm
+50 0 y3_thump.ppm
+125 0 y4_did_something_fall.ppm
+0 0 @$bark_step
+1500 0 y5_bark_talks.ppm
+0 0 @$bark_step
+# 3: greet Bark (it landed beside the player)
 2 1
-20 0 x1_bark_joined.ppm
+20 0 y6_bark_joined.ppm
 0 0 @$spirits+120,$party_count,$active
-# 3: a tree, a stump, a dead tree, a grass stump in row 14 (test setup); Bark works on each from above
+# 4: a tree, a stump, a dead tree, a grass stump in row 14 (test setup); Bark works on each from above
 0 0 !$maps+452=1107771654,$maps+420=50529027,$spirits+128=9,$wood=0
 0 0 !$px=66,$py=198
 5 0
@@ -231,22 +243,19 @@
 2 1
 20 0
 0 0 @$maps+452,$wood
-10 0 x2_bark_cut.ppm
-# 4: (checked after step 6) the grove pulses through the thorn grove, so its chest (5,30) ends up on grass
-# 4: the grove pulses through the thorn grove, so its chest (5,30) ends up on grass
+60 0 y7_grumble.ppm
+# 5: the grove pulses through the thorn grove, so its chest (5,30) ends up on grass
 1500 0
 0 0 @$maps+964,$pulse_r
-1 0 x5_chest_grass.ppm
-# 5: Stone Hollow at 100% (test setup: shrink what is restorable there)
+# 6: Stone Hollow at 100% (test setup: shrink what is restorable there)
 0 0 !$restorable+8=1
 40 0
 0 0 @$told_full
-# 6: harmony: all four homes level 2 with every spirit inside (test setup)
-0 0 !$home_level=33686018,$spirits+8=3,$spirits+36=3,$spirits+64=3,$spirits+92=3
+# 7: harmony: every spirit inside its level-2 home (test setup)
+0 0 !$spirits+8=3,$spirits+36=3,$spirits+64=3,$spirits+92=3
 40 0
 0 0 @$harmony
-300 0
-# 7: a new game; the valley top edge gives the region hint
+# 8: a new game; the valley top edge gives the region hint (after the intro messages)
 2 768
 2 776
 600 0
@@ -254,4 +263,4 @@
 10 64
 2 0 x3_hint1.ppm
 160 0 x4_hint2.ppm
-0 0 @$harmony,$wood
+0 0 @$harmony,$wood,$bark_step

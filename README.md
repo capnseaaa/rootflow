@@ -9,7 +9,7 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - **Sprout** blooms life. **Ripple** bridges water. **Pebble** breaks rocks. **Breeze** clears thorns.
 - Powers cost energy. Rest on green land or at a home to recharge.
 - Build a home with help from two other spirits. A home pulses life around it and gives the whole team a bonus.
-- Once all four homes stand, **Bark**, a wood spirit, wakes among the valley's old stumps. It cuts trees (for wood) and clears stumps and dead trees.
+- Grow every home to level 2 and something falls from the sky: **Bark**, a grumpy wood spirit, the last piece of the Great Tree. He cuts trees (for wood) and clears stumps and dead trees, and complains about it the whole time.
 - Upgrade every home and let all four spirits rest inside at once: from then on blooms grow bigger and homes pulse nonstop.
 
 ## World

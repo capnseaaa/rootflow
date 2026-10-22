@@ -3,7 +3,7 @@
 // D-pad: move   B: run   A: greet / use spirit   R / L: next / previous spirit   START: reset
 // Hold SELECT to build: L/R pick an item, A places it, B removes one.
 // Spirits: Sprout blooms life, Ripple bridges water, Pebble breaks rocks, Breeze clears thorns,
-// Bark (appears once all four homes stand) cuts trees and clears stumps.
+// Bark (falls from the sky once all four homes are level 2) cuts trees and clears stumps, grumbling.
 // Powers cost energy. Spirits can be housed at home sites; a home spreads life around it.
 
 #include "data.h"
@@ -322,9 +322,11 @@ static void queue_message(const char *s) {
     if (msg_timer == 0 && msgq_len == 0) { show_message(s); return; }
     if (msgq_len < MSGQ) msg_queue[msgq_len++] = s;
 }
-// A repeating prompt ("A: ..."). It never pushes queued messages aside.
+// A repeating prompt ("A: ..."). It never pushes queued messages aside, and it stays quiet
+// while a scene plays (Bark's arrival), so the scene's lines get the message row.
+static u32 scene_on;
 static void prompt(const char *s) {
-    if (msgq_len == 0 && msg_timer < 100) show_message(s);
+    if (msgq_len == 0 && msg_timer < 100 && !scene_on) show_message(s);
 }
 static void update_message(void) {
     if (msg_timer && --msg_timer == 0) {
@@ -436,9 +438,9 @@ static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE
                                       "BREEZE: CLEAR THORNS", "BARK: CUT AND CLEAR" };
 static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! R: SWAP",
                                        "PEBBLE JOINED! R: SWAP", "BREEZE JOINED! R: SWAP",
-                                       "BARK JOINED! R: SWAP" };
+                                       "BARK JOINED... HMPH." };
 static const char *spirit_tired[] = { "SPROUT IS TIRED", "RIPPLE IS TIRED", "PEBBLE IS TIRED",
-                                      "BREEZE IS TIRED", "BARK IS TIRED" };
+                                      "BREEZE IS TIRED", "BARK: NO. I'M TIRED." };
 static const char *home_built[] = { "SPROUT'S GROVE IS BUILT!", "RIPPLE'S SPRING IS BUILT!",
                                     "PEBBLE'S CAIRN IS BUILT!", "BREEZE'S NOOK IS BUILT!" };
 static const char *home_prompt[] = { "A: BUILD SPROUT'S GROVE", "A: BUILD RIPPLE'S SPRING",
@@ -585,6 +587,9 @@ static s32 pulse_div = 1;                          // 2 after the hollow chest: 
 static u32 harmony;
 static u8 told_full[NUM_AREAS];                    // "... IS FULLY ALIVE!" shown
 static u32 told_grown;                             // "EVERY HOME IS FULLY GROWN!" shown
+// Bark's arrival (v0.13): bark_step walks through bark_scene once every home is level 2.
+// bark_wait counts frames before the next step; bark_fall > 0 while Bark drops in from above.
+static u32 bark_step, bark_wait, bark_fall, bark_line;
 
 // ---------- blooms ----------
 #define BR 10                     // max bloom radius: 4 near water, +2 grove level 2, +1 at 3 hearts, +1 bonded, +2 harmony
@@ -646,7 +651,8 @@ static void reset_game(void) {
     spirit_init(KIND_RIPPLE, RIPPLE_SPOT_X, RIPPLE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_STONE, STONE_SPOT_X, STONE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
-    spirit_init(KIND_BARK, BARK_SPOT_X, BARK_SPOT_Y, SP_HIDDEN);   // appears when all four homes stand
+    spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
+    bark_step = bark_wait = bark_fall = bark_line = 0;
     spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
     spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
@@ -951,6 +957,34 @@ static void complete_quest(s32 k) {
     add_fp(k, 30);
 }
 
+// Bark grumbles every time he works: he was part of the Great Tree, and he wants to go back.
+// Lines rotate per kind of job; a line only queues when no other messages are waiting.
+static const char *bark_cut[][2] = {
+    { "BARK: FINE. CUT IT DOWN.", "LIKE THEY CUT ME DOWN." },
+    { "BARK: I WAS A GREAT TREE.", "TALLER THAN ALL OF THESE." },
+    { "BARK: BIRDS NESTED IN ME.", "NOW LOOK AT ME. A STUMP." },
+    { "BARK: THAT TREE NEVER HURT", "ANYONE. JUST SAYING." },
+    { "BARK: ONE DAY I'LL GO HOME", "TO MY TREE. YOU'LL SEE." },
+};
+static const char *bark_stump[][2] = {
+    { "BARK: A STUMP. LIKE ME.", "HOW DO YOU THINK I FEEL?" },
+    { "BARK: I HATE BEING A STUMP.", "I HAD LEAVES ONCE. SO MANY." },
+    { "BARK: I MISS MY DEEP ROOTS.", "YOU WOULDN'T GET IT." },
+};
+static const char *bark_dead[][2] = {
+    { "BARK: POOR OLD THING.", "VAEL GOT IT TOO." },
+    { "BARK: IT WAS GLORIOUS ONCE.", "LIKE ME. BEFORE VAEL." },
+};
+static void bark_grumble(s32 kind_of) {
+    if (msgq_len) return;
+    const char *(*lines)[2] = kind_of == 0 ? bark_cut : kind_of == 1 ? bark_stump : bark_dead;
+    u32 n = kind_of == 0 ? sizeof(bark_cut) / sizeof(bark_cut[0])
+          : kind_of == 1 ? sizeof(bark_stump) / sizeof(bark_stump[0]) : sizeof(bark_dead) / sizeof(bark_dead[0]);
+    u32 i = bark_line++ % n;
+    queue_message(lines[i][0]);
+    queue_message(lines[i][1]);
+}
+
 // Returns 1 if the power did something (and so costs a charge).
 static int use_power(s32 kind, s32 mx, s32 my) {
     u8 t = tile_at(mx, my);
@@ -989,14 +1023,16 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         sfx_play(SFX_ROCK);
     } else if (kind == KIND_BARK) {
         // Bark cuts a living tree to a stump (+1 wood), clears stumps, and fells dead trees (+1 wood).
+        s32 kind_of = t == TREE ? 0 : t == DEAD_TREE ? 2 : 1;   // a living tree, a stump, a dead tree
         if (t == TREE) { set_tile(mx, my, STUMP_GRASS); wood++; show_message("+1 WOOD"); }
-        else if (t == STUMP_GRASS) set_tile(mx, my, GRASS);
-        else if (t == STUMP) set_tile(mx, my, DIRT);
+        else if (t == STUMP_GRASS) { set_tile(mx, my, GRASS); show_message("STUMP CLEARED"); }
+        else if (t == STUMP) { set_tile(mx, my, DIRT); show_message("STUMP CLEARED"); }
         else if (t == DEAD_TREE) { set_tile(mx, my, DIRT); wood++; show_message("+1 WOOD"); }
         else return 0;
         sparkle_at(mx, my);
         draw_life();
         sfx_play(SFX_REMOVE);
+        bark_grumble(kind_of);
     } else {
         // A gust clears up to three thorn tiles in a line.
         if (t != THORN) return 0;
@@ -1264,9 +1300,6 @@ static void try_build_home(s32 k) {
         queue_message("EVERY SPIRIT HAS A HOME.");
         queue_message("BUT THE RIVER STILL RUNS LOW.");
         queue_message("VAEL'S DAM LIES NORTH...");
-        spirits[KIND_BARK].state = SP_ASLEEP;   // a fifth spirit: asleep among the valley's stumps
-        queue_message("SOMETHING STIRS AMONG THE");
-        queue_message("OLD STUMPS IN THE VALLEY...");
     }
 }
 
@@ -1346,7 +1379,9 @@ static void upgrade_home(void) {
         if (grown && !told_grown) {
             told_grown = 1;
             queue_message("EVERY HOME IS FULLY GROWN!");
-            queue_message("LET ALL FOUR REST AT HOME...");
+            queue_message("YOU DID IT, WIZARD!");
+            bark_step = 1;                     // then, after a pause: crack... thump... Bark (update_bark)
+            bark_wait = 120;
         }
         return;
     }
@@ -1487,7 +1522,7 @@ static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2, 1 };       // 0 stone, 1 f
 static const char *favorite_name[3] = { "STONE", "FRUIT", "SEEDS" };
 static const char *loves_msg[NUM_SPIRITS] = {
     "SPROUT LOVES THE SEEDS!", "RIPPLE LOVES THE FRUIT!", "PEBBLE LOVES THE STONE!", "BREEZE LOVES THE SEEDS!",
-    "BARK LOVES THE FRUIT!",
+    "BARK: ...FINE. THANKS.",
 };
 static u32 b_hold;
 static void try_gift(void) {
@@ -1539,10 +1574,13 @@ static void handle_action(void) {
         draw_active();
     }
 
-    // Spirits not in the party react when the player is close.
+    // Spirits not in the party react when the player is close. Two passes: a spirit you can
+    // greet comes before one you can call back from its home (Bark lands right beside a home).
+    for (s32 pass = 0; pass < 2; pass++)
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
         if (s->state == SP_JOINED || s->state == SP_HIDDEN || s->area != cur_area) continue;
+        if ((s->state == SP_HOME) != (pass == 1)) continue;
         // A housed spirit is drawn inside its home (the roof for Pebble and Breeze); it also answers near the site.
         if (!near_px(s->x, s->y, 28) && !(s->state == SP_HOME && near_px(home_site_x[i] * 16, home_site_y[i] * 16, 24))) continue;
         if (s->state == SP_ASLEEP) {
@@ -1657,6 +1695,44 @@ static void update_homes(void) {
     if (grew) draw_life();
 }
 
+// Bark's arrival, once every home is level 2: a pause, a crack, Bark drops in beside the player
+// (bark_fall animates the drop in draw_sprites), a thump, and his first words. Then A greets him.
+enum { BS_SAY, BS_CRACK, BS_FALL, BS_THUMP };
+static const struct { u8 act; const char *msg; } bark_scene[] = {
+    { BS_CRACK, "CRACK...!" }, { BS_FALL, 0 }, { BS_THUMP, "THUMP." }, { BS_SAY, "DID SOMETHING FALL?" },
+    { BS_SAY, "BARK: OW. OW. MY ROOTS." }, { BS_SAY, "BARK: WHAT? STOP STARING." },
+    { BS_SAY, "BARK: I'M BARK. I WAS PART" }, { BS_SAY, "OF THE GREAT TREE." },
+    { BS_SAY, "VAEL CUT IT DOWN. NOW I'M..." }, { BS_SAY, "...THIS. A STUMP." },
+    { BS_SAY, "BARK: HMPH. FINE. I'LL HELP." }, { BS_SAY, "BUT I WANT MY TREE BACK." },
+    { BS_SAY, "LET ALL FOUR REST AT HOME..." },
+};
+#define BARK_SCENE_LEN (sizeof(bark_scene) / sizeof(bark_scene[0]))
+static void update_bark(void) {
+    if (bark_fall) bark_fall--;
+    scene_on = bark_step && bark_step <= BARK_SCENE_LEN;
+    if (!scene_on) return;
+    if (bark_wait) { bark_wait--; return; }
+    if (msg_timer || msgq_len) return;                      // let the messages before it finish
+    u32 act = bark_scene[bark_step - 1].act;
+    const char *m = bark_scene[bark_step - 1].msg;
+    bark_step++;
+    bark_wait = 20;
+    if (act == BS_CRACK) sfx_play(SFX_ROCK);
+    if (act == BS_FALL) {
+        // land on a free tile beside the player: right, left, below, above
+        static const signed char ox[4] = { 1, -1, 0, 0 }, oy[4] = { 0, 0, 1, -1 };
+        s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4, bx = fx, by = fy;
+        for (s32 k = 0; k < 4; k++)
+            if (!is_solid(tile_at(fx + ox[k], fy + oy[k]))) { bx = fx + ox[k]; by = fy + oy[k]; break; }
+        Spirit *b = &spirits[KIND_BARK];
+        b->x = bx * 16; b->y = by * 16; b->area = cur_area; b->state = SP_AWAKE;
+        bark_fall = 30;
+        bark_wait = 30;
+    }
+    if (act == BS_THUMP) { sfx_play(SFX_BUILD); sparkle_at(spirits[KIND_BARK].x >> 4, spirits[KIND_BARK].y >> 4); }
+    if (m) show_message(m);
+}
+
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!" };
@@ -1734,6 +1810,7 @@ static void draw_sprites(void) {
             sprite_set(OAM_SPIRIT + i, sx, sy + 2, spirit_tile[s->kind], 0, spirit_sleep_pal[s->kind]);
             sprite_set(OAM_ZZZ + i, sx + 8, sy - 10 - ((frame >> 3) & 3), SPR_ZZZ, 0, PAL_RIPPLE);
         } else {
+            if (i == KIND_BARK && bark_fall) b = -(s32)(bark_fall * bark_fall) / 6;   // dropping in from above
             sprite_set(OAM_SPIRIT + i, sx, sy + b, spirit_tile[s->kind] + anim, 0, spirit_pal[s->kind]);
             sprite_hide(OAM_ZZZ + i);
         }
@@ -1782,6 +1859,7 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { pump_drain, sizeof(pump_drain) }, { &pump_timer, 4 }, { &pumps_stopped, 4 },
     { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
     { &wood, 4 }, { &harmony, 4 }, { told_full, sizeof(told_full) }, { &told_grown, 4 },
+    { &bark_step, 4 }, { &bark_wait, 4 }, { &bark_line, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
 
@@ -2205,6 +2283,7 @@ int main(void) {
         check_spring();
         update_homes();
         check_milestones();
+        update_bark();
         update_growth();
         update_pumps();
         update_blooms();

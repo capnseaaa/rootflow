@@ -31,9 +31,6 @@ LOST_STONE_AT = (2, 2)
 # Breeze sleeps in Stone Hollow, sealed in a boulder pocket (Pebble breaks in).
 BREEZE_AREA, BREEZE_SPOT = 2, (3, 26)
 BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
-# Bark (wood spirit, v0.13) appears in the valley once all four homes are built: asleep in a
-# ring of old stumps (a Vael logging camp).
-BARK_SPOT = (4, 10)
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
@@ -261,12 +258,6 @@ def make_valley():
     for x in SOUTH_GATE_COLS:
         for y in range(27, 32):
             m[y][x] = DEAD
-    bx, by = BARK_SPOT                            # Bark's clearing: a ring of stumps with a gap
-    for y in range(by - 2, by + 3):
-        for x in range(bx - 2, bx + 3):
-            m[y][x] = DEAD
-    for dx, dy in ((0, -2), (2, -1), (2, 1), (-2, 1), (-2, -1)):   # open at the bottom
-        m[by + dy][bx + dx] = STUMP
     stumpify(m, 2027, skip=[POCKET, THORN_GROVE])
     lx, ly = LOST_STONE_AT                        # Pebble's lost stone, sealed in by rocks
     for y in range(ly - 1, ly + 2):
@@ -519,7 +510,6 @@ def main():
     out.append(f"#define LEVER_X {DAM_LEVER[0]}\n#define LEVER_Y {DAM_LEVER[1]}")
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
-    out.append(f"#define BARK_SPOT_X {BARK_SPOT[0]}\n#define BARK_SPOT_Y {BARK_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
     out.append(c_array("unsigned char", "home_site_area", [a for a, _, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_x", [x for _, x, _ in HOME_SITES], fmt="{}"))
