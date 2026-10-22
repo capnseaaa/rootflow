@@ -1,0 +1,190 @@
+# v0.16: the hollow, Gloomheart (a shield per spirit), the tree healed, YOU
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=7,$dev_val+20=1
+1 1
+1 0
+60 0 h0_opening.ppm
+0 0 @$cur_area,$boss_beaten,$maps+3692
+# walk up into the opening
+40 64
+30 0 h1_inside.ppm
+0 0 @$cur_area,$boss+36,$boss,$gloom_phase,$hearts_now
+600 0 h2_gloom.ppm
+# Ripple first: the Sprout shield ignores it
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 0: spirit slot 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 1: spirit slot 1
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 2: spirit slot 2
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 3: spirit slot 3
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 4: spirit slot 4
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+10 0 h3_heart_open.ppm
+# the open heart: Bark slams (2 a hit) until it falls
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 @$boss+36,$boss+12,$revive_step
+# the revival plays out (messages, the shake, the swap, the leaves)
+200 0 h4_revive00.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive01.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive02.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive03.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive04.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive05.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive06.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive07.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive08.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive09.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive10.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+200 0 h4_revive11.ppm
+0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
+900 0
+0 0 @$revive_step,$tree_alive,$party_count,$active
+# YOU (Bark's slot): cut a tree with no charges; talk to Bark in his tree
+0 0 !$active=4,$spirits+128=0
+0 0 @$maps+3840
+30 0 h5_healed.ppm
+0 0 !$px=248,$py=330
+30 0 h6_face.ppm
+0 0 !$px=80,$py=150
+30 0 h7_leaves.ppm
+# YOU cuts a tree with no charges (test setup: a tree at (6,26), YOU active, its charges 0)
+0 0 !$maps+3908=101058054,$active=4,$spirits+128=0,$wood=0,$px=82,$py=410
+5 0
+1 16
+2 1
+20 0
+0 0 @$maps+3908,$wood,$spirits+128
+20 0 h8_you_cut.ppm

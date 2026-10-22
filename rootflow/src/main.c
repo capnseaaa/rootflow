@@ -91,7 +91,8 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };   // CLAMP: solid; a sprite shows it
 static int is_trunk(u8 t) { return t == TRUNK_BLOCK; }
 static int is_tree_part(u8 t) { return t >= TRUNK_BLOCK && t <= DRY_POOL; }
-#define WEST 3   // the Great Tree's area
+#define WEST 3        // the Great Tree's area
+#define HOLLOW_IN 4   // the hollow inside the Great Tree (v0.16)
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
 static u8 home_tile(s32 k, s32 level, int roof) { return HOME_FIRST + k * 4 + (level - 1) * 2 + (roof ? 0 : 1); }
@@ -285,6 +286,7 @@ static u32 life_percent_of(s32 a) {
     u32 alive = 0;
     for (s32 i = 0; i < MAP_W * MAP_H; i++)
         if (is_alive(maps[a][i])) alive++;
+    if (!restorable[a]) return 0;   // the hollow inside the tree has nothing to restore
     u32 p = alive * 100 / restorable[a];
     return p > 100 ? 100 : p;   // homes count as living but were not restorable ground
 }
@@ -299,6 +301,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
       (132 >> 3) | ((138 >> 3) << 5) | ((154 >> 3) << 10) },
     { (54 >> 3) | ((44 >> 3) << 5) | ((40 >> 3) << 10), (82 >> 3) | ((68 >> 3) << 5) | ((60 >> 3) << 10),
       (110 >> 3) | ((94 >> 3) << 5) | ((82 >> 3) << 10) },   // the Great Tree: dark, ashy brown
+    { 0, 0, 0 },   // the hollow: its own layer covers the map
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -308,12 +311,34 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(96, 140, 54), RGB5(150, 190, 82), RGB5(206, 224, 124) },
     { RGB5(28, 82, 68), RGB5(46, 118, 94), RGB5(84, 158, 122) },
     { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
+    { 0, 0, 0 },
 };
+// The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
+// maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
+// hollow inside it, or the living tree once it is healed.
+enum { TS_NONE, TS_DEAD, TS_HOLLOW, TS_ALIVE };
+static s32 tileset_now = TS_NONE;
+static u32 tree_alive;                     // the Great Tree is healed (saved)
+static void load_tileset(s32 ts) {
+    if (ts == tileset_now) return;
+    tileset_now = ts;
+    const u32 *tiles = ts == TS_DEAD ? tiles_dead : ts == TS_HOLLOW ? tiles_hollow : tiles_alive;
+    u32 words = ts == TS_DEAD ? sizeof(tiles_dead) / 4 : ts == TS_HOLLOW ? sizeof(tiles_hollow) / 4 : sizeof(tiles_alive) / 4;
+    const u16 *trunk = ts == TS_DEAD ? map_dead_trunk : ts == TS_HOLLOW ? map_hollow_trunk : map_alive_trunk;
+    const u16 *top = ts == TS_DEAD ? map_dead_top : ts == TS_ALIVE ? map_alive_top : 0;
+    const u16 *pal = ts == TS_DEAD ? pal_dead : ts == TS_HOLLOW ? pal_hollow : pal_alive;
+    copy32(CHARBLOCK(0) + TREE_TILE_BASE * 8, tiles, words);
+    for (u32 i = 0; i < 4096; i++) SCREENBLOCK(TRUNK_SB)[i] = trunk[i];        // 16-bit data
+    for (u32 i = 0; i < 4096; i++) SCREENBLOCK(CANOPY_SB)[i] = top ? top[i] : 0;
+    for (u32 i = 0; i < 16; i++) PAL_BG[TREE_BANK * 16 + i] = pal[i];
+}
 static void set_ground_palette(s32 a) {
-    for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 ? bg_pal[1 + i] : ground_pal[a][i];
-    for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 ? bg_pal[6 + i] : grass_pal[a][i];
-    // the tree's layers show only in the Great Tree's area
-    if (a == WEST) REG_DISPCNT |= DISP_TREE; else REG_DISPCNT &= ~DISP_TREE;
+    for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[1 + i] : ground_pal[a][i];
+    for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[6 + i] : grass_pal[a][i];
+    // the tree's layers show only in the Great Tree's area and its hollow
+    REG_DISPCNT &= ~DISP_TREE;
+    if (a == WEST) { load_tileset(tree_alive ? TS_ALIVE : TS_DEAD); REG_DISPCNT |= DISP_TREE; }
+    if (a == HOLLOW_IN) { load_tileset(TS_HOLLOW); REG_DISPCNT |= 1 << 11; }   // its room only
 }
 
 // ---------- text (BG0) ----------
@@ -438,6 +463,9 @@ static void oam_flush(void) {
 #define OAM_ATTACK  29  // 29..32: the active spirit's attack (Bark's slam uses all four)
 #define OAM_BOSS    33
 #define OAM_HIT     34
+#define OAM_SHIELD  35  // Gloomheart's shield ring
+#define OAM_LEAF    36  // 36..41: leaves swirling round the wizard as Bark gives his power
+#define PAL_SHIELD  15
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -652,6 +680,8 @@ static u32 tree_step, tree_wait, tree_done;
 // invincibility, and the mini bosses beaten (a bit each, saved).
 #define MAX_HEARTS 5
 static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
+static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
+static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
 static void combat_enter(void);   // enemies and the boss of the area you enter
 static void draw_hearts_hud(void);
 
@@ -685,17 +715,19 @@ static void unstick_player(void) {
             if (!blocked_at(px + dir_x[k] * d, py + dir_y[k] * d)) { px += dir_x[k] * d; py += dir_y[k] * d; return; }
 }
 
+// Once the Great Tree is healed, Bark lives in it and his slot is the wizard's own: "YOU".
+static int is_you(s32 kind) { return kind == KIND_BARK && tree_alive; }
 static void draw_active(void) {
     for (s32 c = 16; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = 0;
     if (party_count == 0) return;
     Spirit *s = &spirits[party[active]];
-    const char *n = spirit_name[s->kind];
+    const char *n = is_you(s->kind) ? "YOU" : spirit_name[s->kind];
     s32 len = 0; while (n[len]) len++;
     char num[2] = { (char)('0' + s->energy), 0 };
     put_text(30 - len - 4, 0, " ");
     put_text(30 - len - 3, 0, n);
     put_text(27, 0, " ");
-    put_text(28, 0, num);
+    put_text(28, 0, is_you(s->kind) ? " " : num);       // the wizard needs no charges
     put_text(29, 0, " ");
 }
 
@@ -719,6 +751,7 @@ static void reset_game(void) {
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
+    tree_alive = revive_step = revive_wait = shake_timer = leaf_timer = 0;
     spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
     spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
@@ -892,16 +925,22 @@ static void update_blooms(void) {
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0 }, area_west[NUM_AREAS] = { 3, 0, -1, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, -1, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0, -1 };
-static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE" };
+static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1 }, area_west[NUM_AREAS] = { 3, 0, -1, -1, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, -1, -1, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0, -1, -1 };
+static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
+                                            "INSIDE THE GREAT TREE" };
+// Each area's tune (the Great Tree's two use Stone Hollow's quiet one until the tree is healed).
+static s32 area_song(s32 a) {
+    static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_HOLLOW, SONG_HOLLOW };
+    return a == WEST && tree_alive ? SONG_VALLEY : song_of[a];
+}
 
 // Walk into area a, standing at (nx, ny). Fails (returns 0) if that spot is blocked.
 static int enter_area(s32 a, s32 nx, s32 ny) {
     use_area(a);
     if (blocked_at(nx, ny)) { use_area(cur_area); return 0; }
     cur_area = a;
-    music_play(SONG_VALLEY + a);   // each area has its own tune
+    music_play(area_song(a));
     for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;   // blooms finish where they started
     sparkle_life = 0;
     px = nx; py = ny;
@@ -920,6 +959,10 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
     combat_enter();
     return 1;
 }
+
+// The opening at the Great Tree's foot (2 x 2 cells): solid until all four mini bosses are beaten.
+#define DOOR_X 15
+#define DOOR_Y 19
 
 // The valley's closed edges (north, west) point you to the regions still without a home:
 // the east (Breeze's nook, in the steppe) and the south (Pebble's cairn, in the hollow).
@@ -947,6 +990,11 @@ static void check_exits(void) {
         enter_area(area_north[cur_area], px, WORLD_PX - 18);
     else if (cur_area == 0 && ((HELD(KEY_UP) && py <= 0) || (HELD(KEY_LEFT) && px <= 0)))
         region_hint();
+    else if (cur_area == HOLLOW_IN && HELD(KEY_DOWN) && py >= WORLD_PX - 18)
+        enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 2) * 16 - 6);   // out, below the opening
+    else if (cur_area == WEST && maps[WEST][DOOR_Y * MAP_W + DOOR_X] == DRY_BRIDGE &&
+             (py + 12) >> 4 <= DOOR_Y + 1 && ((px + 8) >> 4) >= DOOR_X && ((px + 8) >> 4) <= DOOR_X + 1)
+        enter_area(HOLLOW_IN, DOOR_X * 16 + 8, WORLD_PX - 42);      // into the tree
 }
 
 static void update_player(void) {
@@ -1050,7 +1098,7 @@ static const char *bark_dead[][2] = {
     { "BARK: IT WAS GLORIOUS ONCE.", "LIKE ME. BEFORE VAEL." },
 };
 static void bark_grumble(s32 kind_of) {
-    if (msgq_len) return;
+    if (msgq_len || tree_alive) return;                   // healed, Bark is not grumbling at you
     const char *(*lines)[2] = kind_of == 0 ? bark_cut : kind_of == 1 ? bark_stump : bark_dead;
     u32 n = kind_of == 0 ? sizeof(bark_cut) / sizeof(bark_cut[0])
           : kind_of == 1 ? sizeof(bark_stump) / sizeof(bark_stump[0]) : sizeof(bark_dead) / sizeof(bark_dead[0]);
@@ -1250,6 +1298,19 @@ static int interact(s32 mx, s32 my) {
         complete_quest(KIND_STONE);
         return 1;
     }
+    if (tree_alive && cur_area == WEST && t == TRUNK_BLOCK) {   // talk to Bark, in his tree
+        static const char *tree_talk[][2] = {
+            { "BARK: STILL HERE. STILL HUGE.", "DON'T GET USED TO NICE ME." },
+            { "BARK: MIND MY ROOTS, WIZARD.", "THEY TICKLE." },
+            { "BARK: THE LEAFEN. MY FRIENDS.", "VAEL TOOK THEM. FIND THEM." },
+            { "BARK: ...THANKS. AGAIN.", "HMPH. NOW GO." },
+        };
+        static u32 talk;
+        u32 i = talk++ % 4;
+        show_message(tree_talk[i][0]);
+        queue_message(tree_talk[i][1]);
+        return 1;
+    }
     u32 bit = my * MAP_W + mx;
     int bark = party_count && spirits[party[active]].kind == KIND_BARK;   // with Bark, A cuts trees instead
     if (t == TREE && !bark && !(picked[cur_area][bit >> 3] & (1 << (bit & 7)))) {
@@ -1301,8 +1362,9 @@ static int interact(s32 mx, s32 my) {
 // tasks wakes a mini boss that takes 3x damage from one spirit. At 0 hearts the wizard faints and
 // wakes at the nearest home with nothing lost; the boss there starts over.
 #define SPR_COMBAT (TILE_COMBAT / 4)
-enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2 };
-static int in_combat_area(void) { return cur_area == WEST; }
+enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
+       C_LEAF };
+static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive; }
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS; i++)
@@ -1326,15 +1388,30 @@ static Attack atk;
 static u32 atk_cooldown, hit_x, hit_y, hit_life;
 
 // Mini bosses: one per task, in task order. weak: the spirit that deals 3x damage.
-enum { B_CLAMPER, B_THORN, B_MUD, B_ROT, NUM_BOSSES };
-static const char *boss_name[NUM_BOSSES] = { "IRONJAW", "BRAMBLEMAW", "THE DREDGE", "ROTCOIL" };
+enum { B_CLAMPER, B_THORN, B_MUD, B_ROT, NUM_BOSSES, B_GLOOM = NUM_BOSSES };
+static const char *boss_name[NUM_BOSSES + 1] = { "IRONJAW", "BRAMBLEMAW", "THE DREDGE", "ROTCOIL", "GLOOMHEART" };
+// Gloomheart (v0.16), in the hollow: five shields in turn, one per spirit (Sprout, Ripple, Pebble,
+// Breeze, Bark); only that spirit's attacks crack it (3 hits). Then its heart is open.
+#define GLOOM_SHIELD_HITS 3
+static s32 gloom_phase, gloom_shield, gloom_wrong_told;
+static const u16 shield_color[NUM_SPIRITS][2] = {   // dark, light
+    { RGB5(40, 120, 40), RGB5(140, 230, 100) }, { RGB5(30, 80, 190), RGB5(130, 200, 250) },
+    { RGB5(100, 92, 84), RGB5(200, 190, 170) }, { RGB5(150, 190, 210), RGB5(240, 250, 255) },
+    { RGB5(110, 70, 40), RGB5(200, 150, 90) },
+};
+static void gloom_shield_color(void) {
+    if (gloom_phase >= NUM_SPIRITS) return;
+    PAL_OBJ[PAL_SHIELD * 16 + 1] = RGB5(20, 16, 20);
+    PAL_OBJ[PAL_SHIELD * 16 + 2] = shield_color[gloom_phase][0];
+    PAL_OBJ[PAL_SHIELD * 16 + 3] = shield_color[gloom_phase][1];
+}
 static const u8 boss_weak[NUM_BOSSES] = { KIND_STONE, KIND_BREEZE, KIND_RIPPLE, KIND_SPROUT };
 static const u16 boss_home[NUM_BOSSES][2] = { { 48, 340 }, { 240, 372 }, { 224, 440 }, { 352, 440 } };
 static const char *boss_intro[NUM_BOSSES][2] = {
     { "VAEL'S IRONJAW WAKES UP!", "BARK: PEBBLE'LL CRACK IT." },
     { "A BRAMBLEMAW BURSTS OUT!", "BARK: BREEZE. BLOW IT AWAY." },
     { "THE DREDGE RISES FROM MUD!", "BARK: RIPPLE. WASH IT OFF." },
-    { "A ROTCOIL CRAWLS UP!", "BARK: SPROUT. GROW THROUGH IT." },
+    { "A ROTCOIL CRAWLS UP!", "BARK: SPROUT. ROOT IT OUT." },
 };
 #define BOSS_HP 9   // v0.15.1: was 12 (Caleb: too hard)
 typedef struct { s32 kind, x, y, hp, timer, state, dx, dy, flash, alive, hop; } Boss;
@@ -1361,7 +1438,8 @@ static void spawn_enemies(void) {
 }
 
 static void boss_start(s32 k) {
-    boss.kind = k; boss.x = boss_home[k][0]; boss.y = boss_home[k][1];
+    boss.kind = k;
+    if (k < NUM_BOSSES) { boss.x = boss_home[k][0]; boss.y = boss_home[k][1]; }
     boss.hp = BOSS_HP; boss.timer = 0; boss.state = 0; boss.dx = boss.dy = 0; boss.flash = 0; boss.hop = 0;
     boss.alive = 1;
 }
@@ -1372,7 +1450,18 @@ static void combat_enter(void) {
     draw_hearts_hud();
     boss.alive = 0;
     atk.life = 0;
-    if (cur_area != WEST) { for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0; return; }
+    for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
+    if (!in_combat_area()) return;
+    if (cur_area == HOLLOW_IN) {                     // Gloomheart waits in the middle of the room
+        boss_start(B_GLOOM);
+        boss.x = 240; boss.y = 192; boss.hp = BOSS_HP;
+        gloom_phase = 0; gloom_shield = GLOOM_SHIELD_HITS; gloom_wrong_told = 0;
+        gloom_shield_color();
+        queue_message("THE GLOOMHEART THROBS...");
+        queue_message("BARK: THE ROT. IN MY HEART.");
+        queue_message("ALL OF YOU. ONE AT A TIME.");
+        return;
+    }
     spawn_enemies();
 }
 
@@ -1432,9 +1521,10 @@ static void start_attack(s32 kind) {
     atk.kind = kind; atk.hit = 0; atk.dx = atk.dy = 0;
     atk.x = px + fx * 14; atk.y = py + fy * 14;
     switch (kind) {
-    case KIND_SPROUT: atk.life = 10; atk.w = fx ? 24 : 16; atk.h = fx ? 16 : 24; atk.dmg = 1; atk.push = 8;
+    case KIND_SPROUT: atk.life = 10; atk.w = fx ? 24 : 28; atk.h = fx ? 28 : 24; atk.dmg = 1; atk.push = 8;
         if (fx < 0) atk.x -= 8;
         if (fy < 0) atk.y -= 8;
+        if (fx) atk.y -= 6; else atk.x -= 6;               // a wide lash (v0.16: it missed moving targets)
         sfx_play(SFX_REMOVE); break;
     case KIND_RIPPLE: atk.life = 26; atk.w = atk.h = 10; atk.dmg = 1; atk.push = 6; atk.dx = fx * 4; atk.dy = fy * 4;
         sfx_play(SFX_BRIDGE); break;
@@ -1445,6 +1535,9 @@ static void start_attack(s32 kind) {
     default: atk.life = 14; atk.x = px - 16; atk.y = py - 16; atk.w = atk.h = 48; atk.dmg = 2; atk.push = 14;
         sfx_play(SFX_BUILD); break;                       // Bark slams the ground all around
     }
+    // A shot starts at the wizard and its first move takes it to its spot in front: a target
+    // right against him is still hit (v0.16; shots used to start past it).
+    if (atk.dx || atk.dy) { atk.x = px + 3 - atk.dx; atk.y = py + 3 - atk.dy; }
     atk_cooldown = 24;
 }
 
@@ -1453,6 +1546,14 @@ static int boxes_meet(s32 ax, s32 ay, s32 aw, s32 ah, s32 bx, s32 by, s32 bw, s3
 }
 
 static void spark(s32 x, s32 y) { hit_x = x; hit_y = y; hit_life = 10; }
+static void open_door(void);   // the Great Tree's opening, once all four mini bosses are beaten
+// a circle of radius 24 (x) by 16 (y) in 48 steps, for the leaves
+static const signed char loop_x48[48] = { 24, 24, 23, 22, 21, 19, 17, 15, 12, 9, 6, 3, 0, -3, -6, -9, -12, -15, -17,
+    -19, -21, -22, -23, -24, -24, -24, -23, -22, -21, -19, -17, -15, -12, -9, -6, -3, 0, 3, 6, 9, 12, 15, 17, 19, 21,
+    22, 23, 24 };
+static const signed char loop_y48[48] = { 0, 2, 4, 6, 8, 9, 11, 12, 14, 15, 15, 16, 16, 16, 15, 15, 14, 12, 11, 9,
+    8, 6, 4, 2, 0, -2, -4, -6, -8, -9, -11, -12, -14, -15, -15, -16, -16, -16, -15, -15, -14, -12, -11, -9, -8, -6,
+    -4, -2 };
 
 static void update_attack(void) {
     if (atk_cooldown) atk_cooldown--;
@@ -1481,12 +1582,45 @@ static void update_attack(void) {
     if (boss.alive && boss.state != 3 && !(atk.hit & (1 << 30)) &&
         boxes_meet(atk.x, atk.y, atk.w, atk.h, boss.x + 3, boss.y + 3, 26, 26)) {
         atk.hit |= 1 << 30;
-        s32 dmg = atk.dmg * (atk.kind == boss_weak[boss.kind] ? 3 : 1);
+        if (atk.dx || atk.dy) atk.life = 0;
+        if (boss.kind == B_GLOOM && gloom_phase < NUM_SPIRITS) {   // a shield: only its spirit cracks it
+            if (atk.kind != gloom_phase) {
+                chime(196, 10);
+                if (!gloom_wrong_told) { gloom_wrong_told = 1; show_message("ONLY THAT COLOR'S SPIRIT"); queue_message("CAN CRACK THE SHIELD!"); }
+                return;
+            }
+            boss.flash = 10;
+            spark(boss.x + 8, boss.y + 8);
+            chime(1175, 10);
+            if (--gloom_shield <= 0) {
+                gloom_phase++;
+                gloom_shield = GLOOM_SHIELD_HITS;
+                gloom_wrong_told = 0;
+                sfx_play(SFX_ROCK);
+                if (gloom_phase < NUM_SPIRITS) {
+                    gloom_shield_color();
+                    show_message("THE SHIELD SHATTERS!");
+                    queue_message(spirit_skill[gloom_phase]);
+                } else {
+                    show_message("ITS HEART IS OPEN!");
+                    queue_message("HIT IT WITH EVERYTHING!");
+                }
+            }
+            return;
+        }
+        s32 dmg = boss.kind == B_GLOOM ? atk.dmg : atk.dmg * (atk.kind == boss_weak[boss.kind] ? 3 : 1);
         boss.hp -= dmg;
         boss.flash = 10;
         spark(boss.x + 8, boss.y + 8);
-        chime(atk.kind == boss_weak[boss.kind] ? 1175 : 660, 10);
-        if (atk.dx || atk.dy) atk.life = 0;
+        chime(boss.kind == B_GLOOM || atk.kind == boss_weak[boss.kind] ? 1175 : 660, 10);
+        if (boss.hp <= 0 && boss.kind == B_GLOOM) {
+            boss.alive = 0;
+            sfx_play(SFX_QUEST);
+            spark(boss.x + 8, boss.y + 8);
+            revive_step = 1;                                  // the tree comes back (update_revive)
+            revive_wait = 30;
+            return;
+        }
         if (boss.hp <= 0) {
             boss.alive = 0;
             boss_beaten |= 1 << boss.kind;
@@ -1498,6 +1632,8 @@ static void update_attack(void) {
                 queue_message("BARK: HUH. THE OUTSIDE'S");
                 queue_message("CLEAN. BUT THE ROT... IT'S");
                 queue_message("IN MY HEART. IN THE HOLLOW.");
+                open_door();
+                queue_message("THE WAY INTO THE TREE OPENS.");
             }
         }
     }
@@ -1543,7 +1679,7 @@ static void update_enemies(void) {
 static void update_boss(void) {
     if (!in_combat_area()) return;
     if (!boss.alive) {                                       // a task done, its boss not beaten yet: it appears
-        if (scene_on || msgq_len) return;
+        if (scene_on || msgq_len || cur_area != WEST) return;
         for (s32 k = 0; k < NUM_BOSSES; k++)
             if ((tree_done & (1 << k)) && !(boss_beaten & (1 << k))) {
                 boss_start(k);
@@ -1592,6 +1728,27 @@ static void update_boss(void) {
             }
         }
         break;
+    case B_GLOOM: {                                          // drifts, pulses rot rings, calls blobs
+        boss.x = 240 + (s32)(bob[(boss.timer >> 3) & 15]) * 12;
+        boss.y = 192 + (s32)(bob[((boss.timer >> 3) + 4) & 15]) * 6;
+        u32 len = gloom_phase >= NUM_SPIRITS ? 120 : 160, cycle = boss.timer % len;
+        boss.state = cycle >= len - 60 && cycle < len - 30 ? 1 : 0;   // flashing: a pulse is coming
+        if (cycle == len - 30) {
+            sfx_play(SFX_ROCK);
+            spark(boss.x + 8, boss.y + 8);
+            if (dx * dx + dy * dy < 64 * 64) hurt(1, boss.x + 16, boss.y + 16);
+        }
+        if (boss.timer % 420 == 210) {                       // a blob crawls out of the heart
+            for (s32 i = 0; i < 3; i++)
+                if (!enemies[i].alive) {
+                    Enemy *e = &enemies[i];
+                    e->type = E_BLOB; e->x = boss.x + 8; e->y = boss.y + 36; e->hp = 2;
+                    e->timer = 0; e->dx = e->dy = 0; e->flash = e->knock = 0; e->alive = 1;
+                    break;
+                }
+        }
+        break;
+    }
     default:                                                 // burrows toward you, bursts up where you stood
         if (boss.state == 0) {
             if (boss.timer >= 90) { boss.state = 3; boss.timer = 0; }
@@ -1618,6 +1775,10 @@ static void draw_boss_bar(void) {
     char bar[32], *p = bar;
     str_cat(&p, boss_name[boss.kind]);
     *p++ = ' ';
+    if (boss.kind == B_GLOOM && gloom_phase < NUM_SPIRITS) {   // which spirit's shield is up
+        str_cat(&p, spirit_name[gloom_phase]);
+        str_cat(&p, gloom_shield == 3 ? " ***" : gloom_shield == 2 ? " **" : " *");
+    } else
     for (s32 i = 0; i < BOSS_HP; i += 2) *p++ = i < boss.hp ? '*' : '@';
     *p = 0;
     clear_row(1);
@@ -1665,6 +1826,20 @@ static void draw_combat(void) {
             o[2] = (TILE_BOSS + (boss.kind * 2 + f) * 16) | (1 << 10) | (pal << 12);
         } else sprite_hide(OAM_BOSS);
     } else sprite_hide(OAM_BOSS);
+    s32 shx = boss.x - cam_x, shy = boss.y - cam_y;
+    if (boss.alive && boss.kind == B_GLOOM && gloom_phase < NUM_SPIRITS &&
+        shx > -32 && shx < SCREEN_W && shy > -32 && shy < SCREEN_H) {   // off screen: hidden, not wrapped round
+        u16 *o = &oam_shadow[OAM_SHIELD * 4];
+        o[0] = (shy & 0xFF);
+        o[1] = (shx & 0x1FF) | (2 << 14);
+        o[2] = (TILE_BOSS + 10 * 16) | (1 << 10) | (PAL_SHIELD << 12);
+    } else sprite_hide(OAM_SHIELD);
+    for (s32 k = 0; k < 6; k++) {                    // leaves swirl round the wizard (Bark's gift)
+        if (!leaf_timer) { sprite_hide(OAM_LEAF + k); continue; }
+        u32 a = ((leaf_timer >> 1) + k * 8) & 47;
+        s32 lx = px - cam_x + (s32)loop_x48[a] - 8 + 8, ly = py - cam_y - 8 + (s32)loop_y48[a];
+        sprite_set(OAM_LEAF + k, lx, ly - (s32)(120 - leaf_timer) / 8, SPR_COMBAT + C_LEAF, k & 1, PAL_COMBAT);
+    }
     if (hit_life) {
         hit_life--;
         sprite_set(OAM_HIT, hit_x - cam_x, hit_y - cam_y, SPR_COMBAT + C_SPARK, 0, PAL_COMBAT);
@@ -1685,6 +1860,10 @@ static void use_ability(void) {
     if (interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
+    if (is_you(s->kind)) {                                   // the wizard: Bark's power, no charges
+        if (!use_power(KIND_BARK, fx >> 4, fy >> 4)) sfx_play(SFX_FAIL);
+        return;
+    }
     if (s->energy == 0 && !(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) {
         sfx_play(SFX_FAIL);
         show_message(spirit_tired[s->kind]);
@@ -2014,7 +2193,7 @@ static void try_gift(void) {
     if (pdir == DIR_DOWN)  fy += 14;
     for (s32 k = 0; k < NUM_SPIRITS; k++) {
         Spirit *sp = &spirits[k];
-        if (sp->area != cur_area || (sp->state != SP_JOINED && sp->state != SP_HOME)) continue;
+        if (sp->area != cur_area || (sp->state != SP_JOINED && sp->state != SP_HOME) || is_you(k)) continue;
         s32 dx = sp->x + 8 - fx, dy = sp->y + 8 - fy;
         if (dx * dx + dy * dy > 12 * 12) continue;
         u32 *have = favorite[k] == 0 ? &stone : favorite[k] == 1 ? &fruit : &seeds;
@@ -2051,7 +2230,7 @@ static void handle_action(void) {
     if (party_count > 1 && step) {
         active = (active + step) % party_count;
         sfx_play(SFX_MENU_MOVE);
-        show_message(spirit_skill[spirits[party[active]].kind]);
+        show_message(is_you(spirits[party[active]].kind) ? "YOU: CUT, CLEAR, SLAM" : spirit_skill[spirits[party[active]].kind]);
         draw_active();
     }
 
@@ -2299,13 +2478,83 @@ static void update_tips(void) {
     }
 }
 
+// The Great Tree's opening: solid until all four mini bosses are beaten, then the way into its hollow.
+static void open_door(void) {
+    use_area(WEST);
+    for (s32 y = DOOR_Y; y <= DOOR_Y + 1; y++)
+        for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) set_tile(x, y, DRY_BRIDGE);
+    use_area(cur_area);
+}
+
+// The healed tree's whole region turns green at once: dead ground grows grass and flowers, dead
+// trees and stumps grow back, the brambles are gone.
+static void revive_world(void) {
+    u8 *m = maps[WEST];
+    for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+        u8 t = m[i];
+        u32 r = rng() % 100;
+        if (t == DEAD || t == DEAD_CRACK || t == DIRT || t == THORN) m[i] = r < 60 ? GRASS : r < 85 ? GRASS_TUFT : FLOWERS;
+        else if (t == DEAD_TREE || t == STUMP || t == STUMP_GRASS) m[i] = TREE;
+        else if (t == CHEST) m[i] = CHEST_GRASS;
+        else if (t == CHEST_OPEN) m[i] = CHEST_OPEN_GRASS;
+        else if (t == WRECK) m[i] = WRECK_GRASS;
+    }
+}
+
+// Gloomheart beaten: out of the hollow, the tree shakes, wakes green, Bark lives in it again and
+// gives the wizard his power ("YOU" in R/L). One step at a time, like Bark's arrival.
+enum { RV_SAY, RV_OUT, RV_SHAKE, RV_SWAP, RV_LEAVES };
+static const struct { u8 act; const char *msg; } revive_scene[] = {
+    { RV_SAY, "THE GLOOMHEART CRUMBLES!" }, { RV_OUT, 0 }, { RV_SAY, "BARK: ...WAIT. LISTEN." },
+    { RV_SHAKE, "THE GREAT TREE SHAKES!" }, { RV_SWAP, "...AND WAKES UP!" },
+    { RV_SAY, "BARK: OH. OH! MY LEAVES!" }, { RV_SAY, "I'M HOME. I'M ME AGAIN." },
+    { RV_SAY, "HMPH. THANK YOU, WIZARD." }, { RV_SAY, "TAKE MY POWER. YOU EARNED IT." },
+    { RV_LEAVES, "BARK'S POWER IS YOURS!" }, { RV_SAY, "R/L TO YOU: CUT, CLEAR, SLAM." },
+    { RV_SAY, "NO CHARGES NEEDED." }, { RV_SAY, "BARK: NOW. MY FRIENDS, THE" },
+    { RV_SAY, "LEAFEN. VAEL TOOK THEM." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
+};
+#define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
+static void update_revive(void) {
+    if (shake_timer) shake_timer--;
+    if (leaf_timer) leaf_timer--;
+    if (!revive_step || revive_step > REVIVE_LEN) return;
+    scene_on = 1;
+    if (revive_wait) { revive_wait--; return; }
+    if (msg_timer || msgq_len || shake_timer > 60) return;
+    u32 act = revive_scene[revive_step - 1].act;
+    const char *m = revive_scene[revive_step - 1].msg;
+    revive_step++;
+    revive_wait = 20;
+    if (act == RV_OUT) {                                     // out in front of the tree
+        enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);
+        revive_wait = 40;
+    }
+    if (act == RV_SHAKE) { shake_timer = 120; sfx_play(SFX_ROCK); }
+    if (act == RV_SWAP) {                                    // mid-shake: the living tree, a green region
+        tree_alive = 1;
+        revive_world();
+        REG_DISPCNT |= 0x0080;
+        set_ground_palette(WEST);
+        draw_area();
+        REG_DISPCNT &= ~0x0080;
+        draw_life();
+        draw_active();
+        draw_hearts_hud();
+        clear_row(1);
+        music_play(area_song(WEST));
+        sfx_play(SFX_WAKE);
+    }
+    if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
+    if (m) show_message(m);
+}
+
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
-                                            "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!" };
+                                            "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "" };
 static void check_milestones(void) {
     if (frame % 30) return;
     for (s32 a = 0; a < NUM_AREAS; a++)
-        if (!told_full[a] && life_percent_of(a) >= 100) {
+        if (!told_full[a] && restorable[a] && life_percent_of(a) >= 100) {
             told_full[a] = 1;
             sfx_play(SFX_QUEST);
             queue_message(area_full[a]);
@@ -2334,7 +2583,7 @@ static void check_spring(void) {
 
 static void update_camera(void) {
     cam_x = px + 8 - SCREEN_W / 2;
-    cam_y = py + 8 - SCREEN_H / 2;
+    cam_y = py + 8 - SCREEN_H / 2 - (cur_area == WEST ? 48 : 0);   // look up at the Great Tree (and Bark's face)
     if (cam_x < 0) cam_x = 0;
     if (cam_y < 0) cam_y = 0;
     if (cam_x > WORLD_PX - SCREEN_W) cam_x = WORLD_PX - SCREEN_W;
@@ -2378,7 +2627,7 @@ static void draw_sprites(void) {
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
-        if (s->state == SP_HIDDEN) {
+        if (s->state == SP_HIDDEN || is_you(i)) {         // Bark lives in his tree once it is healed
             sprite_hide(OAM_SPIRIT + i);
             sprite_hide(OAM_ZZZ + i);
         } else if (s->state == SP_HOME) {
@@ -2436,7 +2685,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x37534652u   // "RFS7" (v0.15: beaten bosses)
+#define SAVE_MAGIC 0x38534652u   // "RFS8" (v0.16: the healed tree)
+#define SAVE_MAGIC_V15 0x37534652u   // "RFS7": v0.15 saves still load
 #define SAVE_MAGIC_V14 0x36534652u   // "RFS6": v0.14 saves still load
 #define SAVE_MAGIC_V13 0x35534652u   // "RFS5": v0.13 saves (three areas) still load
 #define OLD_AREAS 3
@@ -2462,10 +2712,13 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &told_full[WEST], 1 }, { &tree_step, 4 }, { &tree_wait, 4 }, { &tree_done, 4 },
     // v0.15
     { &boss_beaten, 4 },
+    // v0.16
+    { &tree_alive, 4 }, { &revive_step, 4 }, { &revive_wait, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 1)
-#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 12)
+#define NUM_V15_FIELDS (NUM_SAVE_FIELDS - 3)
+#define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 4)
+#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 15)
 
 static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
 static u32 sram_get32(u32 at) {
@@ -2489,6 +2742,7 @@ static int load_game(void) {
     u32 magic = sram_get32(0), nf = NUM_SAVE_FIELDS;
     if (magic == SAVE_MAGIC_V13) nf = NUM_V13_FIELDS;    // a v0.13 save: everything but the west
     else if (magic == SAVE_MAGIC_V14) { nf = NUM_V14_FIELDS; boss_beaten = 0; }   // no bosses yet
+    else if (magic == SAVE_MAGIC_V15) nf = NUM_V15_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -2499,6 +2753,10 @@ static int load_game(void) {
         u8 *b = save_fields[f].p;
         for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
     }
+    if (nf < NUM_SAVE_FIELDS) { tree_alive = revive_step = revive_wait = 0; }
+    for (s32 i = 0; i < MAP_W * MAP_H; i++) maps[HOLLOW_IN][i] = start_maps[HOLLOW_IN * MAP_W * MAP_H + i];
+    restorable[HOLLOW_IN] = 0;
+    tileset_now = TS_NONE;
     if (nf == NUM_V13_FIELDS) {                           // the west starts fresh
         boss_beaten = 0;
         restorable[WEST] = 0;
@@ -2531,7 +2789,7 @@ static int load_game(void) {
     draw_life();
     draw_active();
     show_message("WELCOME BACK!");
-    music_play(SONG_VALLEY + cur_area);
+    music_play(area_song(cur_area));
     return 1;
 }
 
@@ -2794,9 +3052,10 @@ static void update_menu(void) {
 // L + R + B together while playing opens the DEV MODE window (the game pauses). Up/Down pick a
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
 enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
-enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, NUM_JUMPS };
+enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_HEALED, NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
-                                               "BARK JOINED", "AT THE TREE", "TREE TASKS DONE" };
+                                               "BARK JOINED", "AT THE TREE", "TREE TASKS DONE",
+                                               "4 BOSSES BEATEN", "TREE HEALED" };
 static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
@@ -2900,7 +3159,19 @@ static void dev_start(void) {
             tree_step = TREE_SCENE_LEN + 1;
             quest[KIND_BARK] = 1;
         }
-        enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
+        if (j >= J_BOSSES) {                 // the four mini bosses beaten, the way into the tree open
+            boss_beaten = (1 << NUM_BOSSES) - 1;
+            u8 *m = maps[WEST];
+            for (s32 y = DOOR_Y; y <= DOOR_Y + 1; y++)
+                for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = DRY_BRIDGE;
+        }
+        if (j >= J_HEALED) {                 // Gloomheart beaten, the tree healed, Bark's power yours
+            tree_alive = 1;
+            revive_step = REVIVE_LEN + 1;
+            revive_world();
+        }
+        if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening
+        else enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
     }
     dev_stuff = dev_val[DEV_STUFF];
     dev_charge = dev_val[DEV_CHARGE];
@@ -2998,7 +3269,7 @@ static void title_screen(int has_save) {
     if (!has_save || choice == 1) {
         reset_game();                     // a new game (a save stays until you save over it)
     } else {
-        music_play(SONG_VALLEY + cur_area);
+        music_play(area_song(cur_area));
         draw_life();
         draw_active();
         show_message("WELCOME BACK!");
@@ -3041,10 +3312,7 @@ int main(void) {
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
     copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
     copy32(CHARBLOCK(3) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
-    copy32(CHARBLOCK(0) + TREE_TILE_BASE * 8, tree_tiles, sizeof(tree_tiles) / 4);
-    for (u32 i = 0; i < sizeof(trunk_map) / 2; i++) SCREENBLOCK(TRUNK_SB)[i] = trunk_map[i];     // 16-bit data
-    for (u32 i = 0; i < sizeof(canopy_map) / 2; i++) SCREENBLOCK(CANOPY_SB)[i] = canopy_map[i];
-    for (u32 i = 0; i < 16; i++) PAL_BG[TREE_BANK * 16 + i] = tree_pal[i];
+    // the Great Tree's tiles load by area (load_tileset, from set_ground_palette)
     PAL_BG[48 + 1] = (30) | (28 << 5) | (22 << 10);   // title banner: cream letters
     PAL_BG[48 + 3] = (3) | (4 << 5) | (4 << 10);      // and a dark shadow
     copy32(OBJ_TILES, sprite_tiles, sizeof(sprite_tiles) / 4);
@@ -3078,7 +3346,9 @@ int main(void) {
         music_tick();
         REG_BG1HOFS = cam_x;
         REG_BG1VOFS = cam_y;
-        REG_BG2HOFS = REG_BG3HOFS = cam_x;
+        s32 shake = shake_timer ? ((shake_timer & 2) ? 2 : -2) : 0;   // the Great Tree shaking awake
+        REG_BG1HOFS = cam_x + shake;
+        REG_BG2HOFS = REG_BG3HOFS = cam_x + shake;
         REG_BG2VOFS = REG_BG3VOFS = cam_y;
         clear_box();
         oam_flush();
@@ -3103,6 +3373,7 @@ int main(void) {
         update_homes();
         check_milestones();
         update_bark();
+        update_revive();
         check_tree();
         update_tips();
         update_growth();

@@ -1532,6 +1532,221 @@ def make_trunk():
     return img
 
 
+# ---- v0.16: the hollow inside the tree, and the living tree (trunk with Bark's face, leaves) ----
+HOLLOW_C, HOLLOW_RX, HOLLOW_RY = (256, 240), 216, 168      # the chamber (an ellipse, in pixels)
+HOLLOW_EXIT = (232, 280)                                   # the corridor out, x range, down to the bottom
+HOLLOW_PAL = [
+    (255, 0, 255),    # 0 clear
+    (14, 10, 10),     # 1 outline / deep shadow
+    (46, 30, 24),     # 2 wall dark
+    (70, 48, 36),     # 3 wall
+    (98, 70, 50),     # 4 wall light
+    (30, 20, 16),     # 5 groove
+    (88, 60, 40),     # 6 floor dark
+    (116, 84, 56),    # 7 floor
+    (146, 110, 74),   # 8 floor light
+    (80, 200, 190),   # 9 glow fungus
+    (190, 250, 230),  # 10 glow, bright
+    (52, 24, 58),     # 11 rot dark
+    (118, 52, 128),   # 12 rot
+    (232, 196, 120),  # 13 light from outside
+    (24, 16, 12),     # 14 floor shadow
+    (0, 0, 0),
+]
+
+
+def make_hollow():
+    """The hollow: a wide wooden chamber inside the trunk. Bark walls (repeating every 16 px), a
+    wood floor with grain, a dark rim, glowing fungus on the walls, rot veins creeping to the
+    middle (where Gloomheart waits), and a corridor down to the light outside."""
+    import math
+    S = 512
+    cx, cy = HOLLOW_C
+    px = [[0] * S for _ in range(S)]
+    for y in range(S):
+        for x in range(S):
+            d = ((x - cx) / HOLLOW_RX) ** 2 + ((y - cy) / HOLLOW_RY) ** 2
+            corridor = HOLLOW_EXIT[0] <= x < HOLLOW_EXIT[1] and y > cy
+            if d < 1 or corridor:
+                c = 7 if (y % 16) not in (0, 9) else 6           # floor boards with grain
+                if (y % 16) == 0 and (x + (y // 16) * 24) % 48 == 0:
+                    c = 14                                       # a board's end
+                if ((x % 16) * 3 + (y % 16) * 7) % 37 == 0:
+                    c = 8                                        # grain flecks (repeat every 16 px)
+                if d > 0.86 and not corridor:
+                    c = 14 if d > 0.93 else 6                    # the dark rim along the wall
+                px[y][x] = c
+            else:
+                g = (x + (y // 16) * 3) % 8                      # bark walls (repeat every 8 px across)
+                c = 5 if g == 0 else 2 if g < 4 else 3 if g < 7 else 4
+                if d < 1.08 and not corridor:
+                    c = 1                                        # the wall's edge
+                px[y][x] = c
+    for y in range(S):                                           # the corridor's walls
+        for x in (HOLLOW_EXIT[0] - 1, HOLLOW_EXIT[1]):
+            if y > cy + HOLLOW_RY * 0.9:
+                px[y][x] = 1
+    for y in range(S - 60, S):                                   # light from outside
+        for x in range(HOLLOW_EXIT[0], HOLLOW_EXIT[1]):
+            if ((x % 16) + (y % 16)) % (3 if y > S - 24 else 5) == 0:
+                px[y][x] = 13
+    rng = random.Random(77)
+    for a in range(0, 360, 30):                                  # glowing fungus on the walls
+        r = math.radians(a + rng.randint(-8, 8))
+        fx, fy = int(cx + (HOLLOW_RX + 10) * math.cos(r)), int(cy + (HOLLOW_RY + 10) * math.sin(r))
+        if fy > cy + 100 and HOLLOW_EXIT[0] - 20 < fx < HOLLOW_EXIT[1] + 20:
+            continue
+        for dy in range(-3, 4):
+            for dx in range(-5, 6):
+                if 0 <= fx + dx < S and 0 <= fy + dy < S and (dx / 5) ** 2 + (dy / 3) ** 2 < 1:
+                    px[fy + dy][fx + dx] = 10 if dy < 0 and abs(dx) < 3 else 9
+    for k in range(5):                                           # rot veins toward the middle
+        a = k * math.pi * 2 / 5 + 0.3
+        x, y = cx + 200 * math.cos(a), cy + 156 * math.sin(a)
+        for t in range(110):
+            x += (cx - x) * 0.012 + math.sin(t * 0.3 + k) * 0.8
+            y += (cy - y) * 0.012 + math.cos(t * 0.27 + k) * 0.8
+            for dy in (0, 1):
+                for dx in (0, 1):
+                    xx, yy = int(x) + dx, int(y) + dy
+                    if 0 <= xx < S and 0 <= yy < S and px[yy][xx] in (6, 7, 8, 14):
+                        px[yy][xx] = 12 if dx == dy else 11
+    img = Image.new("P", (S, S), 0)
+    img.putpalette([c for rgb in HOLLOW_PAL for c in rgb])
+    img.putdata([v for row in px for v in row])
+    return img
+
+
+ALIVE_PAL = [
+    (255, 0, 255),    # 0 clear
+    (22, 20, 14),     # 1 outline
+    (78, 52, 34),     # 2 bark dark
+    (112, 78, 50),    # 3 bark
+    (148, 108, 70),   # 4 bark light
+    (52, 34, 24),     # 5 groove
+    (186, 146, 98),   # 6 bark highlight
+    (12, 10, 8),      # 7 the opening
+    (34, 86, 40),     # 8 leaf dark
+    (62, 132, 56),    # 9 leaf
+    (104, 176, 74),   # 10 leaf light
+    (168, 214, 108),  # 11 leaf highlight
+    (90, 130, 60),    # 12 moss
+    (234, 222, 186),  # 13 eye white
+    (236, 150, 170),  # 14 blossom
+    (0, 0, 0),
+]
+FACE_C = (256, 246)                                        # Bark's eyes, just above the opening (his mouth)
+
+
+def make_tree_alive():
+    """The Great Tree, healed: the same trunk and roots, warm healthy bark, moss at the base, and
+    Bark's face on the front (half-grumpy, kinder now: level brows, a small smile)."""
+    img = make_trunk()
+    px = [list(img.tobytes()[y * 512:(y + 1) * 512]) for y in range(512)]
+    for y in range(512):                                     # the disease heals
+        for x in range(512):
+            c = px[y][x]
+            if c in (8, 9, 12):
+                px[y][x] = 3
+            elif c in (10, 11):
+                px[y][x] = 2
+            elif c == 13:
+                px[y][x] = 12
+    fx, fy = FACE_C
+    for sx in (-1, 1):                                       # the eyes: deep knotholes, looking out
+        ex = fx + sx * 52
+        for y in range(fy - 13, fy + 14):
+            for x in range(ex - 16, ex + 17):
+                d = ((x - ex) / 15) ** 2 + ((y - fy) / 11) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.78 else 13 if d > 0.28 else 1
+        for y in range(fy - 3, fy + 5):                      # pupils, a little to the middle
+            for x in range(ex - sx * 4 - 3, ex - sx * 4 + 4):
+                px[y][x] = 1
+        for x in range(ex - 19, ex + 20):                    # level brows: heavy, not angry
+            for t in range(4):
+                y = fy - 16 - t + (1 if sx * (x - ex) > 10 else 0)
+                px[y][x] = 5 if t == 0 else 2
+    for y in range(BASE_Y - 34, BASE_Y - 22):                # a lip of bark over the opening: his mouth
+        for x in range(TREE_CX - 30, TREE_CX + 31):
+            if abs(x - TREE_CX) < 30 - (BASE_Y - 22 - y):
+                px[y][x] = 4 if y < BASE_Y - 28 else 2
+    out = Image.new("P", (512, 512), 0)
+    out.putpalette([c for rgb in ALIVE_PAL for c in rgb])
+    out.putdata([v for row in px for v in row])
+    return out
+
+
+def leaf_texture(x, y):
+    """Leaf clusters repeating every 16 px: dark gaps, mid leaves, light tips."""
+    u, v = x % 16, y % 16
+    blobs = ((3, 3), (11, 2), (7, 9), (14, 12), (1, 13))
+    best = 99
+    for bx, by in blobs:
+        for ox in (-16, 0, 16):
+            for oy in (-16, 0, 16):
+                d = ((u - bx - ox) ** 2 + (v - by - oy) ** 2) ** 0.5
+                best = min(best, d)
+    if best < 1.6:
+        return 11
+    if best < 3.2:
+        return 10
+    if best < 5.2:
+        return 9
+    return 8
+
+
+def make_leaves():
+    """The healed tree's leaves: a solid, textured mass over the top and down both sides, with an
+    irregular lobed outline and several holes where you see the ground. Left half mirrored."""
+    import math
+    S = 512
+    px = [[0] * S for _ in range(S)]
+    rng = random.Random(4646)
+    lobes = []
+    for _ in range(60):                                       # the leaf mass, as overlapping lobes
+        a = rng.uniform(math.pi * 0.5, math.pi * 1.25)
+        r = rng.uniform(40, 250)
+        x = TREE_CX + r * math.cos(a)
+        y = 70 + r * math.sin(a) * 0.9
+        lobes.append((x, y, rng.uniform(28, 52)))
+    lobes += [(TREE_CX - 40, 40, 70), (TREE_CX - 130, 30, 60), (40, 60, 56), (20, 180, 50), (60, 260, 46)]
+    holes = [(150, 120, 22), (70, 120, 18), (190, 40, 16), (40, 220, 20), (120, 200, 14)]
+    for y in range(S):
+        for x in range(256):
+            inside = any((x - lx) ** 2 + (y - ly) ** 2 < lr * lr for lx, ly, lr in lobes)
+            if not inside or y > 330:
+                continue
+            if x > TREE_CX - TRUNK_HALF - 6 and y > 118:            # keep Bark's face in view
+                continue
+            if any((x - hx) ** 2 + (y - hy) ** 2 < hr * hr for hx, hy, hr in holes):
+                continue
+            px[y][x] = leaf_texture(x, y)
+    for y in range(S):                                        # an outline and shade at every edge
+        for x in range(256):
+            if not px[y][x]:
+                continue
+            edge = any(not (0 <= x + dx < 256 and 0 <= y + dy < S) or px[y + dy][x + dx] == 0
+                       for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if not (x + dx == 256))
+            if edge:
+                px[y][x] = 1
+    for y in range(S - 1, 0, -1):                             # a darker underside on each lobe
+        for x in range(256):
+            if px[y][x] in (9, 10, 11) and y + 3 < S and px[y + 3][x] in (0, 1):
+                px[y][x] = 8
+    for y in range(S):
+        for x in range(256):
+            px[y][mirror_x(x)] = px[y][x]
+    for k in range(18):                                       # a few blossoms (not mirrored)
+        bx, by = rng.randrange(20, 492), rng.randrange(10, 300)
+        if px[by][bx] in (9, 10):
+            px[by][bx] = px[by][bx + 1] = px[by + 1][bx] = 14
+    img = Image.new("P", (S, S), 0)
+    img.putpalette([c for rgb in ALIVE_PAL for c in rgb])
+    img.putdata([v for row in px for v in row])
+    return img
+
+
 def make_clamp():
     """The Vael iron clamps (Pebble breaks them): one 32 x 32 sprite per clamp in ALL_CLAMPS, side
     by side. Each ring is sized to its root (measured on art/tree_trunk.png): it wraps all the way
@@ -1654,7 +1869,7 @@ COMBAT_PAL = [
     (138, 144, 156),  # 15 metal
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
-                "spark"]
+                "spark", "leaf"]
 
 
 def _canvas(n=16):
@@ -1730,6 +1945,14 @@ def combat_cell(name):
         for x in range(7 - rot, 9 + rot):
             px[2][x] = 1
         px[3][7] = px[3][8] = 1
+    elif name == "leaf":                       # a leaf, swirling round the wizard when Bark gives his power
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) / 5.5) ** 2 + ((y - 7.5) / 3) ** 2
+                if abs((x - 7.5) * 0.6 - (y - 7.5) * 0.8) < 3 and d < 1.6:
+                    px[y][x] = 1 if d > 1.25 else 3 if x < 8 else 2
+        for k in range(4, 12):
+            px[k][k] = 2
     elif name == "spark":                      # a hit
         for k in range(-5, 6):
             px[8][7 + k] = px[8 + k][7] = 6
@@ -1768,7 +1991,8 @@ BOSS_PAL = [
     (122, 58, 132),   # 14 rot
     (236, 220, 96),   # 15 glow
 ]
-BOSS_ORDER = ["clamper0", "clamper1", "thorn0", "thorn1", "mud0", "mud1", "rot0", "rot1"]
+BOSS_ORDER = ["clamper0", "clamper1", "thorn0", "thorn1", "mud0", "mud1", "rot0", "rot1", "gloom0", "gloom1",
+              "shield"]
 
 
 def boss_cell(name):
@@ -1818,6 +2042,29 @@ def boss_cell(name):
         for ex in (11, 20):
             px[16 + sq][ex] = px[16 + sq][ex + 1] = 15
             px[17 + sq][ex] = px[17 + sq][ex + 1] = 1
+    elif name.startswith("gloom"):             # Gloomheart: a dark, pulsing heart of rot with one eye
+        beat = 1.0 if f else 0.88
+        for y in range(32):
+            for x in range(32):
+                u, v = (x - 15.5) / (13 * beat), (17 - y) / (13 * beat)
+                d = (u * u + (v - abs(u) * 0.6 + 0.2) ** 2)          # a heart shape
+                if d < 1:
+                    px[y][x] = 1 if d > 0.82 else 14 if d < 0.25 else 13
+        for k in range(6):                                           # veins
+            for t in range(10):
+                x = int(15.5 + (t + 3) * math.cos(k * 1.05)), int(16 + (t + 3) * math.sin(k * 1.05))
+                if 0 <= x[0] < 32 and 0 <= x[1] < 32 and px[x[1]][x[0]] == 13:
+                    px[x[1]][x[0]] = 14
+        for y in range(13, 19):
+            for x in range(12, 20):
+                if ((x - 15.5) / 3.5) ** 2 + ((y - 15.5) / 2.5) ** 2 < 1:
+                    px[y][x] = 15 if abs(x - 15.5) > 1 else 1             # the eye
+    elif name == "shield":                     # a ring around Gloomheart (colored per spirit at run time)
+        for y in range(32):
+            for x in range(32):
+                d = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** 0.5
+                if 13 <= d < 16:
+                    px[y][x] = 1 if d >= 15.2 or d < 13.6 else 3 if (x + y) % 6 < 3 else 2
     else:                                      # a rot root rising from the ground, a glowing mouth
         lean = 2 if f else -1
         for y in range(3, 31):
@@ -1973,7 +2220,8 @@ def main():
                      ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark),
                      ("canopy.png", make_canopy), ("tree_trunk.png", make_trunk),
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
-                     ("boss_sprite.png", make_boss)):
+                     ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
+                     ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

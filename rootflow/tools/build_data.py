@@ -37,8 +37,8 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
-VALLEY, EAST, SOUTH, WEST = 0, 1, 2, 3
-NUM_AREAS = 4
+VALLEY, EAST, SOUTH, WEST, HOLLOW_IN = 0, 1, 2, 3, 4
+NUM_AREAS = 5                      # 4: the hollow inside the Great Tree (v0.16)
 WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31 (opens when Bark joins)
 # The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
 # Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
@@ -495,13 +495,28 @@ def make_west():
     return m
 
 
-def tree_data(base):
-    """art/tree_trunk.png and art/canopy.png (512 x 512 each) -> one set of unique 8x8 tiles
-    (flips reused), numbered from `base` (after the map's tiles), and two 64 x 64 maps in
-    screenblock order (top-left, top-right, bottom-left, bottom-right 32 x 32 blocks)."""
+def make_hollow_in():
+    """The hollow inside the Great Tree: floor (walkable, never grows) inside the chamber and its
+    corridor, solid elsewhere. The room itself is drawn by art/hollow.png on the trunk's layer."""
+    cx, cy = _art.HOLLOW_C
+    m = [[TRUNK_BLOCK] * MAP_W for _ in range(MAP_H)]
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            px_, py_ = x * 16 + 8, y * 16 + 8
+            inside = ((px_ - cx) / (_art.HOLLOW_RX - 10)) ** 2 + ((py_ - cy) / (_art.HOLLOW_RY - 10)) ** 2 < 1
+            corridor = _art.HOLLOW_EXIT[0] <= px_ < _art.HOLLOW_EXIT[1] and py_ > cy
+            if inside or corridor:
+                m[y][x] = DRY_BRIDGE
+    return m
+
+
+def tile_set(base, files):
+    """Some 512 x 512 layers (art/<file>) -> one set of unique 8x8 tiles (flips reused), numbered
+    from `base` (after the map's tiles), and a 64 x 64 map per layer in screenblock order
+    (top-left, top-right, bottom-left, bottom-right 32 x 32 blocks)."""
     index, tiles = {tuple([0] * 64): 0}, [tuple([0] * 64)]
     maps, pal = [], None
-    for name in ("tree_trunk.png", "canopy.png"):
+    for name in files:
         img = Image.open(os.path.join(ART, name))
         assert img.mode == "P" and img.size == (512, 512)
         pal = palette_of(img)
@@ -527,16 +542,16 @@ def tree_data(base):
             ox, oy = (sb & 1) * 32, (sb >> 1) * 32
             order += [entries[(ox + x, oy + y)] for y in range(32) for x in range(32)]
         maps.append(order)
-    assert base + len(tiles) <= 1024, f"the Great Tree needs {len(tiles)} tiles, room for {1024 - base}"
+    assert base + len(tiles) <= 1024, f"{files} need {len(tiles)} tiles, room for {1024 - base}"
     words = [sum((t[y * 8 + x] & 15) << (4 * x) for x in range(8)) for t in tiles for y in range(8)]
-    return pal, words, maps[0], maps[1]
+    return pal, words, maps
 
 
 TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 def make_maps():
-    maps = [make_valley(), make_east(), make_south(), make_west()]
+    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in()]
     return [v for m in maps for row in m for v in row]
 
 
@@ -661,15 +676,18 @@ def main():
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
     base = terrain.size[0] // 16 * 4             # tree tiles follow the map's tiles in charblock 0
-    tpal, twords, tmap, cmap = tree_data(base)
     out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
+    # Tile sets loaded into the same slots by area: the dead tree, the hollow, the living tree.
+    for name, files in (("dead", ("tree_trunk.png", "canopy.png")), ("hollow", ("hollow.png",)),
+                        ("alive", ("tree_alive.png", "leaves.png"))):
+        pal, words, layer_maps = tile_set(base, files)
+        out.append(c_array("unsigned short", f"pal_{name}", pal, fmt="0x{:04X}"))
+        out.append(c_array("unsigned int", f"tiles_{name}", words))
+        for i, lm in enumerate(layer_maps):
+            out.append(c_array("unsigned short", f"map_{name}_{'trunk' if i == 0 else 'top'}", lm, fmt="0x{:04X}"))
     out.append(f"#define NUM_CLAMPS {len(CLAMP_PX)}")
     out.append(c_array("unsigned short", "clamp_px_x", [x for x, _ in CLAMP_PX], fmt="{}"))
     out.append(c_array("unsigned short", "clamp_px_y", [y for _, y in CLAMP_PX], fmt="{}"))
-    out.append(c_array("unsigned short", "tree_pal", tpal, fmt="0x{:04X}"))
-    out.append(c_array("unsigned int", "tree_tiles", twords))
-    out.append(c_array("unsigned short", "trunk_map", tmap, fmt="0x{:04X}"))
-    out.append(c_array("unsigned short", "canopy_map", cmap, fmt="0x{:04X}"))
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         f.write("\n\n".join(out) + "\n")
