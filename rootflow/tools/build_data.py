@@ -12,6 +12,8 @@ OUT = os.path.join(ROOT, "src", "data.h")
  CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE, PATH, FLOWERBED, FLOWERBED_EMPTY,
  SAPLING, FRUIT_TREE, FRUIT_TREE_BARE, LANTERN, BENCH, DAM, LEVER, LEVER_PULLED, LOST_STONE, BLOSSOM, FOUNTAIN,
  STATUE, PINWHEEL) = range(38)
+# after the pumps (38-39), 16 home tiles (40-55) and 9 home animation frames (56-64): v0.13 tiles
+STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS = range(65, 70)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -29,6 +31,9 @@ LOST_STONE_AT = (2, 2)
 # Breeze sleeps in Stone Hollow, sealed in a boulder pocket (Pebble breaks in).
 BREEZE_AREA, BREEZE_SPOT = 2, (3, 26)
 BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
+# Bark (wood spirit, v0.13) appears in the valley once all four homes are built: asleep in a
+# ring of old stumps (a Vael logging camp).
+BARK_SPOT = (4, 10)
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
@@ -256,6 +261,13 @@ def make_valley():
     for x in SOUTH_GATE_COLS:
         for y in range(27, 32):
             m[y][x] = DEAD
+    bx, by = BARK_SPOT                            # Bark's clearing: a ring of stumps with a gap
+    for y in range(by - 2, by + 3):
+        for x in range(bx - 2, bx + 3):
+            m[y][x] = DEAD
+    for dx, dy in ((0, -2), (2, -1), (2, 1), (-2, 1), (-2, -1)):   # open at the bottom
+        m[by + dy][bx + dx] = STUMP
+    stumpify(m, 2027, skip=[POCKET, THORN_GROVE])
     lx, ly = LOST_STONE_AT                        # Pebble's lost stone, sealed in by rocks
     for y in range(ly - 1, ly + 2):
         for x in range(lx - 1, lx + 2):
@@ -265,7 +277,20 @@ def make_valley():
     return m
 
 
-def open_around(m, x, y, solid=(ROCK, DEAD_TREE, THORN)):
+def stumpify(m, seed, skip=()):
+    """About a third of the scattered dead trees are only stumps (v0.13). Both block the way and
+    both grow back into trees when a bloom reaches them. skip: (x0, y0, x1, y1) areas to keep."""
+    rng = random.Random(seed)
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            if m[y][x] != DEAD_TREE or any(x0 - 1 <= x <= x1 + 1 and y0 - 1 <= y <= y1 + 1
+                                           for x0, y0, x1, y1 in skip):
+                continue
+            if rng.random() < 0.35:
+                m[y][x] = STUMP
+
+
+def open_around(m, x, y, solid=(ROCK, DEAD_TREE, THORN, STUMP)):
     for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
         if 0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H and m[y + dy][x + dx] in solid:
             m[y + dy][x + dx] = DEAD
@@ -330,6 +355,7 @@ def make_east():
         for x in range(0, 5):
             m[y][x] = DEAD
     retile(m, DEAD_CRACK, DRY_GRASS)             # steppe ground: tall dry grass
+    stumpify(m, 3031)
     for y in range(MAP_H):                       # the dry riverbed splits the steppe
         for x in DRY_RIVER_X:
             m[y][x] = DRY_RIVER
@@ -362,14 +388,16 @@ def make_south():
                 m[y][x] = ROCK
     for y in range(24, 32):
         m[y][23] = ROCK
-    for y in range(19, 23):                      # pond
-        for x in range(7, 11):
-            m[y][x] = WATER
+    for y in range(18, 24):                      # a round pond that the river runs into (v0.13)
+        for x in range(5, 13):
+            if ((x - 8.5) / 3.6) ** 2 + ((y - 20.5) / 2.8) ** 2 < 1:
+                m[y][x] = WATER
     for x in SOUTH_GATE_COLS:                    # entry path from the valley
         for y in range(0, 5):
             m[y][x] = DEAD
     river_south(m)
     retile(m, DEAD_CRACK, PEBBLES)               # hollow ground: loose pebbles
+    stumpify(m, 4042, skip=[BREEZE_POCKET])
     ring(m, *BREEZE_POCKET, ROCK)                # Breeze's boulder pocket
     # landmark: a ring of standing stones around open ground
     cx, cy = 6, 13
@@ -463,14 +491,15 @@ def main():
     ripple = Image.open(os.path.join(ART, "ripple_sprite.png"))
     pebble = Image.open(os.path.join(ART, "pebble_sprite.png"))
     breeze = Image.open(os.path.join(ART, "breeze_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze):
+    bark = Image.open(os.path.join(ART, "bark_sprite.png"))
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
-              ("PEEK", sprout_peek(terrain, sprout), 16)]
+              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -490,6 +519,7 @@ def main():
     out.append(f"#define LEVER_X {DAM_LEVER[0]}\n#define LEVER_Y {DAM_LEVER[1]}")
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
+    out.append(f"#define BARK_SPOT_X {BARK_SPOT[0]}\n#define BARK_SPOT_Y {BARK_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
     out.append(c_array("unsigned char", "home_site_area", [a for a, _, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_x", [x for _, x, _ in HOME_SITES], fmt="{}"))
@@ -515,6 +545,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_pebble_sleep", sleep_palette(pal_pebble), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_breeze", pal_breeze, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_breeze_sleep", sleep_palette(pal_breeze), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_bark", palette_of(bark), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_bark_sleep", sleep_palette(palette_of(bark)), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")

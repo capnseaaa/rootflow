@@ -9,11 +9,14 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - **Sprout** blooms life. **Ripple** bridges water. **Pebble** breaks rocks. **Breeze** clears thorns.
 - Powers cost energy. Rest on green land or at a home to recharge.
 - Build a home with help from two other spirits. A home pulses life around it and gives the whole team a bonus.
+- Once all four homes stand, **Bark**, a wood spirit, wakes among the valley's old stumps. It cuts trees (for wood) and clears stumps and dead trees.
+- Upgrade every home and let all four spirits rest inside at once: from then on blooms grow bigger and homes pulse nonstop.
 
 ## World
 - The valley, the Windy Steppe to the east, and Stone Hollow to the south. Walk off an open edge to travel.
-- Pebble sleeps past a dried-up river in the steppe; Breeze is sealed among the boulders of the hollow.
-- Collect stone, fruit, and seeds; find hidden chests and the rusted machines Vael left behind.
+- Pebble sleeps past a dried-up river in the steppe; Breeze is sealed among the boulders of the hollow, across the river.
+- Each area has its own grass. Blooms grow trees back from stumps and grass under chests and relics.
+- Collect stone, fruit, seeds, and wood; find hidden chests and the rusted machines Vael left behind.
 
 ## Vael's pumps
 - Once you build a home, Vael starts pumps on your living land. A pump slowly drains the land around it.

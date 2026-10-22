@@ -67,7 +67,9 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "nook1_top", "nook1_base", "nook2_top", "nook2_base",
         # home animation frames (never placed on the map; copied over the home tiles)
         "spring1_ring1", "spring1_ring2", "spring2_ring1", "spring2_ring2", "spring2_spray",
-        "cairn1_glow", "cairn2_glow", "nook1_swing", "nook2_spin"]
+        "cairn1_glow", "cairn2_glow", "nook1_swing", "nook2_spin",
+        # v0.13: stumps (dead land, grass) and chests / relics on grass
+        "stump", "stump_grass", "chest_grass", "chest_open_grass", "wreck_grass"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -174,6 +176,25 @@ def dead_tree(rng):
     return px
 
 
+def stump(rng, grassy=False):
+    """A cut tree stump seen from above: bark rim, pale rings, roots. On dead land, or on grass
+    (what Bark leaves when it cuts a living tree)."""
+    px = grass(rng) if grassy else dead(rng)
+    for y in range(4, 15):                                   # the trunk's side, below the cut
+        for x in range(3, 13):
+            d = ((x - 7.5) / 4.8) ** 2
+            if y >= 8 and d < 1 and y < 13 - int(d * 2):
+                px[y][x] = 12 if (x + y) % 3 else 15
+    for y in range(16):                                      # the cut face
+        for x in range(16):
+            d = ((x - 7.5) / 4.8) ** 2 + ((y - 7.0) / 3.2) ** 2
+            if d < 1:
+                px[y][x] = 15 if d > 0.78 else 12 if d > 0.6 else 5 if d > 0.3 else 4 if d > 0.12 else 5
+    for x, y in ((2, 12), (13, 12), (3, 13), (12, 13)):      # roots
+        px[y][x] = 12
+    return px
+
+
 def rock(rng):
     px = dead(rng)
     for y in range(2, 15):
@@ -256,8 +277,9 @@ def homesite(rng):
     return px
 
 
-def chest(rng, open_=False):
-    px = dead(rng)
+def chest(rng, open_=False, ground=None):
+    """ground: the tile drawn under it (dead land; grass once a bloom reaches it)."""
+    px = (ground or dead)(rng)
     # a small wooden chest with a gold latch
     for y in range(5, 14):
         for x in range(2, 14):
@@ -276,8 +298,8 @@ def chest(rng, open_=False):
     return px
 
 
-def wreck(rng):
-    px = dead(rng)
+def wreck(rng, ground=None):
+    px = (ground or dead)(rng)
     # a rusted Vael pump: a squat tank, a bent pipe, rivets
     for y in range(6, 15):
         for x in range(3, 12):
@@ -846,6 +868,8 @@ def make_terrain():
         cairn_top(same(48), 1, glow=True), cairn_top(same(50), 2, glow=True),
         nook_top(same(52), 1, frame=1), nook_top(same(54), 2, frame=1),
     ]
+    tiles += [stump(rng), stump(rng, grassy=True), chest(rng, ground=grass), chest(rng, True, ground=grass),
+              wreck(rng, ground=grass)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -1192,6 +1216,46 @@ BREEZE_SPRITES["breeze1"] = ["." * 16] + BREEZE_SPRITES["breeze0"][:-1]
 BREEZE_ORDER = ["breeze0", "breeze1"]
 
 
+# ---- wood spirit palette (OBJ bank 9). The game builds a gray copy for sleep. ----
+BARK_PAL = [
+    (255, 0, 255),    # 0 transparent
+    (28, 36, 32),     # 1 outline / eyes
+    (196, 142, 88),   # 2 cut wood (pale)
+    (150, 98, 56),    # 3 bark light
+    (104, 64, 36),    # 4 bark dark
+    (120, 200, 96),   # 5 leaf
+    (236, 196, 140),  # 6 rings / cheeks
+] + [(0, 0, 0)] * 9
+
+# Wood spirit "Bark": a stubby little stump with a leaf sprout, drawn with BARK_PAL.
+BARK_SPRITES = {
+    "bark0": [
+        "................",
+        ".........55.....",
+        "........5551....",
+        ".....1111511....",
+        "....12266221....",
+        "...1262222621...",
+        "...1226666221...",
+        "...1333333331...",
+        "...1313333131...",
+        "...1313333131...",
+        "...1333333331...",
+        "...1343333431...",
+        "...1434334341...",
+        "..14411441144...",
+        "...11..11..11...",
+        "................",
+    ],
+}
+BARK_SPRITES["bark1"] = ["." * 16] + BARK_SPRITES["bark0"][:-1]   # bob frame: one pixel lower
+BARK_ORDER = ["bark0", "bark1"]
+
+
+def make_bark():
+    return draw_sheet(BARK_SPRITES, BARK_ORDER, BARK_PAL)
+
+
 def make_breeze():
     return draw_sheet(BREEZE_SPRITES, BREEZE_ORDER, BREEZE_PAL)
 
@@ -1312,7 +1376,7 @@ def main():
     for name, fn in (("terrain.png", make_terrain), ("player_sprite.png", make_player),
                      ("sprout_sprite.png", make_sprout), ("fx_sprite.png", make_fx),
                      ("ripple_sprite.png", make_ripple), ("pebble_sprite.png", make_pebble),
-                     ("breeze_sprite.png", make_breeze)):
+                     ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)
