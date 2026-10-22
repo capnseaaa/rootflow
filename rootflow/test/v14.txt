@@ -226,6 +226,9 @@
 10 0
 30 32
 0 0 @$cur_area,$px,$py
+# test setup: this test is about the tasks, not combat: no enemies or bosses, no damage
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0,$enemies+276=0,$enemies+316=0
+0 0 !$boss_beaten=15,$dev_god=1
 20 0 z1_west.ppm
 300 0 z2_scene.ppm
 0 0 @$tree_step,$quest+4

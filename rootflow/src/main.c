@@ -422,6 +422,9 @@ static void oam_flush(void) {
 #define PAL_BARK 9
 #define PAL_BARK_SLEEP 10
 #define PAL_CLAMP 11
+#define PAL_COMBAT 12
+#define PAL_BOSS 13
+#define PAL_FLASH 14   // all white: something just got hit
 
 // OAM slots
 #define OAM_PLAYER  0
@@ -431,6 +434,10 @@ static void oam_flush(void) {
 #define OAM_GLOW    12
 #define OAM_CURSOR  13
 #define OAM_CLAMP   14  // 14..14+NUM_CLAMPS-1 (7): Vael clamps on the Great Tree's roots
+#define OAM_ENEMY   21  // 21..28: blobs and drones
+#define OAM_ATTACK  29  // 29..32: the active spirit's attack (Bark's slam uses all four)
+#define OAM_BOSS    33
+#define OAM_HIT     34
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -641,6 +648,12 @@ static u32 tree_step, tree_wait, tree_done;
 #define TASK_POOL   4
 #define TASK_TIPS   8
 #define TASKS_ALL  15
+// Combat (v0.15; see the combat section): the wizard's hearts, the hit blink, the dev mode's
+// invincibility, and the mini bosses beaten (a bit each, saved).
+#define MAX_HEARTS 5
+static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
+static void combat_enter(void);   // enemies and the boss of the area you enter
+static void draw_hearts_hud(void);
 
 // ---------- blooms ----------
 #define BR 10                     // max bloom radius: 4 near water, +2 grove level 2, +1 at 3 hearts, +1 bonded, +2 harmony
@@ -705,6 +718,7 @@ static void reset_game(void) {
     spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
+    boss_beaten = 0;
     spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
     spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
@@ -740,6 +754,7 @@ static void reset_game(void) {
     for (s32 r = 0; r < 20; r++) clear_row(r);
     draw_life();
     draw_active();
+    combat_enter();
     show_message("VAEL TOOK THE WATER.");
     queue_message("THE SPIRITS LOST THEIR HOMES.");
     queue_message("FIND THE SPIRIT");
@@ -902,6 +917,7 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
     REG_DISPCNT &= ~0x0080;
     show_message(area_name[a]);
     chime(523, 8);
+    combat_enter();
     return 1;
 }
 
@@ -1261,7 +1277,9 @@ static int interact(s32 mx, s32 my) {
     }
     if (t == BENCH) {
         for (s32 p = 0; p < party_count; p++) spirits[party[p]].energy = energy_max(&spirits[party[p]]);
+        hearts_now = MAX_HEARTS;
         draw_active();
+        draw_hearts_hud();
         sfx_play(SFX_JOIN);
         show_message("YOU REST. CHARGES REFILLED.");
         return 1;
@@ -1276,12 +1294,393 @@ static int interact(s32 mx, s32 my) {
     return 0;
 }
 
+// ---------- combat (v0.15): the Great Tree's region only ----------
+// The wizard has hearts. A attacks with the active spirit when an enemy is near in front (else A
+// uses its power as before); a spirit fights once its home is level 2 (Bark always). Attacks cost
+// nothing but have a cooldown. Blight blobs and Vael drones roam the west; each of Bark's four
+// tasks wakes a mini boss that takes 3x damage from one spirit. At 0 hearts the wizard faints and
+// wakes at the nearest home with nothing lost; the boss there starts over.
+#define SPR_COMBAT (TILE_COMBAT / 4)
+enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2 };
+static int in_combat_area(void) { return cur_area == WEST; }
+
+static void draw_hearts_hud(void) {
+    for (s32 i = 0; i < MAX_HEARTS; i++)
+        SCREENBLOCK(TEXT_SB)[11 + i] = in_combat_area() ? glyph_entry((u32)i < hearts_now ? '*' : '@') : 0;
+}
+
+// Enemies: blobs creep after you, drones dart at you through the air.
+enum { E_BLOB, E_DRONE };
+typedef struct { s32 type, x, y, hp, timer, dx, dy, flash, knock, alive; } Enemy;
+#define MAX_ENEMIES 8
+static Enemy enemies[MAX_ENEMIES];
+static const u8 enemy_spawn[][3] = {           // type, tile x, tile y
+    { E_BLOB, 4, 6 }, { E_BLOB, 27, 5 }, { E_BLOB, 3, 27 }, { E_BLOB, 28, 26 },
+    { E_DRONE, 3, 1 }, { E_DRONE, 28, 1 }, { E_DRONE, 22, 30 },
+};
+#define NUM_SPAWNS (sizeof(enemy_spawn) / sizeof(enemy_spawn[0]))
+
+// One attack at a time: a box that moves (shots) or stays by the wizard (whip, slam).
+typedef struct { s32 kind, x, y, dx, dy, life, w, h, dmg, push, hit; } Attack;
+static Attack atk;
+static u32 atk_cooldown, hit_x, hit_y, hit_life;
+
+// Mini bosses: one per task, in task order. weak: the spirit that deals 3x damage.
+enum { B_CLAMPER, B_THORN, B_MUD, B_ROT, NUM_BOSSES };
+static const char *boss_name[NUM_BOSSES] = { "CLAMP CRUSHER", "THORN BEAST", "MUD HULK", "ROT ROOT" };
+static const u8 boss_weak[NUM_BOSSES] = { KIND_STONE, KIND_BREEZE, KIND_RIPPLE, KIND_SPROUT };
+static const u16 boss_home[NUM_BOSSES][2] = { { 48, 340 }, { 240, 372 }, { 224, 440 }, { 352, 440 } };
+static const char *boss_intro[NUM_BOSSES][2] = {
+    { "A VAEL CLAMP CRUSHER WAKES!", "BARK: PEBBLE'LL CRACK IT." },
+    { "A THORN BEAST BURSTS OUT!", "BARK: BREEZE. BLOW IT AWAY." },
+    { "THE MUD HULK RISES!", "BARK: RIPPLE. WASH IT OFF." },
+    { "THE ROT ROOT CRAWLS UP!", "BARK: SPROUT. GROW THROUGH IT." },
+};
+#define BOSS_HP 12
+typedef struct { s32 kind, x, y, hp, timer, state, dx, dy, flash, alive, hop; } Boss;
+static Boss boss;
+
+static int open_at(s32 x, s32 y) {             // a 12x12 body at (x+2, y+2) fits here
+    s32 xs[2] = { x + 2, x + 13 }, ys[2] = { y + 2, y + 13 };
+    for (int i = 0; i < 2; i++)
+        for (int j = 0; j < 2; j++)
+            if (is_solid(tile_at(xs[i] >> 4, ys[j] >> 4))) return 0;
+    return in_world(x, y);
+}
+
+static void spawn_enemies(void) {
+    for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
+    for (u32 i = 0; i < NUM_SPAWNS && i < MAX_ENEMIES; i++) {
+        Enemy *e = &enemies[i];
+        e->type = enemy_spawn[i][0];
+        e->x = enemy_spawn[i][1] * 16; e->y = enemy_spawn[i][2] * 16;
+        e->hp = e->type == E_BLOB ? 3 : 2;
+        e->timer = i * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
+        e->alive = 1;
+    }
+}
+
+static void boss_start(s32 k) {
+    boss.kind = k; boss.x = boss_home[k][0]; boss.y = boss_home[k][1];
+    boss.hp = BOSS_HP; boss.timer = 0; boss.state = 0; boss.dx = boss.dy = 0; boss.flash = 0; boss.hop = 0;
+    boss.alive = 1;
+}
+
+// Enter the west: enemies return; a boss whose task is done (and not beaten) waits there.
+static void combat_enter(void) {
+    hearts_now = MAX_HEARTS;
+    draw_hearts_hud();
+    boss.alive = 0;
+    atk.life = 0;
+    if (cur_area != WEST) { for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0; return; }
+    spawn_enemies();
+}
+
+// The nearest built home: wake up beside it, hearts full.
+static void faint(void) {
+    s32 best = -1, bd = 1 << 30;
+    for (s32 k = 0; k < NUM_HOMES; k++) {
+        if (!home_done[k]) continue;
+        s32 d = home_site_area[k] == cur_area ? 0 : 1000 + k;   // homes in this area first
+        if (d < bd) { bd = d; best = k; }
+    }
+    show_message("YOU FAINTED...");
+    queue_message("YOU WAKE UP AT HOME.");
+    hurt_timer = 90;
+    if (best < 0) { hearts_now = MAX_HEARTS; return; }
+    s32 hx = home_site_x[best], hy = home_site_y[best] + 1;
+    enter_area(home_site_area[best], hx * 16, hy * 16 - 6);
+    unstick_player();
+    hearts_now = MAX_HEARTS;
+    draw_hearts_hud();
+}
+
+static void hurt(s32 n, s32 fromx, s32 fromy) {
+    if (hurt_timer || dev_god) return;
+    hearts_now = (u32)n >= hearts_now ? 0 : hearts_now - n;
+    hurt_timer = 60;
+    sfx_play(SFX_FAIL);
+    s32 kx = px + 8 - fromx, ky = py + 8 - fromy;             // pushed away from the hit
+    s32 sx = kx > 6 ? 12 : kx < -6 ? -12 : 0, sy = ky > 6 ? 12 : ky < -6 ? -12 : 0;
+    if (!blocked_at(px + sx, py)) px += sx;
+    if (!blocked_at(px, py + sy)) py += sy;
+    draw_hearts_hud();
+    if (hearts_now == 0) faint();
+}
+
+static int can_fight(s32 kind) { return kind == KIND_BARK || home_level[kind] >= 2; }
+
+// Is something to hit within reach, in the direction the wizard faces?
+static int enemy_ahead(void) {
+    if (!in_combat_area()) return 0;
+    s32 cx = px + 8, cy = py + 8;
+    s32 fx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0, fy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+    for (s32 i = 0; i <= MAX_ENEMIES; i++) {
+        s32 ex, ey;
+        if (i < MAX_ENEMIES) { if (!enemies[i].alive) continue; ex = enemies[i].x + 8; ey = enemies[i].y + 8; }
+        else { if (!boss.alive || boss.state == 3) continue; ex = boss.x + 16; ey = boss.y + 16; }
+        s32 dx = ex - cx, dy = ey - cy;
+        s32 reach = i < MAX_ENEMIES ? 72 : 96;
+        if (dx * dx + dy * dy > reach * reach) continue;
+        if (dx * fx + dy * fy >= -4) return 1;               // in front (or right beside)
+    }
+    return 0;
+}
+
+static void start_attack(s32 kind) {
+    s32 fx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0, fy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+    atk.kind = kind; atk.hit = 0; atk.dx = atk.dy = 0;
+    atk.x = px + fx * 14; atk.y = py + fy * 14;
+    switch (kind) {
+    case KIND_SPROUT: atk.life = 10; atk.w = fx ? 24 : 16; atk.h = fx ? 16 : 24; atk.dmg = 1; atk.push = 8;
+        if (fx < 0) atk.x -= 8;
+        if (fy < 0) atk.y -= 8;
+        sfx_play(SFX_REMOVE); break;
+    case KIND_RIPPLE: atk.life = 26; atk.w = atk.h = 10; atk.dmg = 1; atk.push = 6; atk.dx = fx * 4; atk.dy = fy * 4;
+        sfx_play(SFX_BRIDGE); break;
+    case KIND_STONE: atk.life = 24; atk.w = atk.h = 12; atk.dmg = 2; atk.push = 10; atk.dx = fx * 3; atk.dy = fy * 3;
+        sfx_play(SFX_ROCK); break;
+    case KIND_BREEZE: atk.life = 28; atk.w = atk.h = 16; atk.dmg = 1; atk.push = 28; atk.dx = fx * 3; atk.dy = fy * 3;
+        sfx_play(SFX_GUST); break;
+    default: atk.life = 14; atk.x = px - 16; atk.y = py - 16; atk.w = atk.h = 48; atk.dmg = 2; atk.push = 14;
+        sfx_play(SFX_BUILD); break;                       // Bark slams the ground all around
+    }
+    atk_cooldown = 24;
+}
+
+static int boxes_meet(s32 ax, s32 ay, s32 aw, s32 ah, s32 bx, s32 by, s32 bw, s32 bh) {
+    return ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
+}
+
+static void spark(s32 x, s32 y) { hit_x = x; hit_y = y; hit_life = 10; }
+
+static void update_attack(void) {
+    if (atk_cooldown) atk_cooldown--;
+    if (!atk.life) return;
+    atk.life--;
+    atk.x += atk.dx; atk.y += atk.dy;
+    if (atk.dx || atk.dy) {                                  // shots stop at walls and the trunk
+        u8 t = tile_at((atk.x + atk.w / 2) >> 4, (atk.y + atk.h / 2) >> 4);
+        if (is_solid(t) && t != WATER && t != THORN) { atk.life = 0; return; }
+    }
+    s32 fx = atk.dx > 0 ? 1 : atk.dx < 0 ? -1 : pdir == DIR_RIGHT ? 1 : pdir == DIR_LEFT ? -1 : 0;
+    s32 fy = atk.dy > 0 ? 1 : atk.dy < 0 ? -1 : pdir == DIR_DOWN ? 1 : pdir == DIR_UP ? -1 : 0;
+    for (s32 i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &enemies[i];
+        if (!e->alive || (atk.hit & (1 << i)) || !boxes_meet(atk.x, atk.y, atk.w, atk.h, e->x + 2, e->y + 2, 12, 12)) continue;
+        atk.hit |= 1 << i;
+        e->hp -= atk.dmg;
+        e->flash = 8;
+        s32 kx = atk.kind == KIND_BARK ? (e->x > px ? 1 : -1) : fx, ky = atk.kind == KIND_BARK ? (e->y > py ? 1 : -1) : fy;
+        e->dx = kx; e->dy = ky; e->knock = atk.push / 2;
+        spark(e->x, e->y);
+        chime(880, 8);
+        if (e->hp <= 0) { e->alive = 0; sfx_play(SFX_REMOVE); }
+        if (atk.dx || atk.dy) atk.life = 0;                  // a shot stops at what it hits
+    }
+    if (boss.alive && boss.state != 3 && !(atk.hit & (1 << 30)) &&
+        boxes_meet(atk.x, atk.y, atk.w, atk.h, boss.x + 3, boss.y + 3, 26, 26)) {
+        atk.hit |= 1 << 30;
+        s32 dmg = atk.dmg * (atk.kind == boss_weak[boss.kind] ? 3 : 1);
+        boss.hp -= dmg;
+        boss.flash = 10;
+        spark(boss.x + 8, boss.y + 8);
+        chime(atk.kind == boss_weak[boss.kind] ? 1175 : 660, 10);
+        if (atk.dx || atk.dy) atk.life = 0;
+        if (boss.hp <= 0) {
+            boss.alive = 0;
+            boss_beaten |= 1 << boss.kind;
+            sfx_play(SFX_QUEST);
+            spark(boss.x + 8, boss.y + 8);
+            show_message(boss_name[boss.kind]);
+            queue_message("IS BEATEN!");
+            if (boss_beaten == (1 << NUM_BOSSES) - 1) {
+                queue_message("BARK: HUH. THE OUTSIDE'S");
+                queue_message("CLEAN. BUT THE ROT... IT'S");
+                queue_message("IN MY HEART. IN THE HOLLOW.");
+            }
+        }
+    }
+}
+
+static void move_enemy(Enemy *e, s32 dx, s32 dy, int flies) {
+    if (flies) { if (in_world(e->x + dx, e->y)) e->x += dx; if (in_world(e->x, e->y + dy)) e->y += dy; return; }
+    if (dx && open_at(e->x + dx, e->y)) e->x += dx;
+    if (dy && open_at(e->x, e->y + dy)) e->y += dy;
+}
+
+static s32 sgn(s32 v) { return v > 0 ? 1 : v < 0 ? -1 : 0; }
+static u32 dx_flip(s32 dx) { return dx < 0; }
+
+static void update_enemies(void) {
+    if (!in_combat_area()) return;
+    s32 pcx = px + 8, pcy = py + 8;
+    for (s32 i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &enemies[i];
+        if (!e->alive) continue;
+        if (e->flash) e->flash--;
+        e->timer++;
+        if (e->knock) { e->knock--; move_enemy(e, e->dx * 2, e->dy * 2, e->type == E_DRONE); continue; }
+        s32 dx = pcx - (e->x + 8), dy = pcy - (e->y + 8);
+        s32 near = dx * dx + dy * dy < 100 * 100;
+        if (e->type == E_BLOB) {                             // creeps after you, slowly
+            if (e->timer & 1) continue;
+            if (near) move_enemy(e, sgn(dx), sgn(dy), 0);
+            else {
+                if ((e->timer & 127) == 0) { e->dx = (s32)(rng() % 3) - 1; e->dy = (s32)(rng() % 3) - 1; }
+                move_enemy(e, e->dx, e->dy, 0);
+            }
+        } else {                                             // darts at you, rests, darts again
+            u32 t = e->timer % 100;
+            if (t == 0) { e->dx = near ? sgn(dx) : (s32)(rng() % 3) - 1; e->dy = near ? sgn(dy) : (s32)(rng() % 3) - 1; }
+            if (t < 36) move_enemy(e, e->dx * 2, e->dy * 2, 1);
+        }
+        if (boxes_meet(px + 3, py + 4, 10, 12, e->x + 3, e->y + 3, 10, 10)) hurt(1, e->x + 8, e->y + 8);
+    }
+}
+
+// The mini bosses. state: 0 move, 1 wind up (flashing), 2 strike, 3 hidden (the Rot Root underground).
+static void update_boss(void) {
+    if (!in_combat_area()) return;
+    if (!boss.alive) {                                       // a task done, its boss not beaten yet: it appears
+        if (scene_on || msgq_len) return;
+        for (s32 k = 0; k < NUM_BOSSES; k++)
+            if ((tree_done & (1 << k)) && !(boss_beaten & (1 << k))) {
+                boss_start(k);
+                sfx_play(SFX_PUMP_ON);
+                show_message(boss_intro[k][0]);
+                queue_message(boss_intro[k][1]);
+                return;
+            }
+        return;
+    }
+    if (boss.flash) boss.flash--;
+    boss.timer++;
+    s32 dx = px + 8 - (boss.x + 16), dy = py + 8 - (boss.y + 16);
+    s32 speed_up = boss.hp <= BOSS_HP / 2;                   // faster when hurt
+    switch (boss.kind) {
+    case B_CLAMPER:                                          // stalks you, winds up, charges
+        if (boss.state == 0) {
+            if (boss.timer & 1) { boss.x += sgn(dx); boss.y += sgn(dy); }
+            if (boss.timer >= (speed_up ? 100u : 150u)) { boss.state = 1; boss.timer = 0; }
+        } else if (boss.state == 1) {
+            if (boss.timer >= 30) { boss.state = 2; boss.timer = 0; boss.dx = sgn(dx) * 3; boss.dy = sgn(dy) * 3; }
+        } else if (boss.state == 2) {
+            boss.x += boss.dx; boss.y += boss.dy;
+            if (boss.timer >= 24) { boss.state = 0; boss.timer = 0; }
+        }
+        break;
+    case B_THORN:                                            // rolls and bounces around the region
+        if (!boss.dx) { boss.dx = 2; boss.dy = 1; }
+        boss.x += boss.dx * (speed_up ? 2 : 1); boss.y += boss.dy * (speed_up ? 2 : 1);
+        if (boss.x < 0 || boss.x > WORLD_PX - 32) { boss.dx = -boss.dx; boss.x += boss.dx * 2; }
+        if (boss.y < 200 || boss.y > WORLD_PX - 32) { boss.dy = -boss.dy; boss.y += boss.dy * 2; }
+        break;
+    case B_MUD:                                              // creeps, then leaps and slams down
+        if (boss.state == 0) {
+            if ((boss.timer & 1) == 0) { boss.x += sgn(dx); boss.y += sgn(dy); }
+            if (boss.timer >= (speed_up ? 120u : 180u)) { boss.state = 2; boss.timer = 0; }
+        } else {
+            boss.hop = boss.timer < 20 ? boss.timer : 40 - boss.timer;
+            if (boss.timer < 40) { boss.x += sgn(dx); boss.y += sgn(dy); }
+            if (boss.timer == 40) {                          // the landing shakes the ground
+                boss.hop = 0;
+                sfx_play(SFX_ROCK);
+                if (dx * dx + dy * dy < 44 * 44) hurt(2, boss.x + 16, boss.y + 16);
+                boss.state = 0; boss.timer = 0;
+            }
+        }
+        break;
+    default:                                                 // burrows toward you, bursts up where you stood
+        if (boss.state == 0) {
+            if (boss.timer >= 90) { boss.state = 3; boss.timer = 0; }
+        } else if (boss.state == 3) {
+            if (boss.timer & 1) { boss.x += sgn(dx) * 2; boss.y += sgn(dy) * 2; }
+            if (boss.timer >= (speed_up ? 40u : 60u)) { boss.state = 1; boss.timer = 0; }
+        } else if (boss.state == 1) {
+            if (boss.timer >= 24) { boss.state = 0; boss.timer = 0; sfx_play(SFX_ROCK); }
+        }
+        break;
+    }
+    if (boss.x < 0) boss.x = 0;
+    if (boss.y < 0) boss.y = 0;
+    if (boss.x > WORLD_PX - 32) boss.x = WORLD_PX - 32;
+    if (boss.y > WORLD_PX - 32) boss.y = WORLD_PX - 32;
+    if (boss.state != 3 && boss.hop < 8 &&
+        boxes_meet(px + 3, py + 4, 10, 12, boss.x + 4, boss.y + 4, 24, 24)) hurt(1, boss.x + 16, boss.y + 16);
+}
+
+// The boss's name and health, on the row under the HUD (redrawn twice a second).
+static void draw_boss_bar(void) {
+    if (frame % 30) return;
+    if (!boss.alive || !in_combat_area()) { if (frame % 60 == 0) clear_row(1); return; }
+    char bar[32], *p = bar;
+    str_cat(&p, boss_name[boss.kind]);
+    *p++ = ' ';
+    for (s32 i = 0; i < BOSS_HP; i += 2) *p++ = i < boss.hp ? '*' : '@';
+    *p = 0;
+    clear_row(1);
+    put_text(1, 1, " ");
+    put_text(2, 1, bar);
+}
+
+static void draw_combat(void) {
+    for (s32 i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &enemies[i];
+        if (!e->alive || !in_combat_area()) { sprite_hide(OAM_ENEMY + i); continue; }
+        u32 cell = (e->type == E_BLOB ? C_BLOB : C_DRONE) + ((e->timer >> 4) & 1);
+        sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, SPR_COMBAT + cell, e->dx < 0, e->flash ? PAL_FLASH : PAL_COMBAT);
+    }
+    for (s32 k = 0; k < 4; k++) sprite_hide(OAM_ATTACK + k);
+    if (atk.life) {
+        s32 x = atk.x - cam_x, y = atk.y - cam_y;
+        switch (atk.kind) {
+        case KIND_SPROUT:
+            if (atk.w > atk.h) sprite_set(OAM_ATTACK, x + 4, y, SPR_COMBAT + C_WHIP_H, pdir == DIR_LEFT, PAL_COMBAT);
+            else sprite_set(OAM_ATTACK, x, y + 4, SPR_COMBAT + C_WHIP_V, 0, PAL_COMBAT);
+            break;
+        case KIND_RIPPLE: sprite_set(OAM_ATTACK, x - 3, y - 3, SPR_COMBAT + C_WATER, 0, PAL_COMBAT); break;
+        case KIND_STONE: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_ROCK, 0, PAL_COMBAT); break;
+        case KIND_BREEZE: sprite_set(OAM_ATTACK, x, y, SPR_COMBAT + C_GUST, (frame >> 2) & 1, PAL_COMBAT); break;
+        default:                                         // four quarters of the ring, flipped into place
+            for (s32 k = 0; k < 4; k++) {
+                u16 *o = &oam_shadow[(OAM_ATTACK + k) * 4];
+                s32 qx = x + (k & 1) * 32 - 8 + 8, qy = y + (k >> 1) * 32 - 8 + 8;
+                if (qx < -16 || qx > SCREEN_W || qy < -16 || qy > SCREEN_H) continue;
+                o[0] = (qy & 0xFF);
+                o[1] = (qx & 0x1FF) | (1 << 14) | ((k & 1) << 12) | ((k >> 1) << 13);
+                o[2] = (SPR_COMBAT + C_SLAM) * 4 | (1 << 10) | (PAL_COMBAT << 12);
+            }
+        }
+    }
+    if (boss.alive && in_combat_area() && !(boss.state == 3 && (frame & 2))) {
+        s32 x = boss.x - cam_x, y = boss.y - cam_y - boss.hop;
+        u16 *o = &oam_shadow[OAM_BOSS * 4];
+        if (x > -32 && x < SCREEN_W && y > -32 && y < SCREEN_H) {
+            u32 f = boss.state == 1 || boss.state == 2 || boss.hop || ((frame >> 4) & 1);
+            u32 pal = boss.flash || (boss.state == 1 && (frame & 4)) ? PAL_FLASH : PAL_BOSS;
+            o[0] = (y & 0xFF) | (boss.state == 3 ? (1 << 10) : 0);   // underground: see-through
+            o[1] = (x & 0x1FF) | (2 << 14) | (dx_flip(boss.dx) << 12);
+            o[2] = (TILE_BOSS + (boss.kind * 2 + f) * 16) | (1 << 10) | (pal << 12);
+        } else sprite_hide(OAM_BOSS);
+    } else sprite_hide(OAM_BOSS);
+    if (hit_life) {
+        hit_life--;
+        sprite_set(OAM_HIT, hit_x - cam_x, hit_y - cam_y, SPR_COMBAT + C_SPARK, 0, PAL_COMBAT);
+    } else sprite_hide(OAM_HIT);
+}
+
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
     if (pdir == DIR_RIGHT) fx += 14;
     if (pdir == DIR_UP)    fy -= 14;
     if (pdir == DIR_DOWN)  fy += 14;
+    // An enemy in front: the active spirit attacks instead (free, with a short cooldown).
+    if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead()) {
+        if (!atk_cooldown) start_attack(spirits[party[active]].kind);
+        return;
+    }
     if (interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
@@ -1743,6 +2142,7 @@ static void update_homes(void) {
             Spirit *s = &spirits[party[p]];
             if (s->energy < energy_max(s)) { s->energy = energy_max(s); changed = 1; }
         }
+        if (hearts_now < MAX_HEARTS) { hearts_now = MAX_HEARTS; draw_hearts_hud(); }
     }
     if (changed) draw_active();
 
@@ -1969,6 +2369,7 @@ static void draw_sprites(void) {
     static const u8 walk_seq[4] = { 1, 2, 3, 2 };
     u32 f = dir_block[pdir] * 4 + (pstep ? walk_seq[pstep & 3] : 0);
     obj_set(OAM_PLAYER, px - cam_x, py - cam_y - 16, TILE_PLAYER + f * 8, pdir == DIR_LEFT, PAL_MAIN, 1);
+    if (hurt_timer & 4) sprite_hide(OAM_PLAYER);   // blinking just after a hit
 
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
@@ -2034,7 +2435,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x36534652u   // "RFS6" (v0.14: the Great Tree's area)
+#define SAVE_MAGIC 0x37534652u   // "RFS7" (v0.15: beaten bosses)
+#define SAVE_MAGIC_V14 0x36534652u   // "RFS6": v0.14 saves still load
 #define SAVE_MAGIC_V13 0x35534652u   // "RFS5": v0.13 saves (three areas) still load
 #define OLD_AREAS 3
 
@@ -2057,9 +2459,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { maps[WEST], sizeof(maps[0]) }, { &restorable[WEST], 4 }, { picked[WEST], sizeof(picked[0]) },
     { &pump_on[WEST], 1 }, { &pump_x[WEST], 1 }, { &pump_y[WEST], 1 }, { &pump_drain[WEST], 4 },
     { &told_full[WEST], 1 }, { &tree_step, 4 }, { &tree_wait, 4 }, { &tree_done, 4 },
+    // v0.15
+    { &boss_beaten, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 11)
+#define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 12)
 
 static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
 static u32 sram_get32(u32 at) {
@@ -2082,6 +2487,7 @@ static void save_game(void) {
 static int load_game(void) {
     u32 magic = sram_get32(0), nf = NUM_SAVE_FIELDS;
     if (magic == SAVE_MAGIC_V13) nf = NUM_V13_FIELDS;    // a v0.13 save: everything but the west
+    else if (magic == SAVE_MAGIC_V14) { nf = NUM_V14_FIELDS; boss_beaten = 0; }   // no bosses yet
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -2092,7 +2498,8 @@ static int load_game(void) {
         u8 *b = save_fields[f].p;
         for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
     }
-    if (nf < NUM_SAVE_FIELDS) {                           // the west starts fresh
+    if (nf == NUM_V13_FIELDS) {                           // the west starts fresh
+        boss_beaten = 0;
         restorable[WEST] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
             u8 t = start_maps[WEST * MAP_W * MAP_H + i];
@@ -2102,6 +2509,7 @@ static int load_game(void) {
         }
         pump_on[WEST] = 0; pump_drain[WEST] = 0; told_full[WEST] = 0;
         tree_step = tree_wait = tree_done = 0;
+    boss_beaten = 0;
     }
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
@@ -2118,6 +2526,7 @@ static int load_game(void) {
     set_ground_palette(cur_area);
     draw_area();
     for (s32 r = 0; r < 20; r++) clear_row(r);
+    combat_enter();
     draw_life();
     draw_active();
     show_message("WELCOME BACK!");
@@ -2383,19 +2792,19 @@ static void update_menu(void) {
 // ---------- dev mode (v0.14.1, Caleb: jump into the story to test) ----------
 // L + R + B together while playing opens the DEV MODE window (the game pauses). Up/Down pick a
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
-enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_ITEMS };
+enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
 enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
                                                "BARK JOINED", "AT THE TREE", "TREE TASKS DONE" };
-static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1 };
+static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
 
 static void draw_dev(void) {
-    static const char *label[DEV_ITEMS] = { "JUMP TO", "MATERIALS", "CHARGES", "PUMPS", "HEARTS" };
+    static const char *label[DEV_ITEMS] = { "JUMP TO", "MATERIALS", "CHARGES", "PUMPS", "HEARTS", "WIZARD" };
     static const char *opt[DEV_ITEMS][2] = { { 0, 0 }, { "NORMAL", "99 ALWAYS" }, { "NORMAL", "ENDLESS" },
-                                             { "ON", "OFF" }, { "NORMAL", "ALL 5" } };
-    draw_window(0, 1, 29, 16);
+                                             { "ON", "OFF" }, { "NORMAL", "ALL 5" }, { "NORMAL", "INVINCIBLE" } };
+    draw_window(0, 1, 29, 17);
     put_text_win(10, 2, "DEV MODE");
     for (s32 k = 0; k < DEV_ITEMS; k++) {
         s32 r = 4 + k * 2;
@@ -2410,7 +2819,7 @@ static void draw_dev(void) {
         *p = 0;
         put_text_win(11, r, line);
     }
-    put_text_win(2, 15, "A: START   B: CLOSE");
+    put_text_win(2, 16, "A: START   B: CLOSE");
 }
 
 static void open_dev(void) {
@@ -2420,6 +2829,7 @@ static void open_dev(void) {
     dev_val[DEV_STUFF] = dev_stuff;
     dev_val[DEV_CHARGE] = dev_charge;
     dev_val[DEV_PUMPS] = dev_no_pumps;
+    dev_val[DEV_GOD] = dev_god;
     draw_dev();
     sfx_play(SFX_MENU_OPEN);
 }
@@ -2494,6 +2904,7 @@ static void dev_start(void) {
     dev_stuff = dev_val[DEV_STUFF];
     dev_charge = dev_val[DEV_CHARGE];
     dev_no_pumps = dev_val[DEV_PUMPS];
+    dev_god = dev_val[DEV_GOD];
     if (dev_val[DEV_HEARTS])
         for (s32 k = 0; k < NUM_SPIRITS; k++) {
             fp[k] = 100;
@@ -2611,9 +3022,14 @@ int main(void) {
         PAL_OBJ[144 + i] = obj_pal_bark[i];
         PAL_OBJ[160 + i] = obj_pal_bark_sleep[i];
         PAL_OBJ[176 + i] = obj_pal_clamp[i];
+        PAL_OBJ[192 + i] = obj_pal_combat[i];
+        PAL_OBJ[208 + i] = obj_pal_boss[i];
+        PAL_OBJ[224 + i] = i ? 0x7FFF : 0;
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate
+    PAL_BG[16 + 4] = (16) | (16 << 5) | (18 << 10);  // HUD hearts: empty outline
+    PAL_BG[16 + 5] = (29) | (7 << 5) | (8 << 10);     // and red
     // menu windows (bank 2): dark text on cream, gold border
     PAL_BG[32 + 1] = (7) | (7 << 5) | (8 << 10);
     PAL_BG[32 + 2] = (31) | (31 << 5) | (29 << 10);
@@ -2691,8 +3107,14 @@ int main(void) {
         update_growth();
         update_pumps();
         update_blooms();
+        update_attack();
+        update_enemies();
+        update_boss();
+        if (hurt_timer) hurt_timer--;
         update_camera();
         draw_sprites();
+        draw_combat();
+        draw_boss_bar();
 
         update_message();
     }

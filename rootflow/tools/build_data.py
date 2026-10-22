@@ -590,23 +590,26 @@ def main():
     breeze = Image.open(os.path.join(ART, "breeze_sprite.png"))
     bark = Image.open(os.path.join(ART, "bark_sprite.png"))
     clamp = Image.open(os.path.join(ART, "clamp_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp):
+    combat = Image.open(os.path.join(ART, "combat_sprite.png"))
+    boss = Image.open(os.path.join(ART, "boss_sprite.png"))
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
-              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16)]
+              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
         sprite_words += strip_cells(img, cell_h)
-    tile_defs.append(f"#define TILE_CLAMP {len(sprite_words) // 8}")   # 32x32 frames: 4 x 4 tiles each
-    for i in range(clamp.width // 32):
-        for ty in range(4):
-            for tx in range(4):
-                sprite_words += tile_words(clamp, i * 32 + tx * 8, ty * 8)
+    for name, img in (("CLAMP", clamp), ("BOSS", boss)):   # 32x32 frames: 4 x 4 tiles each
+        tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
+        for i in range(img.width // 32):
+            for ty in range(4):
+                for tx in range(4):
+                    sprite_words += tile_words(img, i * 32 + tx * 8, ty * 8)
     pal_ripple = palette_of(ripple)
     pal_pebble = palette_of(pebble)
     pal_breeze = palette_of(breeze)
@@ -650,6 +653,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_bark", palette_of(bark), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_bark_sleep", sleep_palette(palette_of(bark)), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_clamp", palette_of(clamp), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_combat", palette_of(combat), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_boss", palette_of(boss), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")

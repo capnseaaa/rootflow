@@ -1634,6 +1634,218 @@ def make_canopy():
     return img
 
 
+# ---- combat (v0.15): attacks, small enemies, mini bosses ----
+COMBAT_PAL = [
+    (255, 0, 255),    # 0 clear
+    (24, 20, 28),     # 1 outline
+    (52, 120, 52),    # 2 vine dark
+    (120, 200, 90),   # 3 vine light
+    (40, 96, 178),    # 4 water dark
+    (110, 178, 240),  # 5 water light
+    (236, 246, 255),  # 6 foam, gust, spark
+    (96, 88, 82),     # 7 rock dark
+    (156, 146, 132),  # 8 rock light
+    (190, 220, 230),  # 9 gust pale
+    (110, 72, 44),    # 10 wood
+    (168, 120, 76),   # 11 wood light
+    (62, 30, 72),     # 12 blight dark
+    (128, 64, 140),   # 13 blight
+    (250, 210, 70),   # 14 eye
+    (138, 144, 156),  # 15 metal
+]
+COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
+                "spark"]
+
+
+def _canvas(n=16):
+    return [[0] * n for _ in range(n)]
+
+
+def _disc(px, cx, cy, r, c, edge=None):
+    n = len(px)
+    for y in range(n):
+        for x in range(n):
+            d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5
+            if d <= r:
+                px[y][x] = edge if edge is not None and d > r - 1 else c
+
+
+def combat_cell(name):
+    px = _canvas()
+    if name == "whip_h":                       # a vine lashing out to the right
+        for x in range(1, 16):
+            y = int(8 + 3 * __import__("math").sin(x * 0.55))
+            for dy in (-1, 0, 1):
+                px[y + dy][x] = 2 if dy else 3
+        for lx, ly in ((5, 4), (11, 11), (14, 6)):
+            px[ly][lx] = px[ly][lx - 1] = 3
+    elif name == "whip_v":
+        for y in range(1, 16):
+            x = int(8 + 3 * __import__("math").sin(y * 0.55))
+            for dx in (-1, 0, 1):
+                px[y][x + dx] = 2 if dx else 3
+        for lx, ly in ((4, 5), (11, 11), (6, 14)):
+            px[ly][lx] = px[ly - 1][lx] = 3
+    elif name == "water":
+        _disc(px, 7.5, 8, 5.5, 4, 1)
+        _disc(px, 7, 7.5, 3.5, 5)
+        px[5][5] = px[5][6] = px[6][5] = 6
+    elif name == "rock":
+        _disc(px, 7.5, 8, 5.5, 7, 1)
+        _disc(px, 6.5, 7, 3.5, 8)
+        px[5][5] = 6
+        px[10][9] = px[9][10] = 1
+    elif name == "gust":                       # a swirl of wind
+        import math
+        for t in range(60):
+            a = t * 0.21
+            r = 1.5 + t * 0.11
+            x, y = int(7.5 + r * math.cos(a)), int(8 + r * math.sin(a) * 0.8)
+            if 0 <= x < 16 and 0 <= y < 16:
+                px[y][x] = 6 if t % 3 else 9
+    elif name == "slam":                       # one quarter of a burst ring (drawn 4 times, flipped)
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 15.5) ** 2 + (y - 15.5) ** 2) ** 0.5
+                if 11 <= d < 15:
+                    px[y][x] = 11 if d < 13 else 10
+                elif 15 <= d < 16:
+                    px[y][x] = 1
+    elif name in ("blob0", "blob1"):           # a blight blob: purple rot with eyes
+        sq = name == "blob1"
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) / (6.5 if sq else 5.8)) ** 2 + ((y - (10 if sq else 9.5)) / (4.5 if sq else 5.5)) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.78 else 13 if y < (9 if sq else 8) else 12
+        ey = 9 if sq else 8
+        px[ey][5] = px[ey][9] = 14
+        px[ey + 1][5] = px[ey + 1][9] = 1
+        px[ey - 3][7] = 13
+    elif name in ("drone0", "drone1"):         # a Vael drone: a metal disc, a red eye, a rotor
+        _disc(px, 7.5, 9, 5.5, 15, 1)
+        _disc(px, 7.5, 9, 2.2, 1)
+        px[9][7] = px[9][8] = 14
+        rot = 2 if name == "drone0" else 5
+        for x in range(7 - rot, 9 + rot):
+            px[2][x] = 1
+        px[3][7] = px[3][8] = 1
+    elif name == "spark":                      # a hit
+        for k in range(-5, 6):
+            px[8][7 + k] = px[8 + k][7] = 6
+        for k in range(-3, 4):
+            if 0 <= 8 + k < 16:
+                px[8 + k][7 + k] = 6 if abs(k) < 2 else 9
+                px[8 - k][7 + k] = 6 if abs(k) < 2 else 9
+    return px
+
+
+def make_combat():
+    img = Image.new("P", (16 * len(COMBAT_ORDER), 16), 0)
+    img.putpalette([c for rgb in COMBAT_PAL for c in rgb])
+    for i, name in enumerate(COMBAT_ORDER):
+        for y, row in enumerate(combat_cell(name)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * i + x, y), c)
+    return img
+
+
+BOSS_PAL = [
+    (255, 0, 255),    # 0 clear
+    (24, 18, 22),     # 1 outline
+    (70, 74, 84),     # 2 metal dark
+    (116, 122, 134),  # 3 metal
+    (172, 178, 188),  # 4 metal light
+    (156, 76, 40),    # 5 rust
+    (236, 56, 48),    # 6 red eye
+    (48, 74, 40),     # 7 thorn dark
+    (92, 128, 60),    # 8 thorn
+    (226, 214, 160),  # 9 thorn tip
+    (78, 56, 40),     # 10 mud dark
+    (124, 92, 62),    # 11 mud
+    (170, 136, 96),   # 12 mud light
+    (58, 26, 64),     # 13 rot dark
+    (122, 58, 132),   # 14 rot
+    (236, 220, 96),   # 15 glow
+]
+BOSS_ORDER = ["clamper0", "clamper1", "thorn0", "thorn1", "mud0", "mud1", "rot0", "rot1"]
+
+
+def boss_cell(name):
+    import math
+    px = _canvas(32)
+    f = name.endswith("1")
+    if name.startswith("clamper"):             # a squat Vael machine with clamp jaws
+        for y in range(10, 30):
+            for x in range(5, 27):
+                edge = x in (5, 26) or y in (10, 29)
+                px[y][x] = 1 if edge else 4 if y < 13 else 3 if y < 24 else 2
+        for x in range(7, 25, 4):
+            px[27][x] = px[27][x + 1] = 1          # tread
+        for y in range(15, 19):
+            for x in range(13, 19):
+                px[y][x] = 6 if 14 <= x <= 17 and y in (16, 17) else 1   # the eye
+        gap = 4 if f else 1
+        for side in (-1, 1):                       # jaws
+            for y in range(2 + (0 if f else 2), 12):
+                x0 = 16 + side * (gap + 2)
+                for x in range(min(x0, x0 + side * 5), max(x0, x0 + side * 5) + 1):
+                    if 0 <= x < 32:
+                        px[y][x] = 1 if y in (2 + (0 if f else 2), 11) else 3
+        for k in range(3, 29, 6):
+            px[20][k] = 5
+    elif name.startswith("thorn"):             # a bramble ball with spikes and eyes
+        for y in range(32):
+            for x in range(32):
+                d = ((x - 15.5) ** 2 + (y - 17) ** 2) ** 0.5
+                a = math.atan2(y - 17, x - 15.5)
+                spike = 11.5 + (3.5 if f else 2) * max(0.0, math.cos(a * 7))
+                if d < spike:
+                    px[y][x] = 9 if d > spike - 1.5 and d > 11 else 1 if d > 10.5 else 8 if (x + y) % 5 else 7
+        for ex in (11, 20):
+            px[15][ex] = px[15][ex + 1] = 6
+            px[16][ex] = px[16][ex + 1] = 1
+    elif name.startswith("mud"):               # a hulking mud blob, cracked and drying
+        sq = 2 if f else 0
+        for y in range(32):
+            for x in range(32):
+                d = ((x - 15.5) / (13 + sq)) ** 2 + ((y - 18 - sq / 2) / (12 - sq)) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.86 else 12 if y < 12 + sq else 11 if y < 22 else 10
+        for k in range(8):
+            px[14 + k][8 + (k % 3)] = 10
+            px[16 + k // 2][22 - (k % 2)] = 10
+        for ex in (11, 20):
+            px[16 + sq][ex] = px[16 + sq][ex + 1] = 15
+            px[17 + sq][ex] = px[17 + sq][ex + 1] = 1
+    else:                                      # a rot root rising from the ground, a glowing mouth
+        lean = 2 if f else -1
+        for y in range(3, 31):
+            w = 4 + (y - 3) * 0.32
+            cx = 15.5 + lean * math.sin(y * 0.2)
+            for x in range(32):
+                d = abs(x - cx)
+                if d < w:
+                    px[y][x] = 1 if d > w - 1 else 14 if x < cx - w * 0.3 else 13
+        for x in range(10, 22):
+            px[30][x] = 1
+        for y in range(13, 17):
+            for x in range(13, 19):
+                px[y][x] = 15 if y in (14, 15) and 14 <= x <= 17 else 1
+        px[9][13] = px[9][18] = 15
+    return px
+
+
+def make_boss():
+    img = Image.new("P", (32 * len(BOSS_ORDER), 32), 0)
+    img.putpalette([c for rgb in BOSS_PAL for c in rgb])
+    for i, name in enumerate(BOSS_ORDER):
+        for y, row in enumerate(boss_cell(name)):
+            for x, c in enumerate(row):
+                img.putpixel((32 * i + x, y), c)
+    return img
+
+
 def make_bark():
     return draw_sheet(BARK_SPRITES, BARK_ORDER, BARK_PAL)
 
@@ -1760,7 +1972,8 @@ def main():
                      ("ripple_sprite.png", make_ripple), ("pebble_sprite.png", make_pebble),
                      ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark),
                      ("canopy.png", make_canopy), ("tree_trunk.png", make_trunk),
-                     ("clamp_sprite.png", make_clamp)):
+                     ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
+                     ("boss_sprite.png", make_boss)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

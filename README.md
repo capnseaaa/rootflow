@@ -16,6 +16,7 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - The valley, the Windy Steppe to the east, and Stone Hollow to the south. Walk off an open edge to travel.
 - Pebble sleeps past a dried-up river in the steppe; Breeze is sealed among the boulders of the hollow, across the river.
 - Once Bark joins, the way west opens to the Great Tree: Bark's old home, dead and clamped by Vael, its branches spread over the whole wood. Bark has four jobs for your spirits there.
+- The Great Tree's wood is dangerous: blight blobs and Vael drones roam it. With an enemy in front, A makes your spirit attack (Sprout whips, Ripple shoots water, Pebble throws rocks, Breeze blasts a gust, Bark slams the ground). Each of Bark's jobs wakes a mini boss that one spirit hits hardest. You have five hearts; if you faint, you wake at home with nothing lost.
 - Each area has its own grass. Blooms grow trees back from stumps and grass under chests and relics.
 - Collect stone, fruit, seeds, and wood; find hidden chests and the rusted machines Vael left behind.
 

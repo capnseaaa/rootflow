@@ -1,0 +1,63 @@
+# v0.15 combat: from the dev jump TREE TASKS DONE (the Clamp Crusher wakes)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=6
+1 1
+1 0
+400 0 c1_boss_wakes.ppm
+0 0 @$hearts_now,$boss+36,$boss,$boss+12,$cur_area,$party,$party+8
+# test setup: only blob 0 left, beside the wizard on the open strip at the top (Sprout active, facing right)
+0 0 !$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0,$enemies+276=0,$enemies+316=0
+0 0 !$px=82,$py=10,$active=0,$enemies=0,$enemies+4=112,$enemies+8=12,$enemies+12=3,$enemies+36=1,$boss+4=400,$boss+8=420
+1 16
+1 0
+2 1
+4 0 c2_whip.ppm
+8 0
+0 0 @$enemies+12,$enemies+36
+0 0 !$enemies+4=112,$enemies+8=12
+30 0
+2 1
+30 0
+0 0 !$enemies+4=112,$enemies+8=12
+2 1
+30 0
+0 0 @$enemies+12,$enemies+36
+# a blob on the wizard: one heart lost
+0 0 !$enemies+4=82,$enemies+8=10,$enemies+12=3,$enemies+32=0,$enemies+36=1
+2 0
+0 0 @$hearts_now,$hurt_timer
+20 0 c3_hurt.ppm
+0 0 !$enemies+36=0
+# the Clamp Crusher right of the wizard; Pebble (slot 2) throws rocks: 2 x 3 = 6 a hit
+0 0 !$dev_god=1,$active=2,$boss+4=120,$boss+8=0,$boss+20=0,$boss+16=0
+1 16
+1 0
+2 1
+6 0 c4_rock.ppm
+24 0
+0 0 @$boss+12,$boss+36
+0 0 !$boss+4=120,$boss+8=0,$boss+20=0,$boss+16=0
+30 0
+2 1
+30 0
+0 0 @$boss+12,$boss+36,$boss_beaten
+300 0 c5_next_boss.ppm
+0 0 @$boss+36,$boss
+400 0
+# Sprout (slot 0) only chips the Thorn Beast: 1 a hit
+0 0 !$active=0,$boss+4=104,$boss+8=0,$boss+12=12
+1 16
+1 0
+2 1
+20 0
+0 0 @$boss+12,$boss
+# faint: one heart left and a blob on the wizard; he wakes at a home with full hearts
+0 0 !$dev_god=0,$hearts_now=1,$hurt_timer=0,$boss+36=0,$enemies+4=82,$enemies+8=10,$enemies+12=3,$enemies+32=0,$enemies+36=1
+5 0
+0 0 @$cur_area,$hearts_now,$px,$py
+60 0 c6_fainted.ppm
