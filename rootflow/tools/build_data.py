@@ -368,6 +368,7 @@ def make_south():
     for x in SOUTH_GATE_COLS:                    # entry path from the valley
         for y in range(0, 5):
             m[y][x] = DEAD
+    river_south(m)
     retile(m, DEAD_CRACK, PEBBLES)               # hollow ground: loose pebbles
     ring(m, *BREEZE_POCKET, ROCK)                # Breeze's boulder pocket
     # landmark: a ring of standing stones around open ground
@@ -379,6 +380,27 @@ def make_south():
             m[y][x] = DEAD
     place_objects(m, SOUTH)
     return m
+
+
+def river_south(m):
+    """The valley's river goes on into Stone Hollow (Caleb, v0.12.1): it enters at the top in the
+    same columns where it leaves the valley, winds south past Pebble's cairn, then turns west
+    through the pond to the west edge. Breeze's pocket and the chest lie beyond it (Ripple bridges)."""
+    rng = random.Random(4041)
+    valley = make_valley()
+    x = min(c for c in range(MAP_W) if valley[MAP_H - 1][c] == WATER)
+    turn = 19
+    for y in range(turn + 2):                    # south, two tiles wide
+        if y and y % 2 == 0 and y < turn:
+            x = max(21, min(25, x + rng.choice([-1, 0, 1])))
+        for dx in (0, 1):
+            m[y][x + dx] = WATER
+    y = turn
+    for cx in range(x + 1, -1, -1):              # then west, two tiles tall
+        if cx < x and cx % 2 == 0:
+            y = max(19, min(22, y + rng.choice([-1, 0, 1])))
+        for dy in (0, 1):
+            m[y + dy][cx] = WATER
 
 
 def retile(m, old, new):
