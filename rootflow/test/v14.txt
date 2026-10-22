@@ -232,9 +232,9 @@
 2000 0 z3_scene_end.ppm
 0 0 @$tree_step,$quest+4
 0 0 !$spirits+16=9,$spirits+44=9,$spirits+72=9,$spirits+100=9,$spirits+128=9
-0 0 !$px=50,$py=300
+0 0 !$px=60,$py=330
 30 0 z0_clamps.ppm
-# Pebble breaks the four clamps, from below each (facing up)
+# Pebble breaks the seven clamps: side ones from below (facing up), front ones from the left
 0 0 !$spirits+16=20
 0 0 !$px=66,$py=314,$active=0
 5 0
@@ -254,6 +254,21 @@
 0 0 !$px=482,$py=298,$active=0
 5 0
 1 64
+2 1
+20 0
+0 0 !$px=66,$py=410,$active=0
+5 0
+1 16
+2 1
+20 0
+0 0 !$px=178,$py=362,$active=0
+5 0
+1 16
+2 1
+20 0
+0 0 !$px=290,$py=362,$active=0
+5 0
+1 16
 2 1
 20 0
 40 0

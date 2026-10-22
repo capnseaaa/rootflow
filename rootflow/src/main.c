@@ -430,7 +430,7 @@ static void oam_flush(void) {
 #define OAM_SPARKLE 11
 #define OAM_GLOW    12
 #define OAM_CURSOR  13
-#define OAM_CLAMP   14  // 14..14+NUM_CLAMPS-1: Vael clamps on the Great Tree's roots
+#define OAM_CLAMP   14  // 14..14+NUM_CLAMPS-1 (7): Vael clamps on the Great Tree's roots
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -1994,10 +1994,15 @@ static void draw_sprites(void) {
     // Vael clamps on the Great Tree's roots: shown while their cell is still a CLAMP.
     for (s32 i = 0; i < NUM_CLAMPS; i++) {
         u8 t = maps[WEST][(clamp_px_y[i] >> 4) * MAP_W + (clamp_px_x[i] >> 4)];
-        if (cur_area == WEST && t == CLAMP)
-            obj_set(OAM_CLAMP + i, clamp_px_x[i] - 8 - cam_x, clamp_px_y[i] - 16 - cam_y, TILE_CLAMP, 0, PAL_CLAMP, 1);
-        else
+        s32 x = clamp_px_x[i] - 16 - cam_x, y = clamp_px_y[i] - 16 - cam_y;
+        if (cur_area == WEST && t == CLAMP && x > -32 && x < SCREEN_W && y > -32 && y < SCREEN_H) {
+            u16 *o = &oam_shadow[(OAM_CLAMP + i) * 4];                // a 32x32 sprite (square, size 2)
+            o[0] = (y & 0xFF);
+            o[1] = (x & 0x1FF) | (2 << 14);
+            o[2] = (TILE_CLAMP + i * 16) | (1 << 10) | (PAL_CLAMP << 12);
+        } else {
             sprite_hide(OAM_CLAMP + i);
+        }
     }
 
     // Build preview frame on the faced tile.

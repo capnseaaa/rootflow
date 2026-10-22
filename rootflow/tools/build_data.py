@@ -43,7 +43,7 @@ WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31
 # The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
 # Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
 import make_art as _art  # noqa: E402
-CLAMP_PX = [(x, y) for x, y in _art.CLAMP_SPOTS] + [(_art.mirror_x(x), y) for x, y in _art.CLAMP_SPOTS]
+CLAMP_PX = [(x, y) for x, y, _band in _art.ALL_CLAMPS]   # one 32x32 sprite each, in this order
 CLAMPS = [(x // 16, y // 16) for x, y in CLAMP_PX]
 ROOT_TIPS = []                                       # one cell past each root that ends pointing down
 for _pts, _w0, _w1 in _art.ROOTS:
@@ -596,11 +596,16 @@ def main():
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
-              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("CLAMP", clamp, 32)]
+              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
         sprite_words += strip_cells(img, cell_h)
+    tile_defs.append(f"#define TILE_CLAMP {len(sprite_words) // 8}")   # 32x32 frames: 4 x 4 tiles each
+    for i in range(clamp.width // 32):
+        for ty in range(4):
+            for tx in range(4):
+                sprite_words += tile_words(clamp, i * 32 + tx * 8, ty * 8)
     pal_ripple = palette_of(ripple)
     pal_pebble = palette_of(pebble)
     pal_breeze = palette_of(breeze)

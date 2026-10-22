@@ -1324,7 +1324,7 @@ BARK_ORDER = ["bark0", "bark1"]
 # ---- the Great Tree (v0.14): two 512 x 512 layers over its whole region ----
 # tree_trunk.png (under the characters): a huge trunk, ~240 px wide, shaded like a cylinder
 #   (lit from the left, grooves bunching toward the edges) so it stands upright, with a flared,
-#   curved base and a dark opening at its foot. Its bark repeats every 32 px down the straight
+#   curved base and a dark opening at its foot. Its bark repeats every 16 px down the straight
 #   part, so most tiles repeat.
 # canopy.png (over the characters, mostly solid): thick limbs, tapered and shaded (light on top),
 #   spreading over the top and down both sides. Strokes run at slopes 0, 1/2, 1, 2 from points on
@@ -1364,20 +1364,20 @@ def trunk_bottom(x):
 
 def bark_color(x, y):
     """Bark on a cylinder of radius TRUNK_HALF: tone from the light, grooves from the angle.
-    Depends on y only through y % 32, so the straight trunk repeats."""
+    Depends on y only through y % 16, so the straight trunk repeats."""
     import math
     u = max(-1.0, min(1.0, (x - TREE_CX) / TRUNK_HALF))
     a = math.asin(u)                                  # angle around the trunk
     light = 0.62 - 0.42 * u - 0.18 * u * u
     col = a * 9 / math.pi + 9                         # grooves, closer together toward the edges
     g, ci = col % 1, int(col)
-    yy = y % 32
-    if g < 0.14 or (g < 0.22 and (yy + ci * 7) % 11 < 3):
+    yy = y % 16
+    if g < 0.14 or (g < 0.22 and (yy + ci * 5) % 8 < 2):
         return 5                                        # a groove, ragged at the edges
     if abs(u) > 0.97:
         return 1
-    cy = (ci * 13) % 32                                 # one short, slanted crack per plate
-    if 0.3 < g < 0.7 and yy == (cy + int(g * 4)) % 32:
+    cy = (ci * 7) % 16                                  # a short, slanted crack on every other plate
+    if ci % 2 == 0 and 0.3 < g < 0.7 and yy == (cy + int(g * 4)) % 16:
         return 2
     if g > 0.78:
         light -= 0.18                                   # each plate darkens toward its groove
@@ -1389,6 +1389,10 @@ def bark_color(x, y):
 # Roots (left half; the right half is its mirror image): grid points from the base outward.
 # Each: (points, width at the base, width at the end). Ends that point down get a root tip tile
 # on the map (ROOT_TIPS); the clamps sit on the first root (CLAMP_SPOTS, in pixels).
+def mirror_x(x):
+    return 511 - x
+
+
 def root_path(x, y, moves):
     """Grid points from (x, y) by moves (dx, dy, steps): each step is (dx, dy) * 8 pixels."""
     pts = [(x, y)]
@@ -1405,15 +1409,18 @@ ROOTS = [   # winding: each turns between neighboring slopes
     (root_path(192, 328, [(0, 2, 1), (1, 2, 1), (0, 2, 2), (-1, 2, 1), (0, 2, 3)]), 30, 12),
 ]
 CLAMP_SPOTS = [(64, 304), (24, 296)]           # left side, on the first root; mirrored for the right
+# Clamps on the roots that run toward you (Caleb, v0.14): (x, y) on a vertical run.
+FRONT_CLAMPS = [(88, 416), (200, 376), (311, 376)]
+# Every clamp: (x, y, band) where band "v" crosses a sideways root and "h" a root running down.
+ALL_CLAMPS = ([(x, y, "v") for x, y in CLAMP_SPOTS] + [(mirror_x(x), y, "v") for x, y in CLAMP_SPOTS]
+              + [(x, y, "h") for x, y in FRONT_CLAMPS])
 
 
-def mirror_x(x):
-    return 511 - x
-
-
-def stroke(px, pts, w0, w1, colors, S=512):
+def stroke(px, pts, w0, w1, colors, S=512, bark=False):
     """A thick path through grid points, tapering from w0 to w1, shaded light on top. colors:
-    (outline, dark, mid, light, highlight)."""
+    (outline, dark, mid, light, highlight). bark=True (roots): the trunk's bark instead, lit from
+    the top-left like the trunk, with grooves running along the root (they depend only on the
+    distance across the root, so a straight run still repeats)."""
     out, dark, mid, light, hi = colors
     segs = list(zip(pts, pts[1:]))
     total = sum(max(abs(b[0] - a[0]), abs(b[1] - a[1])) for a, b in segs) or 1
@@ -1421,6 +1428,9 @@ def stroke(px, pts, w0, w1, colors, S=512):
         done = 0
         for (x0, y0), (x1, y1) in segs:
             n = max(abs(x1 - x0), abs(y1 - y0)) or 1
+            ln = ((x1 - x0) ** 2 + (y1 - y0) ** 2) ** 0.5 or 1
+            nx, ny = -(y1 - y0) / ln, (x1 - x0) / ln       # across the root
+            facing = nx * -0.6 + ny * -0.8                 # how much that side faces the light
             for t in range(n + 1):
                 x = x0 + (x1 - x0) * t // n
                 y = y0 + (y1 - y0) * t // n
@@ -1435,6 +1445,17 @@ def stroke(px, pts, w0, w1, colors, S=512):
                         if outline:
                             if px[yy][xx] == 0:
                                 px[yy][xx] = out
+                        elif bark:
+                            o = (xx - x) * nx + (yy - y) * ny
+                            v = o / max(1.0, r)
+                            b = 0.56 + 0.44 * v * facing - 0.3 * v * v
+                            if abs(v) > 0.9:
+                                c = 1
+                            elif (o + 70) % 7 < 1.3:
+                                c = 5                              # a groove along the root
+                            else:
+                                c = 6 if b > 0.86 else 4 if b > 0.58 else 3 if b > 0.32 else 2
+                            px[yy][xx] = c
                         else:
                             v = (yy - y) / max(1.0, r)
                             px[yy][xx] = hi if v < -0.62 else light if v < -0.15 else mid if v < 0.45 else dark
@@ -1468,7 +1489,7 @@ def make_trunk():
     px = [[0] * S for _ in range(S)]
     rootc = (1, 2, 3, 4, 6)
     for pts, w0, w1 in ROOTS:                            # roots first, under the trunk's base
-        stroke(px, pts, w0, w1, rootc)
+        stroke(px, pts, w0, w1, rootc, bark=True)
     for y in range(S):                                   # the right half mirrors the left
         for x in range(256):
             px[y][mirror_x(x)] = px[y][x]
@@ -1512,21 +1533,42 @@ def make_trunk():
 
 
 def make_clamp():
-    """A Vael iron clamp (16 x 32 sprite) that sits across a root; Pebble breaks it."""
-    pal = [(255, 0, 255), (24, 22, 24), (84, 88, 96), (128, 132, 140), (176, 180, 186), (150, 72, 40),
-           (214, 120, 60)] + [(0, 0, 0)] * 9
-    img = Image.new("P", (16, 32), 0)
+    """The Vael iron clamps (Pebble breaks them): one 32 x 32 sprite per clamp in ALL_CLAMPS, side
+    by side. Each ring is sized to its root (measured on art/tree_trunk.png): it wraps all the way
+    around, a little wider than the root, with rounded ends, shaded as it turns (lit top-left)."""
+    pal = [(255, 0, 255), (24, 22, 24), (70, 74, 82), (110, 114, 124), (158, 162, 170), (204, 206, 210),
+           (150, 72, 40), (214, 120, 60)] + [(0, 0, 0)] * 8
+    trunk = Image.open(os.path.join(ART, "tree_trunk.png"))
+    img = Image.new("P", (32 * len(ALL_CLAMPS), 32), 0)
     img.putpalette([c for rgb in pal for c in rgb])
-    for y in range(2, 30):
-        for x in range(3, 13):
-            edge = x in (3, 12) or y in (2, 29)
-            c = 1 if edge else 4 if x == 5 else 3 if x < 9 else 2
-            if not edge and (x * 3 + y * 5) % 11 == 0:
-                c = 5                                     # rust
-            img.putpixel((x, y), c)
-    for y in (6, 16, 25):
-        for x in (6, 9):
-            img.putpixel((x, y), 6)                       # rivets
+    for i, (x, y, band) in enumerate(ALL_CLAMPS):
+        dx, dy = (0, 1) if band == "v" else (1, 0)         # measure across the root
+        a = b = 0
+        while trunk.getpixel((x - dx * (a + 1), y - dy * (a + 1))):
+            a += 1
+        while trunk.getpixel((x + dx * (b + 1), y + dy * (b + 1))):
+            b += 1
+        half = (a + b) / 2 + 2                             # the ring reaches past the root's edges
+        mid = (b - a) / 2
+        for py in range(32):
+            for pxx in range(32):
+                along, across = (pxx - 16, py - 16 - mid) if band == "v" else (py - 16, pxx - 16 - mid)
+                if abs(along) > 5:
+                    continue
+                reach = half - (along / 5) ** 2 * 1.6          # rounded ends: the ring curves away
+                if abs(across) > reach:
+                    continue
+                edge = abs(along) > 4 or abs(across) > reach - 1
+                t = across / half                              # -1 .. 1 around the root
+                light = 0.62 - 0.5 * t - 0.25 * along / 5
+                c = 1 if edge else 5 if light > 0.95 else 4 if light > 0.7 else 3 if light > 0.42 else 2
+                if not edge and (pxx * 3 + py * 5 + i) % 13 == 0:
+                    c = 6                                      # rust
+                img.putpixel((32 * i + pxx, py), c)
+        for k in (-0.55, 0.0, 0.55):                           # rivets down the ring
+            rx, ry = (16, int(16 + mid + k * half)) if band == "v" else (int(16 + mid + k * half), 16)
+            if 0 <= rx < 32 and 0 <= ry < 32:
+                img.putpixel((32 * i + rx, ry), 7)
     return img
 
 
