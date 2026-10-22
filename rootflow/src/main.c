@@ -23,6 +23,11 @@ typedef signed int     s32;
 #define REG_BG1CNT    REG16(0x0400000A)
 #define REG_BG1HOFS   REG16(0x04000014)
 #define REG_BG1VOFS   REG16(0x04000016)
+#define REG_BG2CNT    REG16(0x0400000C)
+#define REG_BG2HOFS   REG16(0x04000018)
+#define REG_BG2VOFS   REG16(0x0400001A)
+#define REG_BLDCNT    REG16(0x04000050)
+#define REG_BLDALPHA  REG16(0x04000052)
 #define REG_KEYINPUT  REG16(0x04000130)
 #define REG_SND1SWEEP REG16(0x04000060)
 #define REG_SND1CNT   REG16(0x04000062)
@@ -53,8 +58,13 @@ typedef signed int     s32;
 #define SCREEN_H 160
 #define WORLD_PX (MAP_W * 16)
 
+// VRAM (v0.14): charblock 0 = map metatiles, charblock 1 = the Great Tree's branch tiles,
+// screenblocks 20-23 = the branch map (BG2), 24-25 = font and title banner (BG0's charblock 3),
+// 26 = text map, 28-31 = the 64x64 map (BG1).
 #define TEXT_SB   26
 #define MAP_SB    28
+#define CANOPY_SB 20
+#define DISP_BG2  (1 << 10)
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
        THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
@@ -66,7 +76,12 @@ enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK
 enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1, SPRING2_RING2, SPRING2_SPRAY,
        CAIRN1_GLOW, CAIRN2_GLOW, NOOK1_SWING, NOOK2_SPIN,
        // v0.13: stumps (on dead land; on grass, where Bark cut a tree) and chests / relics on grass
-       STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS };
+       STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS,
+       // v0.14: the Great Tree's trunk (36 metatiles, 6 x 6), its roots, and Bark's quest pieces
+       TRUNK0, ROOT_H = TRUNK0 + 36, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };
+static int is_trunk(u8 t) { return t >= TRUNK0 && t < TRUNK0 + 36; }
+static int is_tree_part(u8 t) { return is_trunk(t) || (t >= ROOT_H && t <= DRY_POOL); }
+#define WEST 3   // the Great Tree's area
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
 static u8 home_tile(s32 k, s32 level, int roof) { return HOME_FIRST + k * 4 + (level - 1) * 2 + (roof ? 0 : 1); }
@@ -216,7 +231,8 @@ static int is_solid(u8 t) {
            t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH ||
            t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
            t == STATUE || t == PINWHEEL || t == VAEL_PUMP || is_home(t) ||
-           t == STUMP || t == STUMP_GRASS || t == CHEST_GRASS || t == CHEST_OPEN_GRASS || t == WRECK_GRASS;
+           t == STUMP || t == STUMP_GRASS || t == CHEST_GRASS || t == CHEST_OPEN_GRASS || t == WRECK_GRASS ||
+           is_trunk(t) || t == CLAMP || t == DRY_POOL;   // roots can be walked on
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -231,7 +247,7 @@ static int is_alive(u8 t) {
 static int is_restorable(u8 t) {
     return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
-             t == LEVER_PULLED || t == LOST_STONE);
+             t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t));
 }
 
 static void draw_area(void) {
@@ -271,6 +287,8 @@ static const u16 ground_pal[NUM_AREAS][3] = {
       (178 >> 3) | ((164 >> 3) << 5) | ((110 >> 3) << 10) },
     { (62 >> 3) | ((66 >> 3) << 5) | ((80 >> 3) << 10), (94 >> 3) | ((100 >> 3) << 5) | ((116 >> 3) << 10),
       (132 >> 3) | ((138 >> 3) << 5) | ((154 >> 3) << 10) },
+    { (54 >> 3) | ((44 >> 3) << 5) | ((40 >> 3) << 10), (82 >> 3) | ((68 >> 3) << 5) | ((60 >> 3) << 10),
+      (110 >> 3) | ((94 >> 3) << 5) | ((82 >> 3) << 10) },   // the Great Tree: dark, ashy brown
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -279,10 +297,13 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { 0, 0, 0 },   // valley: terrain.png
     { RGB5(96, 140, 54), RGB5(150, 190, 82), RGB5(206, 224, 124) },
     { RGB5(28, 82, 68), RGB5(46, 118, 94), RGB5(84, 158, 122) },
+    { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
 };
 static void set_ground_palette(s32 a) {
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 ? bg_pal[1 + i] : ground_pal[a][i];
     for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 ? bg_pal[6 + i] : grass_pal[a][i];
+    // the branch layer shows only in the Great Tree's area
+    if (a == WEST) REG_DISPCNT |= DISP_BG2; else REG_DISPCNT &= ~DISP_BG2;
 }
 
 // ---------- text (BG0) ----------
@@ -600,6 +621,14 @@ static u32 told_grown;                             // "EVERY HOME IS FULLY GROWN
 // Bark's arrival (v0.13): bark_step walks through bark_scene once every home is level 2.
 // bark_wait counts frames before the next step; bark_fall > 0 while Bark drops in from above.
 static u32 bark_step, bark_wait, bark_fall, bark_line;
+// The Great Tree (v0.14): tree_step walks Bark's scene there; tree_done holds the finished tasks
+// (TASK_* bits). Both are saved.
+static u32 tree_step, tree_wait, tree_done;
+#define TASK_CLAMPS 1
+#define TASK_THORNS 2
+#define TASK_POOL   4
+#define TASK_TIPS   8
+#define TASKS_ALL  15
 
 // ---------- blooms ----------
 #define BR 10                     // max bloom radius: 4 near water, +2 grove level 2, +1 at 3 hearts, +1 bonded, +2 harmony
@@ -663,6 +692,7 @@ static void reset_game(void) {
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
     bark_step = bark_wait = bark_fall = bark_line = 0;
+    tree_step = tree_wait = tree_done = 0;
     spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
     spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
@@ -723,7 +753,7 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
             flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR || t == DRY_RIVER ||
-                                        t == DAM || t == LOST_STONE);
+                                        t == DAM || t == LOST_STONE || is_trunk(t) || t == CLAMP || t == DRY_POOL);
             dist[gy * g + gx] = 255;
         }
     dist[R * g + R] = 0;
@@ -783,6 +813,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
         if (!(here && player_on_tile(mx, my))) set_tile(mx, my, TREE);
         return;
     }
+    if (t == ROOT_TIP_DEAD) { set_tile(mx, my, ROOT_TIP_ALIVE); return; }   // a bloom wakes the Great Tree's roots
     if (!edge && (t == CHEST || t == CHEST_OPEN || t == WRECK)) {   // grass grows in under chests and relics
         set_tile(mx, my, t == CHEST ? CHEST_GRASS : t == CHEST_OPEN ? CHEST_OPEN_GRASS : WRECK_GRASS);
         return;
@@ -834,9 +865,9 @@ static void update_blooms(void) {
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, -1 }, area_west[NUM_AREAS] = { -1, 0, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0 };
-static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW" };
+static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0 }, area_west[NUM_AREAS] = { 3, 0, -1, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, -1, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0, -1 };
+static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE" };
 
 // Walk into area a, standing at (nx, ny). Fails (returns 0) if that spot is blocked.
 static int enter_area(s32 a, s32 nx, s32 ny) {
@@ -866,7 +897,11 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
 // the east (Breeze's nook, in the steppe) and the south (Pebble's cairn, in the hollow).
 static void region_hint(void) {
     s32 east = !home_done[KIND_BREEZE], south = !home_done[KIND_STONE];
-    if ((!east && !south) || msg_timer || msgq_len) return;
+    if (msg_timer || msgq_len) return;
+    if (!east && !south) {                 // both have homes: the west waits for Bark
+        if (spirits[KIND_BARK].state != SP_JOINED) show_message("A DARK, DEAD WOOD LIES WEST.");
+        return;
+    }
     show_message("I WONDER WHAT LIES");
     queue_message(east && south ? "IN THE EAST AND SOUTH..." : east ? "IN THE EAST..." : "IN THE SOUTH...");
 }
@@ -875,7 +910,8 @@ static void region_hint(void) {
 static void check_exits(void) {
     if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
         enter_area(area_east[cur_area], 2, py);
-    else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0)
+    else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
+             (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED))   // the west opens with Bark
         enter_area(area_west[cur_area], WORLD_PX - 18, py);
     else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0)
         enter_area(area_south[cur_area], px, 2);
@@ -1003,6 +1039,12 @@ static int use_power(s32 kind, s32 mx, s32 my) {
     if (kind == KIND_SPROUT) {
         if (t == WATER || t == ROCK || t == BRIDGE || t == THORN || t == MENHIR) return 0;
         start_bloom(mx, my);
+    } else if (kind == KIND_RIPPLE && t == DRY_POOL) {
+        // Ripple fills the Great Tree's dried root pool, all of it at once
+        for (s32 y = my - 2; y <= my + 2; y++)
+            for (s32 x = mx - 2; x <= mx + 2; x++)
+                if (tile_at(x, y) == DRY_POOL) { set_tile(x, y, WATER); sparkle_at(x, y); }
+        sfx_play(SFX_BRIDGE);
     } else if (kind == KIND_RIPPLE) {
         if (t != WATER && t != DRY_RIVER) return 0;
         // 1 plank; 2 at 3 hearts; 3 when bonded.
@@ -1016,6 +1058,12 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             sparkle_at(mx, my);
         }
         sfx_play(SFX_BRIDGE);
+    } else if (kind == KIND_STONE && t == CLAMP) {
+        set_tile(mx, my, ROOT_H);              // a Vael clamp cracks off the Great Tree's root
+        stone += 2;
+        sparkle_at(mx, my);
+        show_message("+2 STONE");
+        sfx_play(SFX_ROCK);
     } else if (kind == KIND_STONE) {
         if (t != ROCK) return 0;
         // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
@@ -1498,7 +1546,9 @@ static void update_pumps(void) {
     for (s32 k = 0; k < NUM_HOMES; k++) any_home |= home_done[k];
     if (!any_home) return;
     // start a new pump now and then, in an area that has none
-    u32 wait = pumps_stopped || pump_on[0] || pump_on[1] || pump_on[2] ? PUMP_EVERY : PUMP_FIRST;
+    s32 running = 0;
+    for (s32 a = 0; a < NUM_AREAS; a++) running += pump_on[a];
+    u32 wait = pumps_stopped || running ? PUMP_EVERY : PUMP_FIRST;
     if (++pump_timer >= wait) {
         pump_timer = 0;
         s32 start = rng() % NUM_AREAS;
@@ -1724,10 +1774,68 @@ static const struct { u8 act; const char *msg; } bark_scene[] = {
     { BS_SAY, "LET ALL FOUR REST AT HOME..." },
 };
 #define BARK_SCENE_LEN (sizeof(bark_scene) / sizeof(bark_scene[0]))
+// Bark at his old tree, the first time you bring him west: he gives his quest.
+static const char *tree_scene[] = {
+    "BARK: ...", "BARK: YEP. THAT'S IT.", "THE GREAT TREE. THAT WAS ME.", "NOW I'M THIS JUNK.",
+    "VAEL CLAMPED MY ROOTS,", "CHOKED ME WITH THORNS,", "AND DRANK MY POOL DRY.",
+    "WIZARD. YOU AND YOUR SPIRITS", "COULD HELP. MAYBE. HMPH.",
+    "BREAK THE CLAMPS. CUT THORNS.", "FILL THE POOL. WAKE MY ROOTS.",
+};
+#define TREE_SCENE_LEN (sizeof(tree_scene) / sizeof(tree_scene[0]))
+static void update_tree_scene(void) {
+    if (!tree_step && cur_area == WEST && in_party(KIND_BARK)) { tree_step = 1; tree_wait = 60; }
+    if (!tree_step || tree_step > TREE_SCENE_LEN) return;
+    scene_on = 1;
+    if (tree_wait) { tree_wait--; return; }
+    if (msg_timer || msgq_len) return;
+    show_message(tree_scene[tree_step - 1]);
+    if (tree_step == TREE_SCENE_LEN) quest[KIND_BARK] = 1;   // "HEAL MY TREE" on Bark's page
+    tree_step++;
+    tree_wait = 20;
+}
+
+// Bark's four tasks at the Great Tree, checked twice a second (they can be done in any order).
+static u32 count_west(u8 t, s32 x0, s32 y0, s32 x1, s32 y1) {
+    u32 n = 0;
+    for (s32 y = y0; y <= y1; y++)
+        for (s32 x = x0; x <= x1; x++)
+            n += maps[WEST][y * MAP_W + x] == t;
+    return n;
+}
+static void check_tree(void) {
+    if (frame % 30 || tree_done == TASKS_ALL) return;
+    static const char *done_msg[4][2] = {
+        { "THE CLAMPS ARE BROKEN!", "BARK: MY ROOTS CAN BREATHE." },
+        { "THE THORNS ARE GONE!", "BARK: THAT ITCHED. FOR YEARS." },
+        { "THE ROOT POOL IS FULL!", "BARK: ...COLD. GOOD." },
+        { "THE ROOT TIPS WAKE UP!", "BARK: I FEEL MY TOES. EW." },
+    };
+    u32 left[4] = {
+        count_west(CLAMP, 0, 0, MAP_W - 1, MAP_H - 1),
+        count_west(THORN, TRUNK_X - 1, TRUNK_Y - 1, TRUNK_X + 6, TRUNK_Y + 5),
+        count_west(DRY_POOL, 0, 0, MAP_W - 1, MAP_H - 1),
+        count_west(ROOT_TIP_DEAD, 0, 0, MAP_W - 1, MAP_H - 1),
+    };
+    for (s32 i = 0; i < 4; i++) {
+        if (left[i] || (tree_done & (1 << i))) continue;
+        tree_done |= 1 << i;
+        sfx_play(SFX_QUEST);
+        queue_message(done_msg[i][0]);
+        if (in_party(KIND_BARK)) queue_message(done_msg[i][1]);
+    }
+    if (tree_done == TASKS_ALL) {
+        queue_message("BARK: HUH. I FEEL A LITTLE");
+        queue_message("LESS DEAD. BUT SOMETHING");
+        queue_message("ROTS IN MY HEART. INSIDE.");
+        queue_message("I CAN FEEL IT. UGH.");
+    }
+}
+
 static void update_bark(void) {
     if (bark_fall) bark_fall--;
     scene_on = bark_step && bark_step <= BARK_SCENE_LEN;
-    if (!scene_on) return;
+    update_tree_scene();
+    if (!(bark_step && bark_step <= BARK_SCENE_LEN)) return;
     if (bark_wait) { bark_wait--; return; }
     if (msg_timer || msgq_len) return;                      // let the messages before it finish
     u32 act = bark_scene[bark_step - 1].act;
@@ -1778,7 +1886,7 @@ static void update_tips(void) {
 
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
-                                            "STONE HOLLOW IS FULLY ALIVE!" };
+                                            "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!" };
 static void check_milestones(void) {
     if (frame % 30) return;
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -1886,25 +1994,32 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x35534652u   // "RFS5" (v0.13: Bark, wood, harmony)
+#define SAVE_MAGIC 0x36534652u   // "RFS6" (v0.14: the Great Tree's area)
+#define SAVE_MAGIC_V13 0x35534652u   // "RFS5": v0.13 saves (three areas) still load
+#define OLD_AREAS 3
 
 // Everything that makes up a game in progress, in save order.
 static const struct { void *p; u32 n; } save_fields[] = {
     { &px, 4 }, { &py, 4 }, { &pdir, 4 }, { &cur_area, 4 },
-    { maps, sizeof(maps) }, { restorable, sizeof(restorable) },
+    { maps, sizeof(maps[0]) * OLD_AREAS }, { restorable, 4 * OLD_AREAS },
     { spirits, sizeof(spirits) }, { party, sizeof(party) }, { &party_count, 4 }, { &active, 4 },
     { home_done, sizeof(home_done) }, { pulse_r, sizeof(pulse_r) }, { pulse_timer, sizeof(pulse_timer) },
     { &stone, 4 }, { &fruit, 4 }, { &seeds, 4 },
-    { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked) },
+    { chest_open, sizeof(chest_open) }, { wreck_read, sizeof(wreck_read) }, { picked, sizeof(picked[0]) * OLD_AREAS },
     { &bonus_charge, 4 }, { &pulse_div, 4 }, { home_level, sizeof(home_level) }, { &build_item, 4 },
     { fp, sizeof(fp) }, { quest, sizeof(quest) }, { unlocked, sizeof(unlocked) }, { &bonded, 4 }, { &thorn_quest, 4 },
-    { pump_on, sizeof(pump_on) }, { pump_x, sizeof(pump_x) }, { pump_y, sizeof(pump_y) },
-    { pump_drain, sizeof(pump_drain) }, { &pump_timer, 4 }, { &pumps_stopped, 4 },
+    { pump_on, OLD_AREAS }, { pump_x, OLD_AREAS }, { pump_y, OLD_AREAS },
+    { pump_drain, 4 * OLD_AREAS }, { &pump_timer, 4 }, { &pumps_stopped, 4 },
     { &told_river, 4 }, { &told_spring, 4 }, { &told_tips, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
-    { &wood, 4 }, { &harmony, 4 }, { told_full, sizeof(told_full) }, { &told_grown, 4 },
+    { &wood, 4 }, { &harmony, 4 }, { told_full, OLD_AREAS }, { &told_grown, 4 },
     { &bark_step, 4 }, { &bark_wait, 4 }, { &bark_line, 4 },
+    // v0.14 (after everything a v0.13 save holds)
+    { maps[WEST], sizeof(maps[0]) }, { &restorable[WEST], 4 }, { picked[WEST], sizeof(picked[0]) },
+    { &pump_on[WEST], 1 }, { &pump_x[WEST], 1 }, { &pump_y[WEST], 1 }, { &pump_drain[WEST], 4 },
+    { &told_full[WEST], 1 }, { &tree_step, 4 }, { &tree_wait, 4 }, { &tree_done, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
+#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 11)
 
 static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
 static u32 sram_get32(u32 at) {
@@ -1925,15 +2040,28 @@ static void save_game(void) {
 
 // Returns 1 and restores the game if SRAM holds a valid save.
 static int load_game(void) {
-    if (sram_get32(0) != SAVE_MAGIC) return 0;
+    u32 magic = sram_get32(0), nf = NUM_SAVE_FIELDS;
+    if (magic == SAVE_MAGIC_V13) nf = NUM_V13_FIELDS;    // a v0.13 save: everything but the west
+    else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
-    for (u32 f = 0; f < NUM_SAVE_FIELDS; f++)
+    for (u32 f = 0; f < nf; f++)
         for (u32 i = 0; i < save_fields[f].n; i++) sum += SRAM[at++];
     if (sram_get32(at) != sum) return 0;
     at = 4;
-    for (u32 f = 0; f < NUM_SAVE_FIELDS; f++) {
+    for (u32 f = 0; f < nf; f++) {
         u8 *b = save_fields[f].p;
         for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
+    }
+    if (nf < NUM_SAVE_FIELDS) {                           // the west starts fresh
+        restorable[WEST] = 0;
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 t = start_maps[WEST * MAP_W * MAP_H + i];
+            maps[WEST][i] = t;
+            if (is_restorable(t)) restorable[WEST]++;
+            if (i < MAP_W * MAP_H / 8) picked[WEST][i] = 0;
+        }
+        pump_on[WEST] = 0; pump_drain[WEST] = 0; told_full[WEST] = 0;
+        tree_step = tree_wait = tree_done = 0;
     }
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
@@ -2004,6 +2132,7 @@ static s32 spirit_cursor;
 static const char *quest_short[NUM_SPIRITS][2] = {
     { "PLANT 3 FLOWER", "BEDS BY MY GROVE" }, { "PULL THE VAEL", "LEVER, STEPPE" },
     { "FIND MY LOST", "STONE, VALLEY" }, { "CLEAR 30 THORNS", "WITH MY GUSTS" },
+    { "HEAL MY GREAT", "TREE, WEST" },
 };
 static void draw_hearts(s32 col, s32 row, s32 k) {
     for (s32 i = 0; i < 5; i++) put_text_win(col + i, row, i < hearts(k) ? "*" : "@");
@@ -2081,6 +2210,11 @@ static void draw_page(void) {
             put_text_win(2, r++, quest_short[k][1]);
             if (k == KIND_SPROUT) put_text_win(2, r++, num_line("BEDS", beds_by_grove(), 3, 16));
             if (k == KIND_BREEZE) put_text_win(2, r++, num_line("CLEARED", thorn_quest, 30, 16));
+            if (k == KIND_BARK) {
+                u32 n = 0;
+                for (s32 i = 0; i < 4; i++) n += (tree_done >> i) & 1;
+                put_text_win(2, r++, num_line("TASKS", n, 4, 16));
+            }
         }
         r++;
         if (bonded == k) put_text_win(2, r++, "YOUR COMPANION");
@@ -2119,9 +2253,13 @@ static void draw_page(void) {
         put_text_win(2, r++, num_line("VALLEY", life_percent_of(0), -2, 16));
         put_text_win(2, r++, num_line("STEPPE", life_percent_of(1), -2, 16));
         put_text_win(2, r++, num_line("HOLLOW", life_percent_of(2), -2, 16));
+        if (spirits[KIND_BARK].state == SP_JOINED || tree_step)
+            put_text_win(2, r++, num_line("GREAT TREE", life_percent_of(WEST), -2, 16));
         r++;
         put_text_win(2, r++, num_line("LORE FOUND", count_set(wreck_read, NUM_WRECKS), NUM_WRECKS, 16));
-        put_text_win(2, r++, num_line("PUMPS RUNNING", pump_on[0] + pump_on[1] + pump_on[2], -1, 16));
+        s32 running = 0;
+        for (s32 a = 0; a < NUM_AREAS; a++) running += pump_on[a];
+        put_text_win(2, r++, num_line("PUMPS RUNNING", running, -1, 16));
         put_text_win(2, r++, num_line("PUMPS STOPPED", pumps_stopped, -1, 16));
         r++;
         put_text_win(2, r++, "YOU ARE IN");
@@ -2205,8 +2343,9 @@ static void update_menu(void) {
 // ---------- title screen ----------
 // Shows the valley (your own, if there is a save) behind a big ROOTFLOW banner. With a save:
 // CONTINUE / NEW GAME; without one: PRESS START.
-#define BANNER_BASE 64   // first banner tile in charblock 1 (after the font)
+#define BANNER_BASE 64   // first banner tile in the font's charblock (after the font)
 static void title_screen(int has_save) {
+    REG_DISPCNT &= ~DISP_BG2;              // no branch layer behind the title (set_ground_palette restores it)
     for (u32 i = 0; i < 128; i++) oam_shadow[i * 4] = 0x0200;
     oam_flush();
     for (s32 r = 0; r < 20; r++) clear_row(r);
@@ -2244,6 +2383,7 @@ static void title_screen(int has_save) {
     }
     sfx_play(SFX_MENU_OPEN);
     for (s32 r = 0; r < 20; r++) clear_row(r);
+    set_ground_palette(cur_area);
     if (!has_save || choice == 1) {
         reset_game();                     // a new game (a save stays until you save over it)
     } else {
@@ -2282,8 +2422,11 @@ int main(void) {
     PAL_BG[32 + 5] = (29) | (7 << 5) | (8 << 10);     // heart red
 
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
-    copy32(CHARBLOCK(1), font_tiles, sizeof(font_tiles) / 4);
-    copy32(CHARBLOCK(1) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
+    copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
+    copy32(CHARBLOCK(3) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
+    copy32(CHARBLOCK(1), canopy_tiles, sizeof(canopy_tiles) / 4);
+    for (u32 i = 0; i < sizeof(canopy_map) / 2; i++) SCREENBLOCK(CANOPY_SB)[i] = canopy_map[i];   // 16-bit data
+    for (u32 i = 0; i < 16; i++) PAL_BG[CANOPY_BANK * 16 + i] = canopy_pal[i];
     PAL_BG[48 + 1] = (30) | (28 << 5) | (22 << 10);   // title banner: cream letters
     PAL_BG[48 + 3] = (3) | (4 << 5) | (4 << 10);      // and a dark shadow
     copy32(OBJ_TILES, sprite_tiles, sizeof(sprite_tiles) / 4);
@@ -2291,7 +2434,12 @@ int main(void) {
     for (u32 i = 0; i < 128; i++) oam_shadow[i * 4] = 0x0200;
     oam_flush();
 
-    REG_BG0CNT = 0 | (1 << 2) | (TEXT_SB << 8);             // text: priority 0
+    REG_BG0CNT = 0 | (3 << 2) | (TEXT_SB << 8);             // text: priority 0, font in charblock 3
+    // the Great Tree's branches: above the sprites, half see-through (alpha blend over the map,
+    // the sprites, and the backdrop), so the wizard and spirits always show
+    REG_BG2CNT = 0 | (1 << 2) | (CANOPY_SB << 8) | (3 << 14);
+    REG_BLDCNT = (1 << 2) | (1 << 6) | (1 << 9) | (1 << 12) | (1 << 13);
+    REG_BLDALPHA = 9 | (8 << 8);
     REG_BG1CNT = 2 | (0 << 2) | (MAP_SB << 8) | (3 << 14);  // map: priority 2, 64x64 tiles
 
     sound_init();
@@ -2300,7 +2448,7 @@ int main(void) {
     if (!has_save) reset_game();
     update_camera();
 
-    REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12);
+    REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12) | (cur_area == WEST ? DISP_BG2 : 0);
     title_screen(has_save);
 
     for (;;) {
@@ -2308,6 +2456,8 @@ int main(void) {
         music_tick();
         REG_BG1HOFS = cam_x;
         REG_BG1VOFS = cam_y;
+        REG_BG2HOFS = cam_x;
+        REG_BG2VOFS = cam_y;
         oam_flush();
         if ((frame & 31) == 0) animate_water();
         animate_homes();
@@ -2327,6 +2477,7 @@ int main(void) {
         update_homes();
         check_milestones();
         update_bark();
+        check_tree();
         update_tips();
         update_growth();
         update_pumps();

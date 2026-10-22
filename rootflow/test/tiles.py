@@ -6,7 +6,9 @@ NAMES = ("DEAD DEAD_CRACK DIRT GRASS GRASS_TUFT FLOWERS TREE DEAD_TREE ROCK WATE
          "BLOSSOM FOUNTAIN STATUE PINWHEEL VAEL_PUMP VAEL_PUMP_B "
          + " ".join(f"{h}{l}_{p}" for h in ("GROVE", "SPRING", "CAIRN", "NOOK") for l in (1, 2) for p in ("ROOF", "BASE"))
          + " SPRING1_RING1 SPRING1_RING2 SPRING2_RING1 SPRING2_RING2 SPRING2_SPRAY CAIRN1_GLOW CAIRN2_GLOW"
-           " NOOK1_SWING NOOK2_SPIN STUMP STUMP_GRASS CHEST_GRASS CHEST_OPEN_GRASS WRECK_GRASS").split()
+           " NOOK1_SWING NOOK2_SPIN STUMP STUMP_GRASS CHEST_GRASS CHEST_OPEN_GRASS WRECK_GRASS "
+         + " ".join(f"TRUNK{i}" for i in range(36))
+         + " ROOT_H ROOT_V ROOT_D1 ROOT_D2 ROOT_TIP_DEAD ROOT_TIP_ALIVE CLAMP DRY_POOL").split()
 for v in sys.argv[1:]:
     w = int(v) & 0xFFFFFFFF
     print(" ".join(NAMES[(w >> (8 * k)) & 255] if ((w >> (8 * k)) & 255) < len(NAMES) else "?" for k in range(4)))

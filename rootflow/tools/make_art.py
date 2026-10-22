@@ -70,6 +70,9 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "cairn1_glow", "cairn2_glow", "nook1_swing", "nook2_spin",
         # v0.13: stumps (dead land, grass) and chests / relics on grass
         "stump", "stump_grass", "chest_grass", "chest_open_grass", "wreck_grass"]
+# v0.14: the Great Tree's trunk (6 x 6 metatiles, row by row), its roots, and Bark's quest pieces
+META += [f"trunk_{i}" for i in range(36)]
+META += ["root_h", "root_v", "root_d1", "root_d2", "root_tip_dead", "root_tip_alive", "clamp", "dry_pool"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -192,6 +195,120 @@ def stump(rng, grassy=False):
                 px[y][x] = 15 if d > 0.78 else 12 if d > 0.6 else 5 if d > 0.3 else 4 if d > 0.12 else 5
     for x, y in ((2, 12), (13, 12), (3, 13), (12, 13)):      # roots
         px[y][x] = 12
+    return px
+
+
+# ---- the Great Tree (v0.14) ----
+def trunk_tiles(rng):
+    """The dead Great Tree's trunk: a 96 x 96 picture cut into 6 x 6 metatiles. Gnarled bark
+    with deep grooves, a flared base, a ragged top (the branch layer covers it), and a dark
+    opening at the foot (the way into its hollow, later)."""
+    W = 96
+    ground = [[None] * W for _ in range(W)]
+    for ty in range(6):
+        for tx in range(6):
+            g = dead(rng)
+            for y in range(16):
+                for x in range(16):
+                    ground[ty * 16 + y][tx * 16 + x] = g[y][x]
+    px = [row[:] for row in ground]
+    cx = 47.5
+
+    def half(y):
+        if y < 34:
+            return 30 - y * 0.06
+        return 28 + ((y - 34) / 61) ** 2 * 20
+    for y in range(W):
+        h = half(y)
+        top_cut = 3 + int(2 * abs(((y * 7) % 5) - 2))
+        for x in range(W):
+            d = abs(x - cx)
+            if d > h or (y < 6 and (x * 13 + y * 5) % 9 < top_cut - y):
+                continue
+            groove = (x + (y // 7) * 3 + int(3 * ((y * 0.13) % 1))) % 7
+            c = 15 if groove == 0 else 1 if groove == 1 else 12
+            if x < cx - h * 0.5 and c == 12 and (x * 5 + y * 3) % 7 == 0:
+                c = 4                                           # a little light on the left side
+            px[y][x] = 15 if d > h - 1.2 else c
+    for kx, ky, r in ((34, 30, 3.5), (60, 20, 2.5), (56, 48, 3)):   # knots
+        for y in range(W):
+            for x in range(W):
+                d = ((x - kx) / r) ** 2 + ((y - ky) / (r * 1.4)) ** 2
+                if d < 1:
+                    px[y][x] = 15 if d > 0.5 else 1
+    for y in range(64, W):                                     # the opening at the foot
+        for x in range(W):
+            d = ((x - cx) / 9.5) ** 2 + ((max(0, 78 - y)) / 14) ** 2
+            if d < 1 and (y >= 78 or True):
+                px[y][x] = 0 if d < 0.72 else 15
+    tiles = []
+    for ty in range(6):
+        for tx in range(6):
+            tiles.append([px[ty * 16 + y][tx * 16:tx * 16 + 16] for y in range(16)])
+    return tiles
+
+
+def root(rng, kind):
+    """A thick root lying on dead ground: h(orizontal), v(ertical), d1 (top-left to bottom-right),
+    d2 (top-right to bottom-left). Roots can be walked on."""
+    px = dead(rng)
+    for y in range(16):
+        for x in range(16):
+            if kind == "h":
+                d = abs(y - 8)
+            elif kind == "v":
+                d = abs(x - 7.5)
+            elif kind == "d1":
+                d = abs(x - y) * 0.71
+            else:
+                d = abs(x + y - 15) * 0.71
+            if d < 3.6:
+                px[y][x] = 15 if d > 2.6 else (4 if d < 0.8 and (x + y) % 4 else 12)
+    return px
+
+
+def root_tip(rng, alive):
+    """A root coming down from the top and ending: withered and gray, or alive with a green shoot."""
+    px = dead(rng)
+    for y in range(16):
+        for x in range(16):
+            w = 3.6 - max(0, y - 6) * 0.35
+            d = abs(x - 7.5)
+            if y < 13 and d < w:
+                px[y][x] = 15 if d > w - 1 else (12 if alive else 2)
+    if alive:
+        dots(px, [(7, 13), (8, 13), (8, 14), (6, 12), (9, 12)], 7)
+        dots(px, [(5, 11), (10, 11), (4, 10), (11, 10), (7, 15)], 8)
+        dots(px, [(5, 12), (10, 12)], 6)
+    else:
+        dots(px, [(7, 13), (8, 14)], 1)
+    return px
+
+
+def clamp(rng):
+    """A Vael stone-and-iron clamp bolted over a root (Pebble breaks it)."""
+    px = root(rng, "h")
+    for y in range(3, 14):
+        for x in range(4, 12):
+            edge = y in (3, 13) or x in (4, 11)
+            px[y][x] = 15 if edge else (3 if (x + y) % 3 else 2)
+    for x in range(5, 11):
+        px[7][x] = 13 if x % 2 else 1                          # a rusty band
+    dots(px, [(5, 4), (10, 4), (5, 12), (10, 12)], 14)          # bolts
+    return px
+
+
+def dry_pool(rng):
+    """The Great Tree's drinking pool, dried to cracked brown mud (Ripple fills it)."""
+    px = blank(4)
+    speckle(px, rng, [5, 12], 20)
+    for y in range(16):                                     # cracks
+        x = (y * 5 + 3) % 16
+        px[y][x] = 12
+    for x in range(16):
+        px[(x * 7 + 5) % 16][x] = 12
+    for x, y in ((3, 3), (11, 6), (6, 12)):                 # dried-up mud plates' dark edges
+        px[y][x] = 15
     return px
 
 
@@ -870,6 +987,9 @@ def make_terrain():
     ]
     tiles += [stump(rng), stump(rng, grassy=True), chest(rng, ground=grass), chest(rng, True, ground=grass),
               wreck(rng, ground=grass)]
+    tiles += trunk_tiles(rng)
+    tiles += [root(rng, "h"), root(rng, "v"), root(rng, "d1"), root(rng, "d2"), root_tip(rng, False),
+              root_tip(rng, True), clamp(rng), dry_pool(rng)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -1252,6 +1372,91 @@ BARK_SPRITES["bark1"] = ["." * 16] + BARK_SPRITES["bark0"][:-1]   # bob frame: o
 BARK_ORDER = ["bark0", "bark1"]
 
 
+# ---- the Great Tree's branches: a 512 x 512 layer drawn over everything in the west (v0.14) ----
+# Strokes run only straight or at 45 degrees from points on the 8-pixel grid, so most 8x8 tiles
+# repeat and the layer fits the GBA's tile budget. Color 0 is clear.
+CANOPY_PAL = [
+    (255, 0, 255),    # 0 clear
+    (30, 22, 20),     # 1 outline
+    (66, 46, 38),     # 2 bark dark
+    (92, 66, 50),     # 3 bark mid
+    (122, 92, 66),    # 4 bark light
+] + [(0, 0, 0)] * 11
+CANOPY_CENTER = (256, 152)      # where the branches leave the trunk (top of the trunk, in pixels)
+
+
+def make_canopy():
+    """About seven thick limbs leave the trunk top and wave out to the edges (runs that alternate
+    between a direction and its 45-degree neighbor); each limb sprouts a few side branches, and
+    those sprout short twigs."""
+    rng = random.Random(1414)
+    S = 512
+    px = [[0] * S for _ in range(S)]
+    strokes = []
+
+    def limb(x, y, d, width, steps, kids):
+        ring = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
+        base = ring.index(d)
+        bend = rng.choice((-1, 1))
+        if d[1] >= 0 and d[0]:                                  # side limbs wave upward, not down
+            bend = -1 if d[0] > 0 else 1
+        done, run, side_at = 0, 0, sorted(rng.sample(range(3, max(4, steps - 2)), min(kids, max(1, steps - 5))))
+        while done < steps:
+            run_len = rng.randint(2, 4)
+            dx, dy = ring[(base + (bend if run % 2 else 0)) % 8]
+            for _ in range(run_len):
+                nx, ny = x + dx * 8, y + dy * 8
+                if not (-16 <= nx <= S + 16 and -16 <= ny <= S + 16):
+                    return
+                strokes.append((x, y, nx, ny, width))
+                x, y = nx, ny
+                done += 1
+                if side_at and done == side_at[0]:
+                    side_at.pop(0)
+                    k = (base + rng.choice((-1, 1)) * (1 if width > 6 else 2)) % 8
+                    if width > 8:
+                        limb(x, y, ring[k], width - 6, rng.randint(8, 14), 2)
+                    else:
+                        limb(x, y, ring[k], 4, rng.randint(2, 4), 0)
+            run += 1
+
+    cx, cy = CANOPY_CENTER
+    for d, steps in (((-1, 0), 30), ((-1, -1), 24), ((0, -1), 18), ((1, -1), 24), ((1, 0), 30),
+                     ((-1, 1), 16), ((1, 1), 16)):
+        limb(cx + d[0] * 16, cy + d[1] * 8, d, 14, steps, 3)
+    strokes.append((cx - 32, cy - 8, cx + 32, cy - 8, 26))    # the crown where the limbs leave the trunk
+    for outline in (True, False):
+        for x0, y0, x1, y1, w in strokes:
+            n = max(abs(x1 - x0), abs(y1 - y0))
+            r = w / 2 + (1 if outline else 0)
+            ir = int(r) + 1
+            for t in range(n + 1):
+                x = x0 + (x1 - x0) * t // n
+                y = y0 + (y1 - y0) * t // n
+                for yy in range(y - ir, y + ir + 1):
+                    for xx in range(x - ir, x + ir + 1):
+                        if 0 <= xx < S and 0 <= yy < S:
+                            d2 = (xx - x) ** 2 + (yy - y) ** 2
+                            if d2 > r * r:
+                                continue
+                            if outline:
+                                if px[yy][xx] == 0:
+                                    px[yy][xx] = 1
+                            else:
+                                px[yy][xx] = 4 if d2 < (r * 0.3) ** 2 else 3 if d2 < (r * 0.7) ** 2 else 2
+    img = Image.new("P", (S, S), 0)
+    img.putpalette([c for rgb in CANOPY_PAL for c in rgb])
+    img.putdata([v for row in px for v in row])
+    return img
+
+
+def turn(dx, dy, side):
+    """Rotate a direction by 45 degrees (side -1 or 1)."""
+    ring = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
+    i = ring.index((dx, dy))
+    return ring[(i + side) % 8]
+
+
 def make_bark():
     return draw_sheet(BARK_SPRITES, BARK_ORDER, BARK_PAL)
 
@@ -1376,7 +1581,8 @@ def main():
     for name, fn in (("terrain.png", make_terrain), ("player_sprite.png", make_player),
                      ("sprout_sprite.png", make_sprout), ("fx_sprite.png", make_fx),
                      ("ripple_sprite.png", make_ripple), ("pebble_sprite.png", make_pebble),
-                     ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark)):
+                     ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark),
+                     ("canopy.png", make_canopy)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

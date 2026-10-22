@@ -2,9 +2,12 @@
 // Script lines: <frames> <keys> [screenshot.ppm | @addr,addr (print) | !addr=val,addr=val (write)]
 // Set HARNESS_WAV=path to record the game's sound (stereo, 32768 Hz) to a WAV file.
 // A line "^" power-cycles the console (save memory survives, like a real cart).
+// Set HARNESS_SAV=path to load save memory from that file at start (if it exists) and write it
+// back at the end, so a save made by one ROM can be loaded by another (save migration tests).
 // A line "&addr" names the game's frame counter. From then on, one script frame = one game loop
 // (the emulator runs until the counter changes), so boot time and slow frames do not shift a script.
 // Key bits: A=1 B=2 SELECT=4 START=8 RIGHT=16 LEFT=32 UP=64 DOWN=128
+#include <mgba/flags.h>      // the library's build options: they change struct mCore's layout
 #include <mgba/core/core.h>
 #include <mgba/core/config.h>
 #include <mgba/core/log.h>
@@ -71,6 +74,19 @@ int main(int argc, char** argv) {
     if (!mCoreLoadFile(core, argv[1])) { puts("load failed"); return 1; }
     core->reset(core);
 
+    // optional save memory file
+    const char* sav_path = getenv("HARNESS_SAV");
+    if (sav_path) {
+        FILE* f = fopen(sav_path, "rb");
+        if (f) {
+            static unsigned char data[0x20000];
+            size_t n = fread(data, 1, sizeof data, f);
+            fclose(f);
+            core->savedataRestore(core, data, n, false);
+            core->reset(core);
+        }
+    }
+
     // optional sound recording
     const char* wav_path = getenv("HARNESS_WAV");
     FILE* wav = NULL;
@@ -118,6 +134,15 @@ int main(int argc, char** argv) {
         } else if (shot[0]) save_ppm(shot, buf, w, h);
     }
     if (wav) finish_wav(wav, wav_samples);
+    if (sav_path) {
+        void* data = NULL;
+        size_t n = core->savedataClone(core, &data);
+        fprintf(stderr, "save memory: %zu bytes\n", n);
+        FILE* f = fopen(sav_path, "wb");
+        if (f && data) fwrite(data, 1, n, f);
+        if (f) fclose(f);
+        free(data);
+    }
     puts("ok");
     core->deinit(core);
     return 0;
