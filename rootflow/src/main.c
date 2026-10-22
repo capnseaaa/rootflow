@@ -2487,7 +2487,7 @@ static void open_door(void) {
 }
 
 // The healed tree's whole region turns green at once: dead ground grows grass and flowers, dead
-// trees and stumps grow back, the brambles are gone.
+// trees and stumps grow back, the brambles are gone, and the opening into the hollow closes.
 static void revive_world(void) {
     u8 *m = maps[WEST];
     for (s32 i = 0; i < MAP_W * MAP_H; i++) {
@@ -2499,6 +2499,8 @@ static void revive_world(void) {
         else if (t == CHEST_OPEN) m[i] = CHEST_OPEN_GRASS;
         else if (t == WRECK) m[i] = WRECK_GRASS;
     }
+    for (s32 y = DOOR_Y; y <= DOOR_Y + 1; y++)                // the opening grows shut (Caleb: no way back in)
+        for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = TRUNK_BLOCK;
 }
 
 // Gloomheart beaten: out of the hollow, the tree shakes, wakes green, Bark lives in it again and
@@ -2583,7 +2585,7 @@ static void check_spring(void) {
 
 static void update_camera(void) {
     cam_x = px + 8 - SCREEN_W / 2;
-    cam_y = py + 8 - SCREEN_H / 2 - (cur_area == WEST ? 48 : 0);   // look up at the Great Tree (and Bark's face)
+    cam_y = py + 8 - SCREEN_H / 2 - (cur_area == WEST ? 72 : 0);   // look up at the Great Tree (and Bark's face)
     if (cam_x < 0) cam_x = 0;
     if (cam_y < 0) cam_y = 0;
     if (cam_x > WORLD_PX - SCREEN_W) cam_x = WORLD_PX - SCREEN_W;

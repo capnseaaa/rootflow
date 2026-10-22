@@ -1512,12 +1512,11 @@ def make_trunk():
             for x in range(x0 + (y - y0) // 9, x0 + w + (y - y0) // 9):
                 if px[y][x]:
                     px[y][x] = 12 if (x + y) % 7 else 9
-    for cx, cy, rx, ry in ((214, 150, 10, 14), (322, 236, 8, 11)):
-        blot(px, cx, cy, rx + 3, ry + 3, 11, 1)
-        blot(px, cx, cy, rx, ry, 10, 10)
-        for y in range(int(cy + ry), int(cy + ry + 14)):    # ooze running down
-            if px[y][cx]:
-                px[y][cx] = px[y][cx + 1] = 11
+    for x0, y0 in ((214, 140), (322, 220)):              # rot oozing down the bark (no holes: they read as eyes)
+        for y in range(y0, y0 + 40):
+            for x in (x0 + (y - y0) // 13, x0 + 1 + (y - y0) // 13):
+                if px[y][x]:
+                    px[y][x] = 11 if (y - y0) % 9 else 10
     for cx, cy, w in ((168, 104, 12), (288, 176, 12)):
         shelf(px, cx, cy, w)
     for y in range(BASE_Y - 30, S):                      # the opening at its foot
@@ -1635,7 +1634,7 @@ ALIVE_PAL = [
     (236, 150, 170),  # 14 blossom
     (0, 0, 0),
 ]
-FACE_C = (256, 246)                                        # Bark's eyes, just above the opening (his mouth)
+FACE_C = (256, 220)                                        # Bark's eyes (his face runs down to the trunk's base)
 
 
 def make_tree_alive():
@@ -1652,25 +1651,43 @@ def make_tree_alive():
                 px[y][x] = 2
             elif c == 13:
                 px[y][x] = 12
+    for y in range(BASE_Y - 40, 512):                         # the opening grows shut: bark again
+        for x in range(TREE_CX - 30, TREE_CX + 30):
+            if px[y][x] in (7, 1) and abs(x - TREE_CX) < 26 and y < trunk_bottom(x) - 2:
+                px[y][x] = bark_color(x, y)
     fx, fy = FACE_C
-    for sx in (-1, 1):                                       # the eyes: deep knotholes, looking out
-        ex = fx + sx * 52
-        for y in range(fy - 13, fy + 14):
-            for x in range(ex - 16, ex + 17):
-                d = ((x - ex) / 15) ** 2 + ((y - fy) / 11) ** 2
+    for sx in (-1, 1):
+        ex = fx + sx * 50
+        for y in range(fy - 16, fy + 17):                    # big, deep, hollow eye sockets
+            for x in range(ex - 28, ex + 29):
+                u, v = (x - ex) / 27, (y - fy) / 14
+                d = u * u + (v + 0.3 * u * sx) ** 2          # drooping toward the outside
                 if d < 1:
-                    px[y][x] = 1 if d > 0.78 else 13 if d > 0.28 else 1
-        for y in range(fy - 3, fy + 5):                      # pupils, a little to the middle
-            for x in range(ex - sx * 4 - 3, ex - sx * 4 + 4):
+                    px[y][x] = 1 if d > 0.85 else 2 if d > 0.7 and v < 0 else 7
+        for y in range(fy - 3, fy + 3):                      # a glint deep inside
+            for x in range(ex - sx * 6 - 2, ex - sx * 6 + 3):
+                px[y][x] = 13
+        for x in range(ex - 34, ex + 35):                    # long, heavy brows
+            top = fy - 28 + (sx * (ex - x)) // 9          # only a little lower toward the middle: kinder
+            for t in range(11):
+                y = top + t
+                px[y][x] = 1 if t in (0, 10) else 6 if t < 3 else 4 if t < 6 else 3 if t < 9 else 2
+    for y in range(fy - 10, fy + 54):                          # a thick nose, wider toward its tip
+        w = 8 + max(0, y - fy - 14) // 4
+        for x in range(fx - w, fx + w + 1):
+            px[y][x] = 1 if abs(x - fx) >= w else 6 if x < fx - w // 2 else 4 if x < fx + w // 3 else 2
+    for sx in (-1, 1):                                         # nostrils
+        for y in range(fy + 48, fy + 53):
+            for x in (fx + sx * 9, fx + sx * 10):
                 px[y][x] = 1
-        for x in range(ex - 19, ex + 20):                    # level brows: heavy, not angry
-            for t in range(4):
-                y = fy - 16 - t + (1 if sx * (x - ex) > 10 else 0)
-                px[y][x] = 5 if t == 0 else 2
-    for y in range(BASE_Y - 34, BASE_Y - 22):                # a lip of bark over the opening: his mouth
-        for x in range(TREE_CX - 30, TREE_CX + 31):
-            if abs(x - TREE_CX) < 30 - (BASE_Y - 22 - y):
-                px[y][x] = 4 if y < BASE_Y - 28 else 2
+    for y in range(fy + 44, fy + 92):                          # a bushy, mossy moustache, drooping at the ends
+        for x in range(fx - 74, fx + 75):
+            u = (x - fx) / 74
+            top = fy + 52 - int((1 - u * u) * 6) + int(abs(u) * 10)
+            bot = fy + 66 + int(abs(u) ** 1.5 * 22)
+            if top <= y <= bot:
+                edge = y == top or y == bot or abs(u) > 0.98
+                px[y][x] = 1 if edge else 9 if ((x % 8) // 2 + y) % 4 == 0 else 12   # repeats every 8 px
     out = Image.new("P", (512, 512), 0)
     out.putpalette([c for rgb in ALIVE_PAL for c in rgb])
     out.putdata([v for row in px for v in row])
@@ -1697,50 +1714,52 @@ def leaf_texture(x, y):
 
 
 def make_leaves():
-    """The healed tree's leaves: a solid, textured mass over the top and down both sides, with an
-    irregular lobed outline and several holes where you see the ground. Left half mirrored."""
-    import math
+    """The healed tree's crown, like the Great Deku Tree's: big rounded puffs of leaves overlapping
+    (upper ones first, each later puff drawn over with its own outline), a flat green body with a
+    few leaf flecks (repeating every 16 px), a light rim on top and a shadow band underneath, and
+    several holes you see the ground through. Left half drawn; the right half mirrors it."""
     S = 512
     px = [[0] * S for _ in range(S)]
-    rng = random.Random(4646)
-    lobes = []
-    for _ in range(60):                                       # the leaf mass, as overlapping lobes
-        a = rng.uniform(math.pi * 0.5, math.pi * 1.25)
-        r = rng.uniform(40, 250)
-        x = TREE_CX + r * math.cos(a)
-        y = 70 + r * math.sin(a) * 0.9
-        lobes.append((x, y, rng.uniform(28, 52)))
-    lobes += [(TREE_CX - 40, 40, 70), (TREE_CX - 130, 30, 60), (40, 60, 56), (20, 180, 50), (60, 260, 46)]
-    holes = [(150, 120, 22), (70, 120, 18), (190, 40, 16), (40, 220, 20), (120, 200, 14)]
-    for y in range(S):
-        for x in range(256):
-            inside = any((x - lx) ** 2 + (y - ly) ** 2 < lr * lr for lx, ly, lr in lobes)
-            if not inside or y > 330:
-                continue
-            if x > TREE_CX - TRUNK_HALF - 6 and y > 118:            # keep Bark's face in view
-                continue
-            if any((x - hx) ** 2 + (y - hy) ** 2 < hr * hr for hx, hy, hr in holes):
-                continue
-            px[y][x] = leaf_texture(x, y)
-    for y in range(S):                                        # an outline and shade at every edge
-        for x in range(256):
-            if not px[y][x]:
-                continue
-            edge = any(not (0 <= x + dx < 256 and 0 <= y + dy < S) or px[y + dy][x + dx] == 0
-                       for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)) if not (x + dx == 256))
-            if edge:
-                px[y][x] = 1
-    for y in range(S - 1, 0, -1):                             # a darker underside on each lobe
-        for x in range(256):
-            if px[y][x] in (9, 10, 11) and y + 3 < S and px[y + 3][x] in (0, 1):
-                px[y][x] = 8
+    puffs = [   # (x, y, radius), left half; drawn top to bottom
+        (200, 4, 80), (70, 10, 78),
+        (150, 96, 66), (40, 128, 70),
+        (24, 236, 56),
+    ]
+    for cx, cy, r in sorted(puffs, key=lambda p: p[1]):
+        for y in range(max(0, cy - r), min(S, cy + r + 1)):
+            for x in range(max(0, cx - r), min(256, cx + r + 1)):
+                d = ((x - cx) ** 2 + (y - cy) ** 2) ** 0.5 / r
+                if d >= 1:
+                    continue
+                if x > TREE_CX - TRUNK_HALF - 6 and y > 150:          # keep Bark's face in view
+                    continue
+                ny = (y - cy) / r
+                nx = (x - cx) / r
+                if d > 0.94:
+                    c = 1
+                elif d > 0.8 and ny > 0.15:
+                    c = 8                                            # shadow under the puff
+                elif d > 0.82 and ny < -0.35 and nx < 0.3:
+                    c = 11                                           # light along the top
+                else:
+                    f = ((x % 16) * 5 + (y % 16) * 3) % 17
+                    c = 10 if f == 0 else 8 if f == 9 else 9
+                px[y][x] = c
+    for hx, hy, hr in ((92, 100, 14),):                                # a hole
+        for y in range(hy - hr - 2, hy + hr + 3):
+            for x in range(hx - hr - 2, hx + hr + 3):
+                if not (0 <= x < 256 and 0 <= y < S) or not px[y][x]:
+                    continue
+                d = ((x - hx) ** 2 + (y - hy) ** 2) ** 0.5
+                if d < hr:
+                    px[y][x] = 0
+                elif d < hr + 1.2:
+                    px[y][x] = 1
+                elif d < hr + 3 and y < hy:
+                    px[y][x] = 8                                     # the hole's shadowed upper edge
     for y in range(S):
         for x in range(256):
             px[y][mirror_x(x)] = px[y][x]
-    for k in range(18):                                       # a few blossoms (not mirrored)
-        bx, by = rng.randrange(20, 492), rng.randrange(10, 300)
-        if px[by][bx] in (9, 10):
-            px[by][bx] = px[by][bx + 1] = px[by + 1][bx] = 14
     img = Image.new("P", (S, S), 0)
     img.putpalette([c for rgb in ALIVE_PAL for c in rgb])
     img.putdata([v for row in px for v in row])
