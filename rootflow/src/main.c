@@ -26,6 +26,13 @@ typedef signed int     s32;
 #define REG_BG2CNT    REG16(0x0400000C)
 #define REG_BG2HOFS   REG16(0x04000018)
 #define REG_BG2VOFS   REG16(0x0400001A)
+#define REG_BG3CNT    REG16(0x0400000E)
+#define REG_BG3HOFS   REG16(0x0400001C)
+#define REG_BG3VOFS   REG16(0x0400001E)
+#define REG_WIN0H     REG16(0x04000040)
+#define REG_WIN0V     REG16(0x04000044)
+#define REG_WININ     REG16(0x04000048)
+#define REG_WINOUT    REG16(0x0400004A)
 #define REG_BLDCNT    REG16(0x04000050)
 #define REG_BLDALPHA  REG16(0x04000052)
 #define REG_KEYINPUT  REG16(0x04000130)
@@ -58,13 +65,15 @@ typedef signed int     s32;
 #define SCREEN_H 160
 #define WORLD_PX (MAP_W * 16)
 
-// VRAM (v0.14): charblock 0 = map metatiles, charblock 1 = the Great Tree's branch tiles,
-// screenblocks 20-23 = the branch map (BG2), 24-25 = font and title banner (BG0's charblock 3),
+// VRAM (v0.14): charblocks 0-1 = map metatiles, then the Great Tree's tiles (from TREE_TILE_BASE;
+// trunk and branches share them); screenblocks 16-19 = the trunk map (BG3, under the sprites),
+// 20-23 = the branch map (BG2, over the sprites), 24-25 = font and title banner (BG0's charblock 3),
 // 26 = text map, 28-31 = the 64x64 map (BG1).
 #define TEXT_SB   26
 #define MAP_SB    28
+#define TRUNK_SB  16
 #define CANOPY_SB 20
-#define DISP_BG2  (1 << 10)
+#define DISP_TREE ((1 << 10) | (1 << 11) | (1 << 13))   // BG2, BG3, and window 0 (the clear box)
 
 enum { DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, TREE, DEAD_TREE, ROCK, WATER, WATER_B, BRIDGE,
        THORN, HOMESITE, CHEST, CHEST_OPEN, WRECK, DRY_GRASS, PEBBLES, MENHIR, DRY_RIVER, DRY_BRIDGE,
@@ -77,10 +86,11 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        CAIRN1_GLOW, CAIRN2_GLOW, NOOK1_SWING, NOOK2_SPIN,
        // v0.13: stumps (on dead land; on grass, where Bark cut a tree) and chests / relics on grass
        STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS,
-       // v0.14: the Great Tree's trunk (36 metatiles, 6 x 6), its roots, and Bark's quest pieces
-       TRUNK0, ROOT_H = TRUNK0 + 36, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };
-static int is_trunk(u8 t) { return t >= TRUNK0 && t < TRUNK0 + 36; }
-static int is_tree_part(u8 t) { return is_trunk(t) || (t >= ROOT_H && t <= DRY_POOL); }
+       // v0.14: solid ground under the Great Tree's trunk (the trunk is its own layer), its roots,
+       // and Bark's quest pieces
+       TRUNK_BLOCK, ROOT_H, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };
+static int is_trunk(u8 t) { return t == TRUNK_BLOCK; }
+static int is_tree_part(u8 t) { return t >= TRUNK_BLOCK && t <= DRY_POOL; }
 #define WEST 3   // the Great Tree's area
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
@@ -302,8 +312,8 @@ static const u16 grass_pal[NUM_AREAS][3] = {
 static void set_ground_palette(s32 a) {
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 ? bg_pal[1 + i] : ground_pal[a][i];
     for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 ? bg_pal[6 + i] : grass_pal[a][i];
-    // the branch layer shows only in the Great Tree's area
-    if (a == WEST) REG_DISPCNT |= DISP_BG2; else REG_DISPCNT &= ~DISP_BG2;
+    // the tree's layers show only in the Great Tree's area
+    if (a == WEST) REG_DISPCNT |= DISP_TREE; else REG_DISPCNT &= ~DISP_TREE;
 }
 
 // ---------- text (BG0) ----------
@@ -1812,7 +1822,7 @@ static void check_tree(void) {
     };
     u32 left[4] = {
         count_west(CLAMP, 0, 0, MAP_W - 1, MAP_H - 1),
-        count_west(THORN, TRUNK_X - 1, TRUNK_Y - 1, TRUNK_X + 6, TRUNK_Y + 5),
+        count_west(THORN, 12, 21, 19, 21),       // the brambles in front of the trunk
         count_west(DRY_POOL, 0, 0, MAP_W - 1, MAP_H - 1),
         count_west(ROOT_TIP_DEAD, 0, 0, MAP_W - 1, MAP_H - 1),
     };
@@ -1933,6 +1943,18 @@ static void animate_water(void) {
     // Vael pumps work in the same rhythm: their light blinks and the piston moves.
     u32 pump = ((frame >> 5) & 1) ? VAEL_PUMP_B : VAEL_PUMP;
     copy32(CHARBLOCK(0) + VAEL_PUMP * 32, terrain_tiles + pump * 32, 32);
+}
+
+// The clear box: window 0 around the wizard, where the Great Tree's branches are not drawn.
+static void clear_box(void) {
+    s32 x = px - cam_x, y = py - cam_y - 16;               // the wizard's 16x32 sprite
+    s32 x1 = x - 14, x2 = x + 30, y1 = y - 8, y2 = y + 40;
+    if (x1 < 0) x1 = 0;
+    if (y1 < 0) y1 = 0;
+    if (x2 > SCREEN_W) x2 = SCREEN_W;
+    if (y2 > SCREEN_H) y2 = SCREEN_H;
+    REG_WIN0H = (x1 << 8) | x2;
+    REG_WIN0V = (y1 << 8) | y2;
 }
 
 static void draw_sprites(void) {
@@ -2345,7 +2367,7 @@ static void update_menu(void) {
 // CONTINUE / NEW GAME; without one: PRESS START.
 #define BANNER_BASE 64   // first banner tile in the font's charblock (after the font)
 static void title_screen(int has_save) {
-    REG_DISPCNT &= ~DISP_BG2;              // no branch layer behind the title (set_ground_palette restores it)
+    REG_DISPCNT &= ~DISP_TREE;             // no tree layers behind the title (set_ground_palette restores them)
     for (u32 i = 0; i < 128; i++) oam_shadow[i * 4] = 0x0200;
     oam_flush();
     for (s32 r = 0; r < 20; r++) clear_row(r);
@@ -2424,9 +2446,10 @@ int main(void) {
     copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
     copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
     copy32(CHARBLOCK(3) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
-    copy32(CHARBLOCK(1), canopy_tiles, sizeof(canopy_tiles) / 4);
-    for (u32 i = 0; i < sizeof(canopy_map) / 2; i++) SCREENBLOCK(CANOPY_SB)[i] = canopy_map[i];   // 16-bit data
-    for (u32 i = 0; i < 16; i++) PAL_BG[CANOPY_BANK * 16 + i] = canopy_pal[i];
+    copy32(CHARBLOCK(0) + TREE_TILE_BASE * 8, tree_tiles, sizeof(tree_tiles) / 4);
+    for (u32 i = 0; i < sizeof(trunk_map) / 2; i++) SCREENBLOCK(TRUNK_SB)[i] = trunk_map[i];     // 16-bit data
+    for (u32 i = 0; i < sizeof(canopy_map) / 2; i++) SCREENBLOCK(CANOPY_SB)[i] = canopy_map[i];
+    for (u32 i = 0; i < 16; i++) PAL_BG[TREE_BANK * 16 + i] = tree_pal[i];
     PAL_BG[48 + 1] = (30) | (28 << 5) | (22 << 10);   // title banner: cream letters
     PAL_BG[48 + 3] = (3) | (4 << 5) | (4 << 10);      // and a dark shadow
     copy32(OBJ_TILES, sprite_tiles, sizeof(sprite_tiles) / 4);
@@ -2435,12 +2458,16 @@ int main(void) {
     oam_flush();
 
     REG_BG0CNT = 0 | (3 << 2) | (TEXT_SB << 8);             // text: priority 0, font in charblock 3
-    // the Great Tree's branches: above the sprites, half see-through (alpha blend over the map,
-    // the sprites, and the backdrop), so the wizard and spirits always show
-    REG_BG2CNT = 0 | (1 << 2) | (CANOPY_SB << 8) | (3 << 14);
-    REG_BLDCNT = (1 << 2) | (1 << 6) | (1 << 9) | (1 << 12) | (1 << 13);
-    REG_BLDALPHA = 9 | (8 << 8);
-    REG_BG1CNT = 2 | (0 << 2) | (MAP_SB << 8) | (3 << 14);  // map: priority 2, 64x64 tiles
+    // The Great Tree: its trunk (BG3) over the map but under the sprites; its branches (BG2) over
+    // the sprites, mostly solid (alpha blend 12/16 over the rest), with a clear box (window 0)
+    // around the wizard so he always shows.
+    REG_BG3CNT = 2 | (0 << 2) | (TRUNK_SB << 8) | (3 << 14);
+    REG_BG2CNT = 0 | (0 << 2) | (CANOPY_SB << 8) | (3 << 14);
+    REG_BLDCNT = (1 << 2) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13);
+    REG_BLDALPHA = 12 | (4 << 8);
+    REG_WININ = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);   // inside the box: no branches
+    REG_WINOUT = 0x3F;                                       // outside: everything, with blending
+    REG_BG1CNT = 3 | (0 << 2) | (MAP_SB << 8) | (3 << 14);  // map: priority 3, 64x64 tiles
 
     sound_init();
     REG_WAITCNT = (REG_WAITCNT & ~3) | 3;   // SRAM: 8 wait states
@@ -2448,7 +2475,7 @@ int main(void) {
     if (!has_save) reset_game();
     update_camera();
 
-    REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12) | (cur_area == WEST ? DISP_BG2 : 0);
+    REG_DISPCNT = 0x0000 | (1 << 6) | (1 << 8) | (1 << 9) | (1 << 12) | (cur_area == WEST ? DISP_TREE : 0);
     title_screen(has_save);
 
     for (;;) {
@@ -2456,8 +2483,9 @@ int main(void) {
         music_tick();
         REG_BG1HOFS = cam_x;
         REG_BG1VOFS = cam_y;
-        REG_BG2HOFS = cam_x;
-        REG_BG2VOFS = cam_y;
+        REG_BG2HOFS = REG_BG3HOFS = cam_x;
+        REG_BG2VOFS = REG_BG3VOFS = cam_y;
+        clear_box();
         oam_flush();
         if ((frame & 31) == 0) animate_water();
         animate_homes();

@@ -14,8 +14,9 @@ OUT = os.path.join(ROOT, "src", "data.h")
  STATUE, PINWHEEL) = range(38)
 # after the pumps (38-39), 16 home tiles (40-55) and 9 home animation frames (56-64): v0.13 tiles
 STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS = range(65, 70)
-TRUNK0 = 70                        # v0.14: the Great Tree's trunk, 36 metatiles (6 x 6, row by row)
-ROOT_H, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(106, 114)
+# v0.14: solid ground under the Great Tree's trunk (the trunk itself is its own layer), its roots,
+# and Bark's quest pieces
+TRUNK_BLOCK, ROOT_H, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 79)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -39,11 +40,11 @@ THORN_GROVE = (0, 26, 6, 31)
 VALLEY, EAST, SOUTH, WEST = 0, 1, 2, 3
 NUM_AREAS = 4
 WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31 (opens when Bark joins)
-# The Great Tree (west): trunk top-left metatile; Bark's quest pieces (v0.14)
-TRUNK_AT = (13, 9)
-CLAMPS = [(7, 13), (10, 13), (23, 13)]
-ROOT_POOL = [(21, 10), (22, 10), (21, 11), (22, 11)]
-ROOT_TIPS = [(6, 22), (14, 21), (17, 21), (25, 22)]
+# The Great Tree (west): Bark's quest pieces below the trunk (v0.14)
+CLAMPS = [(13, 24), (16, 24), (18, 24)]
+ROOT_POOL = [(26, 28), (27, 28), (26, 29), (27, 29)]
+ROOT_TIPS = [(2, 26), (11, 27), (20, 27), (29, 26)]
+THORN_WALL = [(x, 21) for x in range(12, 20)]       # brambles in front of the trunk's opening
 EAST_GATE_ROWS = (19, 20, 21)      # valley x=31 <-> steppe x=0
 SOUTH_GATE_COLS = (14, 15, 16)     # valley y=31 <-> hollow y=0
 # Home sites, one per spirit kind (Sprout, Ripple, Pebble, Breeze): (area, x, y).
@@ -441,92 +442,88 @@ def retile(m, old, new):
 
 
 def make_west():
-    """The Great Tree's region: dead ground full of Vael's logging stumps. The giant trunk stands
-    in the middle, thorns strangle three sides of it, roots spread out, clamped and dry."""
+    """The Great Tree's region: dead ground full of Vael's logging stumps. The giant trunk (its
+    own layer, art/tree_trunk.png) stands on solid ground; roots spread below it, clamped and
+    dry, with brambles in front of the opening at its foot."""
     rng = random.Random(5050)
-    m = scatter(rng, crack=0.30, tree=0.07, rock=0.03)
+    m = scatter(rng, crack=0.30, tree=0.05, rock=0.03)
     stumpify(m, 5051)
     for y in range(MAP_H):                       # more stumps: Vael logged the whole wood
         for x in range(MAP_W):
             if m[y][x] in (DEAD, DEAD_CRACK) and rng.random() < 0.06:
                 m[y][x] = STUMP
-    tx, ty = TRUNK_AT
-    for y in range(ty - 3, ty + 16):             # clear ground around the tree
-        for x in range(tx - 8, tx + 14):
-            if 0 <= x < MAP_W and 0 <= y < MAP_H:
+    trunk = Image.open(os.path.join(ART, "tree_trunk.png"))
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            near = any(trunk.getpixel((min(511, x * 16 + dx), min(511, y * 16 + dy)))
+                       for dx in (0, 8, 15) for dy in (0, 8, 15))
+            if y >= 16 or near:                      # open ground by and below the tree
                 m[y][x] = DEAD if (x + y) % 3 else DEAD_CRACK
+            if trunk.getpixel((x * 16 + 8, y * 16 + 8)):
+                m[y][x] = TRUNK_BLOCK                # the trunk stands here: solid
+    for y in range(28, MAP_H):                   # a few stumps again at the bottom
+        for x in range(MAP_W):
+            if rng.random() < 0.05 and m[y][x] in (DEAD, DEAD_CRACK):
+                m[y][x] = STUMP
     for y in WEST_GATE_ROWS:                     # the way back east, to the valley
-        for x in range(26, 32):
+        for x in range(24, 32):
             m[y][x] = DEAD
-    for i in range(36):
-        m[ty + i // 6][tx + i % 6] = TRUNK0 + i
-    for x in range(tx - 1, tx + 7):              # thorns strangle the trunk on three sides
-        m[ty - 1][x] = THORN
-    for y in range(ty, ty + 6):
-        m[y][tx - 1] = m[y][tx + 6] = THORN
-    for x in range(6, 12):                       # side roots, held down by Vael clamps
-        m[13][x] = ROOT_H
-    for x in range(20, 26):
-        m[13][x] = ROOT_H
+    for k in range(5):                           # roots spread down and out
+        m[21 + k][7 - k] = ROOT_D2
+        m[21 + k][24 + k] = ROOT_D1
+    for y in range(21, 27):
+        m[y][11] = m[y][20] = ROOT_V
+    for x in range(12, 20):                      # a root across, pinned by Vael clamps
+        m[24][x] = ROOT_H
     for x, y in CLAMPS:
         m[y][x] = CLAMP
-    for k in range(7):                           # roots spread down and out, like Caleb's sketch
-        m[15 + k][13 - k] = ROOT_D2
-        m[15 + k][18 + k] = ROOT_D1
-    for y in range(15, 21):
-        m[y][14] = m[y][17] = ROOT_V
     for x, y in ROOT_TIPS:
         m[y][x] = ROOT_TIP_DEAD
+    for x, y in THORN_WALL:
+        m[y][x] = THORN
     for x, y in ROOT_POOL:
         m[y][x] = DRY_POOL
     return m
 
 
-def canopy_data():
-    """art/canopy.png (512 x 512) -> unique 8x8 tiles (flips reused) and a 64 x 64 map in
+def tree_data(base):
+    """art/tree_trunk.png and art/canopy.png (512 x 512 each) -> one set of unique 8x8 tiles
+    (flips reused), numbered from `base` (after the map's tiles), and two 64 x 64 maps in
     screenblock order (top-left, top-right, bottom-left, bottom-right 32 x 32 blocks)."""
-    img = Image.open(os.path.join(ART, "canopy.png"))
-    assert img.mode == "P" and img.size == (512, 512)
-    pal = palette_of(img)
-    index, tiles, entries = {}, [], {}
-    empty = tuple([0] * 64)
-    index[empty] = 0
-    tiles.append(empty)
-    for ty in range(64):
-        for tx in range(64):
-            t = tuple(img.getpixel((tx * 8 + x, ty * 8 + y)) & 15 for y in range(8) for x in range(8))
-            variants = {
-                0: t,
-                1: tuple(t[y * 8 + 7 - x] for y in range(8) for x in range(8)),          # h-flip
-                2: tuple(t[(7 - y) * 8 + x] for y in range(8) for x in range(8)),        # v-flip
-                3: tuple(t[(7 - y) * 8 + 7 - x] for y in range(8) for x in range(8)),    # both
-            }
-            found = None
-            for flip, v in variants.items():
-                if v in index:
-                    found = (index[v], flip)
-                    break
-            if found is None:
-                index[t] = len(tiles)
-                tiles.append(t)
-                found = (index[t], 0)
-            entries[(tx, ty)] = found[0] | (found[1] << 10) | (CANOPY_BANK << 12)
-    assert len(tiles) <= CANOPY_MAX_TILES, f"canopy needs {len(tiles)} tiles, room for {CANOPY_MAX_TILES}"
-    words = []
-    for t in tiles:
-        for y in range(8):
-            words.append(sum((t[y * 8 + x] & 15) << (4 * x) for x in range(8)))
-    sb_order = []
-    for sb in range(4):
-        ox, oy = (sb & 1) * 32, (sb >> 1) * 32
-        for y in range(32):
-            for x in range(32):
-                sb_order.append(entries[(ox + x, oy + y)])
-    return pal, words, sb_order
+    index, tiles = {tuple([0] * 64): 0}, [tuple([0] * 64)]
+    maps, pal = [], None
+    for name in ("tree_trunk.png", "canopy.png"):
+        img = Image.open(os.path.join(ART, name))
+        assert img.mode == "P" and img.size == (512, 512)
+        pal = palette_of(img)
+        px = list(img.tobytes())                  # one palette index per pixel
+        entries = {}
+        for ty in range(64):
+            for tx in range(64):
+                t = tuple(px[(ty * 8 + y) * 512 + tx * 8 + x] & 15 for y in range(8) for x in range(8))
+                found = None
+                for flip, v in ((0, t), (1, tuple(t[y * 8 + 7 - x] for y in range(8) for x in range(8))),
+                                (2, tuple(t[(7 - y) * 8 + x] for y in range(8) for x in range(8))),
+                                (3, tuple(t[(7 - y) * 8 + 7 - x] for y in range(8) for x in range(8)))):
+                    if v in index:
+                        found = (index[v], flip)
+                        break
+                if found is None:
+                    index[t] = len(tiles)
+                    tiles.append(t)
+                    found = (index[t], 0)
+                entries[(tx, ty)] = (base + found[0]) | (found[1] << 10) | (TREE_BANK << 12)
+        order = []
+        for sb in range(4):
+            ox, oy = (sb & 1) * 32, (sb >> 1) * 32
+            order += [entries[(ox + x, oy + y)] for y in range(32) for x in range(32)]
+        maps.append(order)
+    assert base + len(tiles) <= 1024, f"the Great Tree needs {len(tiles)} tiles, room for {1024 - base}"
+    words = [sum((t[y * 8 + x] & 15) << (4 * x) for x in range(8)) for t in tiles for y in range(8)]
+    return pal, words, maps[0], maps[1]
 
 
-CANOPY_BANK = 4                    # BG palette bank of the branch layer
-CANOPY_MAX_TILES = 640             # charblock 1 plus the first half of charblock 2
+TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 def make_maps():
@@ -642,13 +639,13 @@ def main():
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
-    cpal, cwords, cmap = canopy_data()
-    out.append(f"#define CANOPY_BANK {CANOPY_BANK}")
-    out.append(c_array("unsigned short", "canopy_pal", cpal, fmt="0x{:04X}"))
-    out.append(c_array("unsigned int", "canopy_tiles", cwords))
+    base = terrain.size[0] // 16 * 4             # tree tiles follow the map's tiles in charblock 0
+    tpal, twords, tmap, cmap = tree_data(base)
+    out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
+    out.append(c_array("unsigned short", "tree_pal", tpal, fmt="0x{:04X}"))
+    out.append(c_array("unsigned int", "tree_tiles", twords))
+    out.append(c_array("unsigned short", "trunk_map", tmap, fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "canopy_map", cmap, fmt="0x{:04X}"))
-    tx, ty = TRUNK_AT
-    out.append(f"#define TRUNK_X {tx}\n#define TRUNK_Y {ty}")
     os.makedirs(os.path.dirname(OUT), exist_ok=True)
     with open(OUT, "w") as f:
         f.write("\n\n".join(out) + "\n")

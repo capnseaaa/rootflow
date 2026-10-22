@@ -232,35 +232,35 @@
 2000 0 z3_scene_end.ppm
 0 0 @$tree_step,$quest+4
 0 0 !$spirits+16=9,$spirits+44=9,$spirits+72=9,$spirits+100=9,$spirits+128=9
-# Pebble breaks the three clamps from above
-0 0 !$px=114,$py=186,$active=0
+# Pebble breaks the three clamps, from below each (facing up)
+0 0 !$px=210,$py=394,$active=0
 5 0
-1 128
+1 64
 2 1
 20 0
-0 0 !$px=162,$py=186,$active=0
+0 0 !$px=258,$py=394,$active=0
 5 0
-1 128
+1 64
 2 1
 20 0
-0 0 !$px=370,$py=186,$active=0
+0 0 !$px=290,$py=394,$active=0
 5 0
-1 128
+1 64
 2 1
 20 0
 40 0
 0 0 @$tree_done,$stone
-# Breeze clears the last thorns (test setup: the rest are already gone)
-0 0 !$maps+3340=789516,$maps+3344=0,$maps+3372=1212630528,$maps+3376=4934217,$maps+3404=1313688576,$maps+3408=5328975,$maps+3436=1414746624,$maps+3440=5723733
-0 0 !$maps+3468=1515804672,$maps+3472=6118491,$maps+3500=1616862720,$maps+3504=6513249,$maps+3532=1717920768,$maps+3536=6908007
-0 0 !$px=178,$py=122,$active=1
+# Breeze clears the last brambles (test setup: the rest are gone), from the root at (11,21) facing right
+0 0 !$maps+3756=789516,$maps+3760=0
+0 0 !$px=178,$py=330,$active=1
 5 0
 1 16
 2 1
 40 0
 0 0 @$tree_done
-# Ripple fills the root pool
-0 0 !$px=322,$py=154,$active=2
+10 0 z3_thorns.ppm
+# Ripple fills the root pool from its left
+0 0 !$px=402,$py=442,$active=2
 5 0
 1 16
 2 1
@@ -268,16 +268,21 @@
 0 0 @$tree_done
 10 0 z4_pool.ppm
 # Sprout wakes the last root tip (test setup: Sprout joins; three tips already awake)
-0 0 !$maps+3780=7274752,$maps+3756=24051713,$maps+3760=93952
+0 0 !$maps+3904=4980992,$maps+3944=1275068672,$maps+3956=332
 0 0 !$party+16=0,$party_count=5,$spirits+8=2,$spirits+24=3,$spirits+16=9
-0 0 !$px=402,$py=378,$active=4
+0 0 !$px=466,$py=442,$active=4
 5 0
 1 64
 2 1
 90 0
-0 0 @$tree_done,$maps+3800
+0 0 @$tree_done,$maps+3932
 60 0 z5_tasks_done.ppm
 900 0 z6_rot.ppm
 0 0 @$tree_done
-0 0 !$px=242,$py=266
+# under the trunk, at its opening; then up the left side under the branches
+0 0 !$px=242,$py=360
 30 0 z7_tree.ppm
+0 0 !$px=66,$py=170
+30 0 z8_under_branches.ppm
+0 0 !$px=258,$py=10
+30 0 z9_top.ppm
