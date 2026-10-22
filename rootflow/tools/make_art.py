@@ -72,8 +72,7 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
         "stump", "stump_grass", "chest_grass", "chest_open_grass", "wreck_grass"]
 # v0.14: the Great Tree's trunk (6 x 6 metatiles, row by row), its roots, and Bark's quest pieces
 # (the trunk itself is drawn on its own layer, art/tree_trunk.png; under it the map has solid ground)
-META += ["trunk_block", "root_h", "root_v", "root_d1", "root_d2", "root_tip_dead", "root_tip_alive", "clamp",
-         "dry_pool"]
+META += ["trunk_block", "root_tip_dead", "root_tip_alive", "clamp", "dry_pool"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -939,8 +938,7 @@ def make_terrain():
     ]
     tiles += [stump(rng), stump(rng, grassy=True), chest(rng, ground=grass), chest(rng, True, ground=grass),
               wreck(rng, ground=grass)]
-    tiles += [dead(rng), root(rng, "h"), root(rng, "v"), root(rng, "d1"), root(rng, "d2"), root_tip(rng, False),
-              root_tip(rng, True), clamp(rng), dry_pool(rng)]
+    tiles += [dead(rng), root_tip(rng, False), root_tip(rng, True), dead(rng), dry_pool(rng)]   # clamp: a sprite
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -1340,7 +1338,13 @@ TREE_PAL = [
     (38, 26, 22),     # 5 groove
     (146, 116, 88),   # 6 highlight
     (8, 6, 6),        # 7 the opening
-] + [(0, 0, 0)] * 8
+    (188, 178, 138),  # 8 fungus, pale
+    (132, 122, 92),   # 9 fungus, shadow
+    (58, 30, 50),     # 10 rot, deep
+    (112, 66, 98),    # 11 rot, ooze
+    (170, 148, 112),  # 12 dead wood (peeled bark)
+    (96, 104, 74),    # 13 sickly moss
+] + [(0, 0, 0)] * 2
 TREE_CX, TRUNK_TOP, TRUNK_HALF, BASE_Y = 256, 40, 120, 262   # the straight part: y TRUNK_TOP..BASE_Y
 CANOPY_CENTER = (256, 48)
 
@@ -1382,9 +1386,92 @@ def bark_color(x, y):
     return 4 if light > 0.58 else 3 if light > 0.32 else 2
 
 
+# Roots (left half; the right half is its mirror image): grid points from the base outward.
+# Each: (points, width at the base, width at the end). Ends that point down get a root tip tile
+# on the map (ROOT_TIPS); the clamps sit on the first root (CLAMP_SPOTS, in pixels).
+def root_path(x, y, moves):
+    """Grid points from (x, y) by moves (dx, dy, steps): each step is (dx, dy) * 8 pixels."""
+    pts = [(x, y)]
+    for dx, dy, n in moves:
+        x, y = x + dx * 8 * n, y + dy * 8 * n
+        pts.append((x, y))
+    return pts
+
+
+ROOTS = [   # winding: each turns between neighboring slopes
+    (root_path(104, 296, [(-2, 1, 1), (-2, 0, 2), (-2, -1, 1), (-2, 0, 2), (-2, 1, 2)]), 36, 18),
+    (root_path(136, 320, [(-1, 1, 2), (-1, 2, 1), (0, 2, 1), (-1, 2, 1), (-1, 1, 2), (0, 2, 2), (-1, 2, 1),
+                          (0, 2, 1)]), 36, 12),
+    (root_path(192, 328, [(0, 2, 1), (1, 2, 1), (0, 2, 2), (-1, 2, 1), (0, 2, 3)]), 30, 12),
+]
+CLAMP_SPOTS = [(64, 304), (24, 296)]           # left side, on the first root; mirrored for the right
+
+
+def mirror_x(x):
+    return 511 - x
+
+
+def stroke(px, pts, w0, w1, colors, S=512):
+    """A thick path through grid points, tapering from w0 to w1, shaded light on top. colors:
+    (outline, dark, mid, light, highlight)."""
+    out, dark, mid, light, hi = colors
+    segs = list(zip(pts, pts[1:]))
+    total = sum(max(abs(b[0] - a[0]), abs(b[1] - a[1])) for a, b in segs) or 1
+    for outline in (True, False):
+        done = 0
+        for (x0, y0), (x1, y1) in segs:
+            n = max(abs(x1 - x0), abs(y1 - y0)) or 1
+            for t in range(n + 1):
+                x = x0 + (x1 - x0) * t // n
+                y = y0 + (y1 - y0) * t // n
+                w = w0 + (w1 - w0) * done // total // 2 * 2       # constant along a segment: tiles repeat
+                r = w / 2 + (1 if outline else 0)
+                ir = int(r) + 1
+                for yy in range(max(0, y - ir), min(S, y + ir + 1)):
+                    for xx in range(max(0, x - ir), min(S, x + ir + 1)):
+                        d2 = (xx - x) ** 2 + (yy - y) ** 2
+                        if d2 > r * r:
+                            continue
+                        if outline:
+                            if px[yy][xx] == 0:
+                                px[yy][xx] = out
+                        else:
+                            v = (yy - y) / max(1.0, r)
+                            px[yy][xx] = hi if v < -0.62 else light if v < -0.15 else mid if v < 0.45 else dark
+            done += n
+
+
+def blot(px, cx, cy, rx, ry, fill, edge):
+    for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
+        for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
+            if 0 <= x < 512 and 0 <= y < 512 and px[y][x]:
+                d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+                if d < 1:
+                    px[y][x] = edge if d > 0.7 else fill
+
+
+def shelf(px, cx, cy, w):
+    """A bracket fungus: a pale half-disc sticking out of the bark, shadowed underneath."""
+    for y in range(cy - w // 2, cy + 3):
+        for x in range(cx - w, cx + w + 1):
+            d = ((x - cx) / w) ** 2 + ((y - cy) / (w * 0.55)) ** 2
+            if d < 1 and y <= cy:
+                px[y][x] = 1 if d > 0.82 else 8 if y < cy - 1 else 9
+        if y > cy:
+            for x in range(cx - w + 2, cx + w - 1):
+                if 0 <= x < 512:
+                    px[y][x] = 5
+
+
 def make_trunk():
     S = 512
     px = [[0] * S for _ in range(S)]
+    rootc = (1, 2, 3, 4, 6)
+    for pts, w0, w1 in ROOTS:                            # roots first, under the trunk's base
+        stroke(px, pts, w0, w1, rootc)
+    for y in range(S):                                   # the right half mirrors the left
+        for x in range(256):
+            px[y][mirror_x(x)] = px[y][x]
     for y in range(TRUNK_TOP, S):
         h = trunk_half(y)
         for x in range(S):
@@ -1398,6 +1485,20 @@ def make_trunk():
             if d > h - 1.5 or y > trunk_bottom(x) - 1.5:
                 c = 1
             px[y][x] = c
+    # disease: peeled strips of dead wood, rot holes oozing, bracket fungus, sickly moss
+    for x0, y0, w, hgt in ((170, 128, 8, 32),):
+        for y in range(y0, y0 + hgt):
+            for x in range(x0 + (y - y0) // 9, x0 + w + (y - y0) // 9):
+                if px[y][x]:
+                    px[y][x] = 12 if (x + y) % 7 else 9
+    for cx, cy, rx, ry in ((214, 150, 10, 14), (322, 236, 8, 11)):
+        blot(px, cx, cy, rx + 3, ry + 3, 11, 1)
+        blot(px, cx, cy, rx, ry, 10, 10)
+        for y in range(int(cy + ry), int(cy + ry + 14)):    # ooze running down
+            if px[y][cx]:
+                px[y][cx] = px[y][cx + 1] = 11
+    for cx, cy, w in ((168, 104, 12), (288, 176, 12)):
+        shelf(px, cx, cy, w)
     for y in range(BASE_Y - 30, S):                      # the opening at its foot
         for x in range(TREE_CX - 26, TREE_CX + 26):
             dx = (x - TREE_CX) / 22
@@ -1410,58 +1511,81 @@ def make_trunk():
     return img
 
 
+def make_clamp():
+    """A Vael iron clamp (16 x 32 sprite) that sits across a root; Pebble breaks it."""
+    pal = [(255, 0, 255), (24, 22, 24), (84, 88, 96), (128, 132, 140), (176, 180, 186), (150, 72, 40),
+           (214, 120, 60)] + [(0, 0, 0)] * 9
+    img = Image.new("P", (16, 32), 0)
+    img.putpalette([c for rgb in pal for c in rgb])
+    for y in range(2, 30):
+        for x in range(3, 13):
+            edge = x in (3, 12) or y in (2, 29)
+            c = 1 if edge else 4 if x == 5 else 3 if x < 9 else 2
+            if not edge and (x * 3 + y * 5) % 11 == 0:
+                c = 5                                     # rust
+            img.putpixel((x, y), c)
+    for y in (6, 16, 25):
+        for x in (6, 9):
+            img.putpixel((x, y), 6)                       # rivets
+    return img
+
+
 def make_canopy():
-    rng = random.Random(1414)
+    """Five thick limbs from the crown, out over the top and down the sides, each with side
+    branches and twigs; tapered and top-lit. Only the left half is drawn; the right half is its
+    mirror image (the GBA reuses flipped tiles for free). Limbs never cross the trunk's face.
+    A little disease: pale fungus on the big limbs."""
+    rng = random.Random(2424)
     S = 512
     px = [[0] * S for _ in range(S)]
-    strokes = []
     DIRS = [(2, 0), (2, 1), (1, 1), (1, 2), (0, 2), (-1, 2), (-1, 1), (-2, 1),
             (-2, 0), (-2, -1), (-1, -1), (-1, -2), (0, -2), (1, -2), (1, -1), (2, -1)]
-    WIDTHS = [40, 30, 22, 16, 10, 6]
+    WIDTHS = [40, 26, 16, 8]
+    paths = []
 
-    def limb(x, y, di, wi, steps, kids):
-        bend = rng.choice((-1, 1))
-        sides = sorted(rng.sample(range(2, max(3, steps - 1)), min(kids, max(1, steps - 3))))
-        for k in range(steps):
-            if k and k % 3 == 0:
-                di = (di + bend) % 16
-                bend = -bend
+    def over_trunk(x, y):
+        return x > TREE_CX - TRUNK_HALF - 4 and y > 88
+
+    def limb(x, y, di, wi, runs, kids):
+        pts = [(x, y)]
+        for r, run in enumerate(runs):
             dx, dy = DIRS[di]
-            nx, ny = x + dx * 8, y + dy * 8
-            if not (-24 <= nx <= S + 24 and -24 <= ny <= S + 24):
-                return
-            w = WIDTHS[min(len(WIDTHS) - 1, wi + (1 if k > steps * 2 // 3 else 0))]
-            strokes.append((x, y, nx, ny, w))
-            x, y = nx, ny
-            if sides and k == sides[0]:
-                sides.pop(0)
-                if wi + 2 < len(WIDTHS):
-                    limb(x, y, (di + rng.choice((-2, 2))) % 16, wi + 2, rng.randint(5, 9), 2 if wi < 2 else 0)
+            for _ in range(run):
+                nx, ny = x + dx * 8, y + dy * 8
+                if over_trunk(nx, ny) or nx < -32 or ny < -32 or ny > S + 32:
+                    paths.append((pts, WIDTHS[wi], WIDTHS[min(3, wi + 1)]))
+                    return
+                x, y = nx, ny
+                pts.append((x, y))
+            if kids and wi < 3:
+                kids -= 1
+                side = (di + rng.choice((-2, 2))) % 16
+                limb(x, y, side, wi + 1, [rng.randint(2, 4), rng.randint(2, 3)], 1 if wi < 1 else 0)
+            di = (di + (1 if r % 2 == 0 else -1)) % 16       # wind back and forth
+        paths.append((pts, WIDTHS[wi], WIDTHS[min(3, wi + 1)]))
+
     cx, cy = CANOPY_CENTER
-    # limbs: out to both sides, up, and down the sides to the bottom corners
-    for di, steps in ((8, 16), (9, 14), (10, 12), (11, 10), (13, 10), (14, 12), (15, 14), (0, 16),
-                      (7, 18), (1, 18)):
-        limb(cx + DIRS[di][0] * 12, cy + DIRS[di][1] * 4, di, 0, steps, 2)
-    strokes.insert(0, (cx - 88, cy, cx + 88, cy, 56))     # the crown on top of the trunk
-    for outline in (True, False):
-        for x0, y0, x1, y1, w in strokes:
-            n = max(abs(x1 - x0), abs(y1 - y0))
-            r = w / 2 + (1 if outline else 0)
-            ir = int(r) + 1
-            for t in range(n + 1):
-                x = x0 + (x1 - x0) * t // n
-                y = y0 + (y1 - y0) * t // n
-                for yy in range(max(0, y - ir), min(S, y + ir + 1)):
-                    for xx in range(max(0, x - ir), min(S, x + ir + 1)):
-                        d2 = (xx - x) ** 2 + (yy - y) ** 2
-                        if d2 > r * r:
-                            continue
-                        if outline:
-                            if px[yy][xx] == 0:
-                                px[yy][xx] = 1
-                        else:
-                            v = (yy - y) / max(1.0, r)        # -1 on top .. 1 underneath
-                            px[yy][xx] = 6 if v < -0.6 else 4 if v < -0.15 else 3 if v < 0.45 else 2
+    edge = TREE_CX - TRUNK_HALF                          # 136: the trunk's left side
+    limb(edge, cy + 8, 8, 0, [4, 4, 4, 4], 3)            # out to the left edge
+    limb(edge + 16, cy - 16, 10, 0, [3, 3, 3], 2)        # up-left to the corner
+    limb(cx - 40, cy - 24, 12, 0, [2, 2], 1)             # straight up
+    limb(edge - 8, cy + 40, 7, 0, [4, 3, 4, 4], 3)       # down and out the left side
+    limb(edge - 24, cy + 56, 5, 0, [3, 4, 4, 4], 2)      # down the far left, toward the roots
+    paths.sort(key=lambda p: -p[1])                      # thick limbs first, thin ones on top
+    colors = (1, 2, 3, 4, 6)
+    for x0, y0, x1, y1 in ((cx, cy + 32, edge, cy + 8), (cx, cy + 32, edge + 16, cy - 16),
+                           (cx, cy + 32, cx - 40, cy - 24)):   # the crown: limb bases fanning out
+        stroke(px, [(x0, y0), (x1, y1)], 48, 48, colors)
+    for pts, w0, w1 in paths:
+        stroke(px, pts, w0, w1, colors)
+    for pts, w0, w1 in paths:                            # disease along the big limbs
+        if w0 >= 26:
+            for x, y in pts[2::4]:
+                if 0 <= x < 256 and 0 <= y < S and px[y][x]:
+                    blot(px, x, y - 3, 5, 3, 8, 9)
+    for y in range(S):
+        for x in range(256):
+            px[y][mirror_x(x)] = px[y][x]
     img = Image.new("P", (S, S), 0)
     img.putpalette([c for rgb in TREE_PAL for c in rgb])
     img.putdata([v for row in px for v in row])
@@ -1593,7 +1717,8 @@ def main():
                      ("sprout_sprite.png", make_sprout), ("fx_sprite.png", make_fx),
                      ("ripple_sprite.png", make_ripple), ("pebble_sprite.png", make_pebble),
                      ("breeze_sprite.png", make_breeze), ("bark_sprite.png", make_bark),
-                     ("canopy.png", make_canopy), ("tree_trunk.png", make_trunk)):
+                     ("canopy.png", make_canopy), ("tree_trunk.png", make_trunk),
+                     ("clamp_sprite.png", make_clamp)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

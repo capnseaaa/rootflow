@@ -16,7 +16,7 @@ OUT = os.path.join(ROOT, "src", "data.h")
 STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS = range(65, 70)
 # v0.14: solid ground under the Great Tree's trunk (the trunk itself is its own layer), its roots,
 # and Bark's quest pieces
-TRUNK_BLOCK, ROOT_H, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 79)
+TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 75)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -40,11 +40,19 @@ THORN_GROVE = (0, 26, 6, 31)
 VALLEY, EAST, SOUTH, WEST = 0, 1, 2, 3
 NUM_AREAS = 4
 WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31 (opens when Bark joins)
-# The Great Tree (west): Bark's quest pieces below the trunk (v0.14)
-CLAMPS = [(13, 24), (16, 24), (18, 24)]
-ROOT_POOL = [(26, 28), (27, 28), (26, 29), (27, 29)]
-ROOT_TIPS = [(2, 26), (11, 27), (20, 27), (29, 26)]
-THORN_WALL = [(x, 21) for x in range(12, 20)]       # brambles in front of the trunk's opening
+# The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
+# Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
+import make_art as _art  # noqa: E402
+CLAMP_PX = [(x, y) for x, y in _art.CLAMP_SPOTS] + [(_art.mirror_x(x), y) for x, y in _art.CLAMP_SPOTS]
+CLAMPS = [(x // 16, y // 16) for x, y in CLAMP_PX]
+ROOT_TIPS = []                                       # one cell past each root that ends pointing down
+for _pts, _w0, _w1 in _art.ROOTS:
+    _x, _y = _pts[-1]
+    if _pts[-1][1] > _pts[-2][1] and 0 <= _x < 256:
+        for _xx in (_x, _art.mirror_x(_x)):
+            ROOT_TIPS.append((_xx // 16, (_y + _w1 // 2 + 15) // 16))
+ROOT_POOL = [(15, 26), (16, 26), (15, 27), (16, 27)]
+THORN_WALL = [(x, 21) for x in range(13, 19)]       # brambles in front of the trunk's opening
 EAST_GATE_ROWS = (19, 20, 21)      # valley x=31 <-> steppe x=0
 SOUTH_GATE_COLS = (14, 15, 16)     # valley y=31 <-> hollow y=0
 # Home sites, one per spirit kind (Sprout, Ripple, Pebble, Breeze): (area, x, y).
@@ -459,8 +467,10 @@ def make_west():
                        for dx in (0, 8, 15) for dy in (0, 8, 15))
             if y >= 16 or near:                      # open ground by and below the tree
                 m[y][x] = DEAD if (x + y) % 3 else DEAD_CRACK
-            if trunk.getpixel((x * 16 + 8, y * 16 + 8)):
-                m[y][x] = TRUNK_BLOCK                # the trunk stands here: solid
+            cx, cy = x * 16 + 8, y * 16 + 8
+            if (cy >= _art.TRUNK_TOP and abs(cx - _art.TREE_CX) <= _art.trunk_half(cy)
+                    and cy <= _art.trunk_bottom(cx)):
+                m[y][x] = TRUNK_BLOCK                # the trunk stands here: solid (its roots are not)
     for y in range(28, MAP_H):                   # a few stumps again at the bottom
         for x in range(MAP_W):
             if rng.random() < 0.05 and m[y][x] in (DEAD, DEAD_CRACK):
@@ -468,13 +478,11 @@ def make_west():
     for y in WEST_GATE_ROWS:                     # the way back east, to the valley
         for x in range(24, 32):
             m[y][x] = DEAD
-    for k in range(5):                           # roots spread down and out
-        m[21 + k][7 - k] = ROOT_D2
-        m[21 + k][24 + k] = ROOT_D1
-    for y in range(21, 27):
-        m[y][11] = m[y][20] = ROOT_V
-    for x in range(12, 20):                      # a root across, pinned by Vael clamps
-        m[24][x] = ROOT_H
+    for y in range(17, MAP_H):                   # the roots (drawn on the trunk layer) lie on open ground
+        for x in range(MAP_W):
+            if m[y][x] == STUMP or m[y][x] == DEAD_TREE or m[y][x] == ROCK:
+                if trunk.getpixel((x * 16 + 8, y * 16 + 8)):
+                    m[y][x] = DEAD
     for x, y in CLAMPS:
         m[y][x] = CLAMP
     for x, y in ROOT_TIPS:
@@ -580,14 +588,15 @@ def main():
     pebble = Image.open(os.path.join(ART, "pebble_sprite.png"))
     breeze = Image.open(os.path.join(ART, "breeze_sprite.png"))
     bark = Image.open(os.path.join(ART, "bark_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark):
+    clamp = Image.open(os.path.join(ART, "clamp_sprite.png"))
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
-              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16)]
+              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("CLAMP", clamp, 32)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -634,6 +643,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_breeze_sleep", sleep_palette(pal_breeze), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_bark", palette_of(bark), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_bark_sleep", sleep_palette(palette_of(bark)), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_clamp", palette_of(clamp), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
@@ -642,6 +652,9 @@ def main():
     base = terrain.size[0] // 16 * 4             # tree tiles follow the map's tiles in charblock 0
     tpal, twords, tmap, cmap = tree_data(base)
     out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
+    out.append(f"#define NUM_CLAMPS {len(CLAMP_PX)}")
+    out.append(c_array("unsigned short", "clamp_px_x", [x for x, _ in CLAMP_PX], fmt="{}"))
+    out.append(c_array("unsigned short", "clamp_px_y", [y for _, y in CLAMP_PX], fmt="{}"))
     out.append(c_array("unsigned short", "tree_pal", tpal, fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "tree_tiles", twords))
     out.append(c_array("unsigned short", "trunk_map", tmap, fmt="0x{:04X}"))

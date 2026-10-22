@@ -88,7 +88,7 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS,
        // v0.14: solid ground under the Great Tree's trunk (the trunk is its own layer), its roots,
        // and Bark's quest pieces
-       TRUNK_BLOCK, ROOT_H, ROOT_V, ROOT_D1, ROOT_D2, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };
+       TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };   // CLAMP: solid; a sprite shows it
 static int is_trunk(u8 t) { return t == TRUNK_BLOCK; }
 static int is_tree_part(u8 t) { return t >= TRUNK_BLOCK && t <= DRY_POOL; }
 #define WEST 3   // the Great Tree's area
@@ -421,6 +421,7 @@ static void oam_flush(void) {
 #define PAL_FX 8
 #define PAL_BARK 9
 #define PAL_BARK_SLEEP 10
+#define PAL_CLAMP 11
 
 // OAM slots
 #define OAM_PLAYER  0
@@ -429,6 +430,7 @@ static void oam_flush(void) {
 #define OAM_SPARKLE 11
 #define OAM_GLOW    12
 #define OAM_CURSOR  13
+#define OAM_CLAMP   14  // 14..14+NUM_CLAMPS-1: Vael clamps on the Great Tree's roots
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step
@@ -1069,7 +1071,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         }
         sfx_play(SFX_BRIDGE);
     } else if (kind == KIND_STONE && t == CLAMP) {
-        set_tile(mx, my, ROOT_H);              // a Vael clamp cracks off the Great Tree's root
+        set_tile(mx, my, DEAD);                // a Vael clamp cracks off the Great Tree's root
         stone += 2;
         sparkle_at(mx, my);
         show_message("+2 STONE");
@@ -1989,6 +1991,15 @@ static void draw_sprites(void) {
         }
     }
 
+    // Vael clamps on the Great Tree's roots: shown while their cell is still a CLAMP.
+    for (s32 i = 0; i < NUM_CLAMPS; i++) {
+        u8 t = maps[WEST][(clamp_px_y[i] >> 4) * MAP_W + (clamp_px_x[i] >> 4)];
+        if (cur_area == WEST && t == CLAMP)
+            obj_set(OAM_CLAMP + i, clamp_px_x[i] - 8 - cam_x, clamp_px_y[i] - 16 - cam_y, TILE_CLAMP, 0, PAL_CLAMP, 1);
+        else
+            sprite_hide(OAM_CLAMP + i);
+    }
+
     // Build preview frame on the faced tile.
     if (cursor_mx >= 0)
         sprite_set(OAM_CURSOR, cursor_mx * 16 - cam_x, cursor_my * 16 - cam_y, SPR_SPARKLE + (cursor_ok ? 1 : 2), 0, PAL_FX);
@@ -2433,6 +2444,7 @@ int main(void) {
         PAL_OBJ[128 + i] = obj_pal_fx[i];
         PAL_OBJ[144 + i] = obj_pal_bark[i];
         PAL_OBJ[160 + i] = obj_pal_bark_sleep[i];
+        PAL_OBJ[176 + i] = obj_pal_clamp[i];
     }
     PAL_BG[16 + 1] = 0x7FFF;                         // text color: white
     PAL_BG[16 + 2] = (2) | (3 << 5) | (6 << 10);     // text background: dark slate
