@@ -45,6 +45,7 @@ Vael took the water, and the land spirits lost their homes. Walk a dead gray val
 - Hold SELECT: build (a frame shows where; green = OK). SELECT + L/R picks an item, SELECT + A places it, SELECT + B removes it
 - START: menu (Spirits, Bag, World, Save). Save from SAVE.
 - L + R + START: new game (your save stays until you save again)
+- L + R + B: dev mode, for testing: jump to a point in the story (all spirits, homes built or grown, Bark, the Great Tree) with options (materials at 99, endless charges, no pumps, full hearts)
 
 ## Build
 Needs `arm-none-eabi-gcc` and Python 3 with Pillow.

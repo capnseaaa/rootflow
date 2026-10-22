@@ -1553,7 +1553,9 @@ static int spawn_pump(s32 a) {
     return 0;
 }
 
+static u32 dev_no_pumps;   // dev mode: pumps never start
 static void update_pumps(void) {
+    if (dev_no_pumps) return;
     s32 any_home = 0;
     for (s32 k = 0; k < NUM_HOMES; k++) any_home |= home_done[k];
     if (!any_home) return;
@@ -2378,6 +2380,165 @@ static void update_menu(void) {
     }
 }
 
+// ---------- dev mode (v0.14.1, Caleb: jump into the story to test) ----------
+// L + R + B together while playing opens the DEV MODE window (the game pauses). Up/Down pick a
+// line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
+enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_ITEMS };
+enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, NUM_JUMPS };
+static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
+                                               "BARK JOINED", "AT THE TREE", "TREE TASKS DONE" };
+static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1 };
+static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
+static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
+
+static void draw_dev(void) {
+    static const char *label[DEV_ITEMS] = { "JUMP TO", "MATERIALS", "CHARGES", "PUMPS", "HEARTS" };
+    static const char *opt[DEV_ITEMS][2] = { { 0, 0 }, { "NORMAL", "99 ALWAYS" }, { "NORMAL", "ENDLESS" },
+                                             { "ON", "OFF" }, { "NORMAL", "ALL 5" } };
+    draw_window(0, 1, 29, 16);
+    put_text_win(10, 2, "DEV MODE");
+    for (s32 k = 0; k < DEV_ITEMS; k++) {
+        s32 r = 4 + k * 2;
+        put_text_win(1, r, k == dev_cursor ? ">" : " ");
+        put_text_win(2, r, label[k]);
+        const char *v = k == DEV_JUMP ? dev_jump_name[dev_val[k]] : opt[k][dev_val[k]];
+        char *p = line;
+        str_cat(&p, k == dev_cursor ? "<" : " ");
+        str_cat(&p, v);
+        str_cat(&p, k == dev_cursor ? ">" : " ");
+        while (p < line + 17) *p++ = ' ';
+        *p = 0;
+        put_text_win(11, r, line);
+    }
+    put_text_win(2, 15, "A: START   B: CLOSE");
+}
+
+static void open_dev(void) {
+    dev_open = 1;
+    paused = 0;
+    menu_page = -1;
+    dev_val[DEV_STUFF] = dev_stuff;
+    dev_val[DEV_CHARGE] = dev_charge;
+    dev_val[DEV_PUMPS] = dev_no_pumps;
+    draw_dev();
+    sfx_play(SFX_MENU_OPEN);
+}
+
+static void close_dev(void) {
+    dev_open = 0;
+    for (s32 r = 1; r <= 18; r++) clear_row(r);
+    sfx_play(SFX_MENU_BACK);
+}
+
+// Build a home for spirit k at a level, the way playing would (without the messages).
+static void dev_home(s32 k, s32 level) {
+    home_done[k] = 1;
+    home_level[k] = level;
+    spirits[k].housed = 1;
+    send_home(k);
+    place_home_tiles(k);
+    use_area(home_site_area[k]);
+    flood_dist(home_dist[k], home_site_x[k], home_site_y[k], home_reach(k));
+    use_area(cur_area);
+    pulse_r[k] = 0;
+    pulse_timer[k] = HOME_PULSE - 120;
+}
+
+static void dev_join(s32 k) {
+    Spirit *sp = &spirits[k];
+    sp->area = cur_area; sp->x = px; sp->y = py;
+    party_add(k);
+}
+
+// A: a fresh game at the chosen point in the story.
+static void dev_start(void) {
+    s32 j = dev_val[DEV_JUMP];
+    dev_open = 0;
+    reset_game();
+    msgq_len = 0;
+    if (j >= J_SPIRITS)
+        for (s32 k = 0; k < NUM_HOMES; k++) dev_join(k);
+    if (j >= J_HOMES) {
+        for (s32 k = 0; k < NUM_HOMES; k++) dev_home(k, j >= J_GROWN ? 2 : 1);
+        told_ending = 1;
+        told_tips |= TIP_UPGRADE;
+    }
+    if (j == J_GROWN) {                      // Bark's arrival plays (he lands beside you)
+        told_grown = 1;
+        told_tips |= TIP_ALL;
+        bark_step = 1;
+        bark_wait = 60;
+    }
+    if (j >= J_BARK) {
+        told_grown = 1;
+        told_tips |= TIP_ALL;
+        bark_step = BARK_SCENE_LEN + 1;
+        for (s32 k = 0; k < NUM_HOMES; k++) dev_join(k);   // called back from their homes
+        dev_join(KIND_BARK);
+    }
+    if (j >= J_TREE) {
+        if (j >= J_TASKS) {                  // Bark's four jobs, done
+            u8 *m = maps[WEST];
+            for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+                if (m[i] == CLAMP) m[i] = DEAD;
+                else if (m[i] == DRY_POOL) m[i] = WATER;
+                else if (m[i] == ROOT_TIP_DEAD) m[i] = ROOT_TIP_ALIVE;
+                else if (m[i] == THORN && i / MAP_W == 21) m[i] = DEAD;
+            }
+            tree_done = TASKS_ALL;
+            tree_step = TREE_SCENE_LEN + 1;
+            quest[KIND_BARK] = 1;
+        }
+        enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
+    }
+    dev_stuff = dev_val[DEV_STUFF];
+    dev_charge = dev_val[DEV_CHARGE];
+    dev_no_pumps = dev_val[DEV_PUMPS];
+    if (dev_val[DEV_HEARTS])
+        for (s32 k = 0; k < NUM_SPIRITS; k++) {
+            fp[k] = 100;
+            if (k < NUM_HOMES && quest[k] == 0) quest[k] = 1;   // the quests they would have offered
+        }
+    for (s32 r = 1; r <= 18; r++) clear_row(r);
+    draw_life();
+    draw_active();
+    show_message("DEV MODE");
+}
+
+static void update_dev(void) {
+    s32 old = dev_cursor, d = 0;
+    if (HIT(KEY_UP) && dev_cursor > 0) dev_cursor--;
+    if (HIT(KEY_DOWN) && dev_cursor < DEV_ITEMS - 1) dev_cursor++;
+    if (HIT(KEY_LEFT)) d = -1;
+    if (HIT(KEY_RIGHT)) d = 1;
+    if (d) {
+        s32 k = dev_cursor, v = dev_val[k] + d;
+        dev_val[k] = v < 0 ? dev_max[k] : v > dev_max[k] ? 0 : v;   // wraps around
+    }
+    if (HIT(KEY_A)) { sfx_play(SFX_MENU_OPEN); dev_start(); return; }
+    if (HIT(KEY_B)) { close_dev(); return; }
+    if (d || old != dev_cursor) { draw_dev(); sfx_play(SFX_MENU_MOVE); }
+}
+
+// The combo: L, R, and B all down, one of them just pressed.
+static int dev_combo(void) {
+    u16 all = KEY_L | KEY_R | KEY_B;
+    return (keys_now & all) == all && (keys_now & ~keys_prev & all);
+}
+
+// Dev options that hold every frame.
+static void dev_tick(void) {
+    if (dev_stuff) stone = fruit = seeds = wood = 99;
+    if (dev_charge) {
+        int changed = 0;
+        for (s32 p = 0; p < party_count; p++) {
+            Spirit *sp = &spirits[party[p]];
+            if (sp->energy < energy_max(sp)) { sp->energy = energy_max(sp); changed = 1; }
+        }
+        if (changed) draw_active();
+    }
+}
+
 // ---------- title screen ----------
 // Shows the valley (your own, if there is a save) behind a big ROOTFLOW banner. With a save:
 // CONTINUE / NEW GAME; without one: PRESS START.
@@ -2511,7 +2672,10 @@ int main(void) {
         frame++;
         rng_state += keys_now;
 
-        if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { close_menu(); reset_game(); continue; }
+        if (HELD(KEY_L) && HELD(KEY_R) && HIT(KEY_START)) { close_menu(); dev_open = 0; reset_game(); continue; }
+        if (!dev_open && dev_combo()) { close_menu(); open_dev(); continue; }
+        if (dev_open) { update_dev(); update_message(); continue; }
+        dev_tick();
         if (!paused && HIT(KEY_START)) { open_menu(); continue; }
         if (paused) { update_menu(); update_message(); continue; }
 

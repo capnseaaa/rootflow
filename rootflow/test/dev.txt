@@ -1,0 +1,89 @@
+# v0.14.1 dev mode: L+R+B opens it; each jump point starts the right story state
+10 0
+1 8
+30 0
+1 770
+1 0
+10 0 d0_menu.ppm
+1 2
+1 0
+5 0
+# jump 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=0
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d0_state.ppm
+# jump 1
+1 770
+1 0
+5 0
+0 0 !$dev_val=1
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d1_state.ppm
+# jump 2
+1 770
+1 0
+5 0
+0 0 !$dev_val=2
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d2_state.ppm
+# jump 3
+1 770
+1 0
+5 0
+0 0 !$dev_val=3
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d3_state.ppm
+# jump 4
+1 770
+1 0
+5 0
+0 0 !$dev_val=4
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d4_state.ppm
+# jump 5
+1 770
+1 0
+5 0
+0 0 !$dev_val=5
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d5_state.ppm
+# jump 6
+1 770
+1 0
+5 0
+0 0 !$dev_val=6
+1 1
+1 0
+60 0
+0 0 @$cur_area,$party_count,$home_level,$home_done,$spirits+120,$bark_step,$tree_step,$tree_done,$quest+4
+30 0 d6_state.ppm
+# options: materials 99, endless charges, pumps off, all hearts
+1 770
+1 0
+5 0
+0 0 !$dev_val=0,$dev_val+4=1,$dev_val+8=1,$dev_val+12=1,$dev_val+16=1
+1 1
+1 0
+30 0
+0 0 @$stone,$wood,$dev_stuff,$dev_charge,$dev_no_pumps,$fp,$quest
