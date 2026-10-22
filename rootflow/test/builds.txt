@@ -207,7 +207,7 @@
 # test setup: a strip of grass at valley row 20, x 8-15, to build on from row 21
 0 0 !$maps+648=50529027,$maps+652=50529027
 # path at (8,20): hold SELECT, A
-0 0 !$px=128,$py=330
+0 0 !$px=128,$py=330,$build_item=0
 10 0
 1 64
 1 4

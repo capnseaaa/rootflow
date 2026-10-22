@@ -304,7 +304,9 @@ static void clear_row(s32 row) {
 }
 
 static u32 msg_timer;
+static u32 msg_is_prompt;   // the message on screen is a repeating prompt (see prompt())
 static void show_message(const char *s) {
+    msg_is_prompt = 0;
     clear_row(19);
     s32 n = 0; while (s[n]) n++;
     s32 col = (30 - n - 2) / 2;
@@ -324,9 +326,9 @@ static void queue_message(const char *s) {
 }
 // A repeating prompt ("A: ..."). It never pushes queued messages aside, and it stays quiet
 // while a scene plays (Bark's arrival), so the scene's lines get the message row.
-static u32 scene_on;
+static u32 scene_on, prompt_quiet;   // prompt_quiet: frames left with no prompts (a tip is showing)
 static void prompt(const char *s) {
-    if (msgq_len == 0 && msg_timer < 100 && !scene_on) show_message(s);
+    if (msgq_len == 0 && msg_timer < 100 && !scene_on && !prompt_quiet) { show_message(s); msg_is_prompt = 1; }
 }
 static void update_message(void) {
     if (msg_timer && --msg_timer == 0) {
@@ -469,6 +471,9 @@ static u8 home_done[NUM_SPIRITS];
 #define HOME_REACH 12                  // largest reach (sizes the distance maps)
 #define HOME_REACH_L1 8
 static u8 home_level[NUM_SPIRITS];     // 0 = not built, 1, 2
+// Build items (hold SELECT). The last four are quest rewards, shown once unlocked.
+enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL,
+       NUM_BUILDS };
 static s32 build_item;                 // the item SELECT-building places
 static s32 cursor_mx = -1, cursor_my, cursor_ok;   // build preview: faced tile (mx -1 = hidden)
 static u32 grow_timer;                 // built things grow every 10 s
@@ -477,7 +482,12 @@ static s32 home_reach(s32 k) { return home_level[k] >= 2 ? HOME_REACH : HOME_REA
 static s32 pulse_r[NUM_SPIRITS], pulse_timer[NUM_SPIRITS];
 // Each home's distance map is computed once, when it is built; pulses only paint rings.
 static u8 home_dist[NUM_SPIRITS][(HOME_REACH * 2 + 1) * (HOME_REACH * 2 + 1)];
-static u32 told_rest;
+// Tips told once, as bits: TIP_REST "rest on green land", TIP_UPGRADE "homes can grow",
+// TIP_ALL "upgrade all four". (One u32, so saves keep their layout.)
+static u32 told_tips;
+#define TIP_REST    1
+#define TIP_UPGRADE 2
+#define TIP_ALL     4
 static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
 static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE, SPR_BARK };
@@ -658,7 +668,7 @@ static void reset_game(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
     told_ending = 0;
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_level[i] = 0;
-    build_item = 0;
+    build_item = B_UPGRADE;   // homes come first in the build list
     grow_timer = 0;
     for (s32 i = 0; i < NUM_SPIRITS; i++) fp[i] = quest[i] = unlocked[i] = 0;
     bonded = -1;
@@ -673,7 +683,7 @@ static void reset_game(void) {
     told_river = 0;
     told_spring = 0;
     regen_timer = 0;
-    told_rest = 0;
+    told_tips = 0;
     for (s32 i = 0; i < NUM_SPIRITS; i++) pulse_r[i] = pulse_timer[i] = 0;
     just_called = -1;
     stone = fruit = seeds = wood = 0;
@@ -1225,7 +1235,7 @@ static void use_ability(void) {
     if (!(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) s->energy--;   // a bonded Sprout blooms for free
     add_fp(s->kind, 2);
     draw_active();
-    if (!told_rest) { told_rest = 1; queue_message(REST_TIP); }
+    if (!(told_tips & TIP_REST)) { told_tips |= TIP_REST; queue_message(REST_TIP); }
 }
 
 static void party_add(s32 i) {
@@ -1310,8 +1320,6 @@ static int near_px(s32 x, s32 y, s32 r) {
 
 // ---------- building (hold SELECT) ----------
 // The last four items are quest rewards and appear once their quest is done (unlocked[]).
-enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL,
-       NUM_BUILDS };
 static const u8 build_tile[NUM_BUILDS] = { PATH, FLOWERBED, SAPLING, LANTERN, BENCH, 0,
                                            BLOSSOM, FOUNTAIN, STATUE, PINWHEEL };
 static const u8 build_cost[NUM_BUILDS][3] = {   // stone, seeds, fruit
@@ -1324,6 +1332,15 @@ static const char *build_text[NUM_BUILDS] = {
     "BLOSSOM: 3 SEEDS 2 FRUIT", "FOUNTAIN: 4 STONE 2 FRUIT", "STATUE: 6 STONE", "PINWHEEL: 2 STONE 2 SEEDS",
 };
 static int build_ok(s32 b) { return b < B_BLOSSOM || unlocked[b - B_BLOSSOM]; }
+// The order L/R walks the list in: the home upgrade first (Caleb, v0.13.1), then the rest.
+static const u8 build_order[NUM_BUILDS] = { B_UPGRADE, B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH,
+                                            B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL };
+static void build_step(s32 dir) {
+    s32 i = 0;
+    while (build_order[i] != build_item) i++;
+    do { i = (i + dir + NUM_BUILDS) % NUM_BUILDS; } while (!build_ok(build_order[i]));
+    build_item = build_order[i];
+}
 
 static s32 build_of_tile(u8 t) {
     switch (t) {
@@ -1390,8 +1407,8 @@ static void upgrade_home(void) {
 }
 
 static void build_mode(void) {
-    if (HIT(KEY_R)) do build_item = (build_item + 1) % NUM_BUILDS; while (!build_ok(build_item));
-    if (HIT(KEY_L)) do build_item = (build_item + NUM_BUILDS - 1) % NUM_BUILDS; while (!build_ok(build_item));
+    if (HIT(KEY_R)) build_step(1);
+    if (HIT(KEY_L)) build_step(-1);
     if (HIT(KEY_SELECT | KEY_R | KEY_L) || msg_timer < 30) { show_message(build_text[build_item]); msg_timer = 40; }
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
@@ -1733,6 +1750,32 @@ static void update_bark(void) {
     if (m) show_message(m);
 }
 
+// Building tips, each told once, 3 s after the messages before it end: after the first home,
+// how to upgrade; once all four homes stand, a nudge to upgrade every one (Bark comes then).
+static u32 tip_wait;
+static void update_tips(void) {
+    s32 built = 0, grown = 0;
+    for (s32 k = 0; k < NUM_HOMES; k++) { built += home_done[k]; grown += home_level[k] >= 2; }
+    u32 tip = 0;
+    if (built >= 1 && grown == 0 && !(told_tips & TIP_UPGRADE)) tip = TIP_UPGRADE;
+    else if (built == NUM_HOMES && grown < NUM_HOMES && !(told_tips & TIP_ALL)) tip = TIP_ALL;
+    if (prompt_quiet) prompt_quiet--;
+    // a repeating prompt (you stand by a home) does not count as busy
+    if (!tip || scene_on || (msg_timer && !msg_is_prompt) || msgq_len) { tip_wait = 0; return; }
+    if (++tip_wait < 180) return;
+    told_tips |= tip;
+    prompt_quiet = 3 * 150;
+    if (tip == TIP_UPGRADE) {
+        show_message("HOMES CAN GROW STRONGER!");
+        queue_message("HOLD SELECT, PICK HOME,");
+        queue_message("AND PRESS A BY A HOME.");
+    } else {
+        show_message("EVERY HOME STANDS. NOW...");
+        queue_message("GROW ALL FOUR TO LEVEL 2");
+        queue_message("AND SEE WHAT HAPPENS...");
+    }
+}
+
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!" };
@@ -1857,7 +1900,7 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { fp, sizeof(fp) }, { quest, sizeof(quest) }, { unlocked, sizeof(unlocked) }, { &bonded, 4 }, { &thorn_quest, 4 },
     { pump_on, sizeof(pump_on) }, { pump_x, sizeof(pump_x) }, { pump_y, sizeof(pump_y) },
     { pump_drain, sizeof(pump_drain) }, { &pump_timer, 4 }, { &pumps_stopped, 4 },
-    { &told_river, 4 }, { &told_spring, 4 }, { &told_rest, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
+    { &told_river, 4 }, { &told_spring, 4 }, { &told_tips, 4 }, { &told_ending, 4 }, { &rng_state, 4 },
     { &wood, 4 }, { &harmony, 4 }, { told_full, sizeof(told_full) }, { &told_grown, 4 },
     { &bark_step, 4 }, { &bark_wait, 4 }, { &bark_line, 4 },
 };
@@ -2284,6 +2327,7 @@ int main(void) {
         update_homes();
         check_milestones();
         update_bark();
+        update_tips();
         update_growth();
         update_pumps();
         update_blooms();
