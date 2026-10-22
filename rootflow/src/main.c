@@ -1327,16 +1327,16 @@ static u32 atk_cooldown, hit_x, hit_y, hit_life;
 
 // Mini bosses: one per task, in task order. weak: the spirit that deals 3x damage.
 enum { B_CLAMPER, B_THORN, B_MUD, B_ROT, NUM_BOSSES };
-static const char *boss_name[NUM_BOSSES] = { "CLAMP CRUSHER", "THORN BEAST", "MUD HULK", "ROT ROOT" };
+static const char *boss_name[NUM_BOSSES] = { "IRONJAW", "BRAMBLEMAW", "THE DREDGE", "ROTCOIL" };
 static const u8 boss_weak[NUM_BOSSES] = { KIND_STONE, KIND_BREEZE, KIND_RIPPLE, KIND_SPROUT };
 static const u16 boss_home[NUM_BOSSES][2] = { { 48, 340 }, { 240, 372 }, { 224, 440 }, { 352, 440 } };
 static const char *boss_intro[NUM_BOSSES][2] = {
-    { "A VAEL CLAMP CRUSHER WAKES!", "BARK: PEBBLE'LL CRACK IT." },
-    { "A THORN BEAST BURSTS OUT!", "BARK: BREEZE. BLOW IT AWAY." },
-    { "THE MUD HULK RISES!", "BARK: RIPPLE. WASH IT OFF." },
-    { "THE ROT ROOT CRAWLS UP!", "BARK: SPROUT. GROW THROUGH IT." },
+    { "VAEL'S IRONJAW WAKES UP!", "BARK: PEBBLE'LL CRACK IT." },
+    { "A BRAMBLEMAW BURSTS OUT!", "BARK: BREEZE. BLOW IT AWAY." },
+    { "THE DREDGE RISES FROM MUD!", "BARK: RIPPLE. WASH IT OFF." },
+    { "A ROTCOIL CRAWLS UP!", "BARK: SPROUT. GROW THROUGH IT." },
 };
-#define BOSS_HP 12
+#define BOSS_HP 9   // v0.15.1: was 12 (Caleb: too hard)
 typedef struct { s32 kind, x, y, hp, timer, state, dx, dy, flash, alive, hop; } Boss;
 static Boss boss;
 
@@ -1562,7 +1562,7 @@ static void update_boss(void) {
     case B_CLAMPER:                                          // stalks you, winds up, charges
         if (boss.state == 0) {
             if (boss.timer & 1) { boss.x += sgn(dx); boss.y += sgn(dy); }
-            if (boss.timer >= (speed_up ? 100u : 150u)) { boss.state = 1; boss.timer = 0; }
+            if (boss.timer >= (speed_up ? 120u : 150u)) { boss.state = 1; boss.timer = 0; }
         } else if (boss.state == 1) {
             if (boss.timer >= 30) { boss.state = 2; boss.timer = 0; boss.dx = sgn(dx) * 3; boss.dy = sgn(dy) * 3; }
         } else if (boss.state == 2) {
@@ -1570,16 +1570,17 @@ static void update_boss(void) {
             if (boss.timer >= 24) { boss.state = 0; boss.timer = 0; }
         }
         break;
-    case B_THORN:                                            // rolls and bounces around the region
-        if (!boss.dx) { boss.dx = 2; boss.dy = 1; }
-        boss.x += boss.dx * (speed_up ? 2 : 1); boss.y += boss.dy * (speed_up ? 2 : 1);
+    case B_THORN:                                            // rolls and bounces, then stops to rest (hit it then)
+        if (!boss.dx) { boss.dx = 1; boss.dy = 1; }
+        if (boss.timer % 220 >= (speed_up ? 170u : 150u)) break;   // resting
+        boss.x += boss.dx * (speed_up && (boss.timer & 1) ? 2 : 1); boss.y += boss.dy;
         if (boss.x < 0 || boss.x > WORLD_PX - 32) { boss.dx = -boss.dx; boss.x += boss.dx * 2; }
         if (boss.y < 200 || boss.y > WORLD_PX - 32) { boss.dy = -boss.dy; boss.y += boss.dy * 2; }
         break;
     case B_MUD:                                              // creeps, then leaps and slams down
         if (boss.state == 0) {
             if ((boss.timer & 1) == 0) { boss.x += sgn(dx); boss.y += sgn(dy); }
-            if (boss.timer >= (speed_up ? 120u : 180u)) { boss.state = 2; boss.timer = 0; }
+            if (boss.timer >= (speed_up ? 150u : 180u)) { boss.state = 2; boss.timer = 0; }
         } else {
             boss.hop = boss.timer < 20 ? boss.timer : 40 - boss.timer;
             if (boss.timer < 40) { boss.x += sgn(dx); boss.y += sgn(dy); }
@@ -1596,7 +1597,7 @@ static void update_boss(void) {
             if (boss.timer >= 90) { boss.state = 3; boss.timer = 0; }
         } else if (boss.state == 3) {
             if (boss.timer & 1) { boss.x += sgn(dx) * 2; boss.y += sgn(dy) * 2; }
-            if (boss.timer >= (speed_up ? 40u : 60u)) { boss.state = 1; boss.timer = 0; }
+            if (boss.timer >= (speed_up ? 50u : 60u)) { boss.state = 1; boss.timer = 0; }
         } else if (boss.state == 1) {
             if (boss.timer >= 24) { boss.state = 0; boss.timer = 0; sfx_play(SFX_ROCK); }
         }
