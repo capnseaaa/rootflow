@@ -1634,7 +1634,7 @@ ALIVE_PAL = [
     (236, 150, 170),  # 14 blossom
     (0, 0, 0),
 ]
-FACE_C = (256, 220)                                        # Bark's eyes (his face runs down to the trunk's base)
+FACE_C = (256, 230)                                        # Bark's eyes (his face runs down to the trunk's base)
 
 
 def make_tree_alive():
@@ -1671,8 +1671,9 @@ def make_tree_alive():
             put(x, y + 1, 2)
             if lit:
                 put(x, y - 1, 6)
-    def mass(cx, cy, rx, ry, tilt=0.0):
-        """A rounded bulge of bark, lit from the top-left: light, mid, dark, with a dark rim below."""
+    def mass(cx, cy, rx, ry, tilt=0.0, grain="v"):
+        """A rounded bulge of bark, lit from the top-left: light, mid, dark, with a dark rim below.
+        grain: wood grain running down ("v") or sideways ("h")."""
         for y in range(int(cy - ry) - 1, int(cy + ry) + 2):
             for x in range(int(cx - rx) - 1, int(cx + rx) + 2):
                 u, v = (x - cx) / rx, (y - cy - tilt * (x - cx)) / ry
@@ -1680,7 +1681,8 @@ def make_tree_alive():
                 if d < 1:
                     lit = -0.55 * u - 0.85 * v
                     c = 6 if lit > 0.55 else 4 if lit > 0.05 else 3 if lit > -0.45 else 2
-                    if (x + int(3 * math.sin(y * 0.4))) % 5 == 0 and c in (6, 4, 3):
+                    g = (x + int(3 * math.sin(y * 0.4))) % 5 if grain == "v" else (y + int(2 * math.sin(x * 0.3))) % 4
+                    if g == 0 and c in (6, 4, 3):
                         c = {6: 4, 4: 3, 3: 2}[c]                # wood grain through the bulge
                     put(x, y, 1 if d > 0.88 and v > 0 else c)
 
@@ -1693,18 +1695,13 @@ def make_tree_alive():
             put(x, yy + 2, 2)
     for sx in (-1, 1):
         ex = fx + sx * 50
-        mass(ex + sx * 4, fy + 24, 26, 13)                        # a cheek under each eye
-        for y in range(fy - 15, fy + 16):                         # deep eye hollows
-            for x in range(ex - 27, ex + 28):
-                u, v = (x - ex) / 26, (y - fy) / 14
-                d = u * u + v * v
-                if d < 1:
-                    put(x, y, 1 if d > 0.9 else 5 if v < -0.1 else 2 if v < 0.5 else 3)
-        for y in range(fy - 7, fy + 8):                           # an old knot for an eye
-            for x in range(ex - sx * 4 - 9, ex - sx * 4 + 10):
-                d = ((x - ex + sx * 4) / 9) ** 2 + ((y - fy) / 7) ** 2
-                if d < 1:
-                    put(x, y, 1 if d > 0.85 else 4 if d > 0.55 else 3 if d > 0.2 else 5)
+        mass(ex, fy - 2, 27, 11)                                  # a heavy wooden lid
+        for x in range(ex - 22, ex + 23):                         # the eye: a closed, sleepy slit
+            y = fy + 7 + int(((x - ex) / 22) ** 2 * 4)
+            put(x, y - 1, 6)
+            put(x, y, 1)
+            put(x, y + 1, 1)
+            put(x, y + 2, 5)
         mass(ex, fy - 20, 34, 11, tilt=sx * -0.22)                # a heavy brow, sloping to the middle
         for k in range(2):                                        # two short cracks at the outer corner
             ox = ex + sx * 27
@@ -1720,18 +1717,31 @@ def make_tree_alive():
     for sx in (-1, 1):
         for t in range(5):
             put(fx + sx * (8 + t), fy + 54 + t // 2, 1)          # nostrils
-        for t in range(34):                                       # deep folds from the nose down
-            x, y = fx + sx * (20 + t * 3 // 4), fy + 46 + t
-            put(x, y, 5)
-            put(x + sx, y, 5)
-            put(x - sx, y - 1, 6)
-    for x in range(fx - 32, fx + 33):                              # a downturned mouth, deeply carved
-        y = fy + 82 + int(((x - fx) / 32) ** 2 * 8)
-        put(x, y - 1, 4)
-        put(x, y, 1)
-        put(x, y + 1, 5)
-        put(x, y + 2, 2)
-        put(x, y + 4, 4)
+    for x in range(fx - 20, fx + 21):                              # the mouth, in the moustache's shadow
+        put(x, fy + 80 + abs(x - fx) // 8, 1)
+    for sx in (-1, 1):                                             # a wooden moustache, drooping at the ends
+        mass(fx + sx * 50, fy + 74, 22, 10, tilt=sx * 0.35, grain="h")
+        mass(fx + sx * 24, fy + 64, 26, 11, tilt=sx * 0.18, grain="h")
+    # the base, like a tree's foot: wavy wrinkles across the lower trunk, bulging root buttresses
+    for yb in (BASE_Y - 14, BASE_Y + 6, BASE_Y + 24):
+        for x in range(TREE_CX - 220, TREE_CX + 221):
+            if abs(x - fx) < 90 and yb < fy + 100:
+                continue                                           # not across the face
+            y = yb + int(3 * math.sin(x * 0.06 + yb))
+            if 0 <= y < 512 and px[y][x] in (2, 3, 4, 6):
+                put(x, y - 1, 6)
+                put(x, y, 5)
+                put(x, y + 1, 2)
+    for y in range(BASE_Y, 512):                                   # the flared foot: rounded folds of wood
+        for x in range(512):
+            d = abs(x - TREE_CX)
+            if d <= TRUNK_HALF or d > trunk_half(y) - 1 or y > trunk_bottom(x) - 2 or not px[y][x]:
+                continue                                           # only the flare, not the trunk or the roots
+            f = ((d - TRUNK_HALF) % 22) / 22                       # where we are across one fold (0..1)
+            c = 6 if f < 0.18 else 4 if f < 0.45 else 3 if f < 0.75 else 2 if f < 0.92 else 5
+            if x > TREE_CX:
+                c = {6: 4, 4: 3, 3: 2, 2: 2, 5: 5}[c]              # the right side is in shade
+            px[y][x] = c
     out = Image.new("P", (512, 512), 0)
     out.putpalette([c for rgb in ALIVE_PAL for c in rgb])
     out.putdata([v for row in px for v in row])
