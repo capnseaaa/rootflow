@@ -3386,10 +3386,10 @@ static void update_menu(void) {
 // L + R + B together while playing opens the DEV MODE window (the game pauses). Up/Down pick a
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
 enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
-enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_HEALED, NUM_JUMPS };
+enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_GLOOM, J_HEALED, NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
                                                "BARK JOINED", "AT THE TREE", "TREE TASKS DONE",
-                                               "4 BOSSES BEATEN", "TREE HEALED" };
+                                               "4 BOSSES BEATEN", "GLOOMHEART BEATEN", "TREE HEALED" };
 static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
@@ -3505,6 +3505,14 @@ static void dev_start(void) {
             revive_world();
         }
         if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening
+        else if (j == J_GLOOM) {             // in the hollow, the Gloomheart just beaten: the revival starts
+            enter_area(HOLLOW_IN, 248, 260);
+            boss.alive = 0;
+            for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
+            msg_timer = 0; msgq_len = 0; clear_row(19);
+            revive_step = 1;
+            revive_wait = 30;
+        }
         else enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
     }
     dev_stuff = dev_val[DEV_STUFF];

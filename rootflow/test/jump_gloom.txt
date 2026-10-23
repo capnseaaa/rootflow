@@ -1,0 +1,14 @@
+# v0.16.4: dev jump GLOOMHEART BEATEN starts the revival in the hollow; it plays to the healed tree (YOU active)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=8
+1 1
+1 0
+20 0
+0 0 @$cur_area,$revive_step,$boss+36,$tree_alive
+4000 0
+0 0 @$cur_area,$revive_step,$tree_alive,$party_count,$active
