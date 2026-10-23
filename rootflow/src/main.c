@@ -465,6 +465,11 @@ static void oam_flush(void) {
 #define OAM_HIT     34
 #define OAM_SHIELD  35  // Gloomheart's shield ring
 #define OAM_LEAF    36  // 36..41: leaves swirling round the wizard as Bark gives his power
+#define OAM_SPORE   42  // 42..49: Gloomheart's spores
+#define OAM_MOTE    50  // 50..65: rot motes (warnings, dust, shards)
+#define OAM_RING    66  // 66..81: the dots of its rot ring
+#define OAM_SHADOW  82  // where it will land
+#define OAM_STARS   83  // dazed
 #define PAL_SHIELD  15
 
 // ---------- game state ----------
@@ -1363,7 +1368,7 @@ static int interact(s32 mx, s32 my) {
 // wakes at the nearest home with nothing lost; the boss there starts over.
 #define SPR_COMBAT (TILE_COMBAT / 4)
 enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
-       C_LEAF };
+       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS };
 static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive; }
 
 static void draw_hearts_hud(void) {
@@ -1394,6 +1399,19 @@ static const char *boss_name[NUM_BOSSES + 1] = { "IRONJAW", "BRAMBLEMAW", "THE D
 // Breeze, Bark); only that spirit's attacks crack it (3 hits). Then its heart is open.
 #define GLOOM_SHIELD_HITS 3
 static s32 gloom_phase, gloom_shield, gloom_wrong_told;
+// v0.16.1 (Caleb: the fight was static and gave no warning): it glides between spots in the room and
+// takes turns at three attacks, each with a clear warning. Volley: it shakes while motes gather in,
+// then fires spores. Ring: dots blink where the ring will reach, then the ring spreads out. Dive: it
+// rises, its shadow chases you, it crashes down there and lies dazed (the window for melee spirits).
+enum { G_MOVE, G_VOLLEY, G_RING, G_DIVE, G_DAZED };
+#define MAX_SPORES 8
+#define MAX_MOTES 16
+#define RING_DOTS 16
+#define RING_REACH 72
+typedef struct { s32 x, y, dx, dy, life; } Dot;      // x, y, dx, dy in 1/16 px
+static Dot spores[MAX_SPORES], motes[MAX_MOTES];
+static void gloom_burst(s32 x, s32 y, s32 speed, s32 life);
+static s32 gloom_act, gloom_step, gloom_tx, gloom_ty, gloom_ring, gloom_ring_hit, gloom_shake, gloom_told_daze;
 static const u16 shield_color[NUM_SPIRITS][2] = {   // dark, light
     { RGB5(40, 120, 40), RGB5(140, 230, 100) }, { RGB5(30, 80, 190), RGB5(130, 200, 250) },
     { RGB5(100, 92, 84), RGB5(200, 190, 170) }, { RGB5(150, 190, 210), RGB5(240, 250, 255) },
@@ -1451,11 +1469,15 @@ static void combat_enter(void) {
     boss.alive = 0;
     atk.life = 0;
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
+    for (s32 i = 0; i < MAX_SPORES; i++) spores[i].life = 0;
+    for (s32 i = 0; i < MAX_MOTES; i++) motes[i].life = 0;
+    gloom_ring = 0;
     if (!in_combat_area()) return;
     if (cur_area == HOLLOW_IN) {                     // Gloomheart waits in the middle of the room
         boss_start(B_GLOOM);
         boss.x = 240; boss.y = 192; boss.hp = BOSS_HP;
         gloom_phase = 0; gloom_shield = GLOOM_SHIELD_HITS; gloom_wrong_told = 0;
+        gloom_act = G_MOVE; gloom_step = 0; gloom_tx = 240; gloom_ty = 150; gloom_ring = 0; gloom_told_daze = 0;
         gloom_shield_color();
         queue_message("THE GLOOMHEART THROBS...");
         queue_message("BARK: THE ROT. IN MY HEART.");
@@ -1579,7 +1601,7 @@ static void update_attack(void) {
         if (e->hp <= 0) { e->alive = 0; sfx_play(SFX_REMOVE); }
         if (atk.dx || atk.dy) atk.life = 0;                  // a shot stops at what it hits
     }
-    if (boss.alive && boss.state != 3 && !(atk.hit & (1 << 30)) &&
+    if (boss.alive && boss.state != 3 && boss.hop < 8 && !(atk.hit & (1 << 30)) &&
         boxes_meet(atk.x, atk.y, atk.w, atk.h, boss.x + 3, boss.y + 3, 26, 26)) {
         atk.hit |= 1 << 30;
         if (atk.dx || atk.dy) atk.life = 0;
@@ -1593,6 +1615,7 @@ static void update_attack(void) {
             spark(boss.x + 8, boss.y + 8);
             chime(1175, 10);
             if (--gloom_shield <= 0) {
+                gloom_burst(boss.x + 16, boss.y + 16, 32, 24);   // shards fly off
                 gloom_phase++;
                 gloom_shield = GLOOM_SHIELD_HITS;
                 gloom_wrong_told = 0;
@@ -1615,6 +1638,9 @@ static void update_attack(void) {
         chime(boss.kind == B_GLOOM || atk.kind == boss_weak[boss.kind] ? 1175 : 660, 10);
         if (boss.hp <= 0 && boss.kind == B_GLOOM) {
             boss.alive = 0;
+            for (s32 i = 0; i < MAX_SPORES; i++) spores[i].life = 0;
+            gloom_ring = 0;
+            gloom_burst(boss.x + 16, boss.y + 16, 32, 30);
             sfx_play(SFX_QUEST);
             spark(boss.x + 8, boss.y + 8);
             revive_step = 1;                                  // the tree comes back (update_revive)
@@ -1675,6 +1701,172 @@ static void update_enemies(void) {
     }
 }
 
+// 16 directions at 2 px per frame (1/16 px): x = dir16[k], y = dir16[(k + 12) & 15]
+static const signed char dir16[16] = { 32, 30, 23, 12, 0, -12, -23, -30, -32, -30, -23, -12, 0, 12, 23, 30 };
+#define DIR16_Y(k) dir16[((k) + 12) & 15]
+static const s32 gloom_spot[8][2] = { { 240, 112 }, { 140, 160 }, { 340, 160 }, { 120, 236 },
+                                      { 360, 236 }, { 170, 296 }, { 310, 296 }, { 240, 210 } };
+// The attack order per shield (Sprout, Ripple, Pebble, Breeze, Bark) and the open heart. The melee
+// spirits' rounds (Sprout's whip, Bark's slam) dive more, so there is always a safe time to hit.
+static const u8 gloom_plan[NUM_SPIRITS + 1][4] = {
+    { G_DIVE, G_VOLLEY, G_DIVE, G_RING }, { G_VOLLEY, G_RING, G_VOLLEY, G_DIVE },
+    { G_RING, G_VOLLEY, G_DIVE, G_VOLLEY }, { G_VOLLEY, G_DIVE, G_RING, G_VOLLEY },
+    { G_DIVE, G_RING, G_DIVE, G_VOLLEY }, { G_VOLLEY, G_DIVE, G_RING, G_VOLLEY },
+};
+static int gloom_melee(void) { return gloom_phase == KIND_SPROUT || gloom_phase == KIND_BARK; }
+
+static void add_mote(s32 x, s32 y, s32 dx, s32 dy, s32 life) {
+    for (s32 i = 0; i < MAX_MOTES; i++)
+        if (!motes[i].life) {
+            motes[i].x = x << 4; motes[i].y = y << 4; motes[i].dx = dx; motes[i].dy = dy; motes[i].life = life;
+            return;
+        }
+}
+// Motes fly out from (x, y): speed in 1/32 of the dir16 speed (32 = 2 px per frame).
+static void gloom_burst(s32 x, s32 y, s32 speed, s32 life) {
+    for (s32 k = 0; k < 8; k++)
+        add_mote(x - 8, y - 8, dir16[k * 2] * speed >> 5, DIR16_Y(k * 2) * speed >> 5, life);
+}
+static void fire_spore(s32 k, s32 speed) {
+    for (s32 i = 0; i < MAX_SPORES; i++)
+        if (!spores[i].life) {
+            Dot *s = &spores[i];
+            s->x = (boss.x + 8) << 4; s->y = (boss.y + 8) << 4;
+            s->dx = dir16[k & 15] * speed >> 5; s->dy = DIR16_Y(k & 15) * speed >> 5;
+            s->life = 150;
+            return;
+        }
+}
+
+static void gloom_next(s32 act) { gloom_act = act; boss.timer = 0; boss.state = 0; gloom_shake = 0; gloom_ring = 0; boss.hop = 0; }
+
+static void update_gloom(s32 dx, s32 dy) {
+    s32 heart = gloom_phase >= NUM_SPIRITS, t = boss.timer;
+    s32 cx = boss.x + 16, cy = boss.y + 16;
+    gloom_shake = 0;
+    switch (gloom_act) {
+    case G_MOVE: {                                   // glide to the next spot, then attack
+        s32 sp = heart ? 2 : 1;
+        s32 mx = gloom_tx - boss.x, my = gloom_ty - boss.y;
+        boss.x += mx > sp ? sp : mx < -sp ? -sp : mx;
+        boss.y += my > sp ? sp : my < -sp ? -sp : my;
+        if ((!mx && !my) || t > 120) {
+            gloom_next(gloom_plan[gloom_phase][gloom_step & 3]);
+            gloom_step++;
+        }
+        break;
+    }
+    case G_VOLLEY:                                   // shakes, motes gather in, spores fly
+        if (t < 48) {
+            gloom_shake = (t >> 1) & 1 ? 1 : -1;
+            boss.state = t >= 30;
+            if (t == 1) {
+                chime(330, 30);
+                for (s32 k = 0; k < 8; k++)   // 64 px out, in over 46 frames
+                    add_mote(cx - 8 + dir16[k * 2] * 2, cy - 8 + DIR16_Y(k * 2) * 2,
+                             -(dir16[k * 2] * 21 >> 5), -(DIR16_Y(k * 2) * 21 >> 5), 46);
+            }
+        } else if (t == 48) {
+            boss.state = 0;
+            sfx_play(SFX_ROCK);
+            if (gloom_melee()) {                     // three slow spores, aimed at you
+                s32 best = 0, bd = -(1 << 30);
+                for (s32 k = 0; k < 16; k++) {
+                    s32 d = dx * dir16[k] + dy * DIR16_Y(k);
+                    if (d > bd) { bd = d; best = k; }
+                }
+                for (s32 k = -1; k <= 1; k++) fire_spore(best + k, 22);
+            } else
+                for (s32 k = 0; k < 8; k++) fire_spore(k * 2, 26);   // a ring of eight
+        } else if (t == 72 && heart) {
+            sfx_play(SFX_ROCK);
+            for (s32 k = 0; k < 8; k++) fire_spore(k * 2 + 1, 26);   // the open heart fires twice
+        } else if (t >= 90) {
+            gloom_tx = gloom_spot[rng() & 7][0]; gloom_ty = gloom_spot[rng() & 7][1];
+            gloom_next(G_MOVE);
+        }
+        break;
+    case G_RING:                                     // dots blink at its reach, then the ring spreads
+        if (t < 54) {
+            boss.state = 1;
+            gloom_ring = -RING_REACH;                // negative: the warning
+            if (t == 1) chime(262, 40);
+            gloom_ring_hit = 0;
+        } else if (t < 54 + (RING_REACH - 16) / 2) {
+            boss.state = 0;
+            gloom_ring = 16 + (t - 54) * 2;
+            if (t == 54) sfx_play(SFX_ROCK);
+            s32 d2 = dx * dx + dy * dy, lo = gloom_ring - 10, hi = gloom_ring + 10;
+            if (!gloom_ring_hit && d2 >= lo * lo && d2 <= hi * hi) { gloom_ring_hit = 1; hurt(1, cx, cy); }
+        } else {
+            gloom_ring = 0;
+            gloom_tx = gloom_spot[rng() & 7][0]; gloom_ty = gloom_spot[rng() & 7][1];
+            gloom_next(G_MOVE);
+        }
+        break;
+    case G_DIVE:                                     // up, chase you as a shadow, crash down, dazed
+        if (t < 24) boss.hop = t * 4;
+        else if (t < 90) {                           // its shadow follows you
+            s32 sp = 1;                              // 1 px a frame, a little faster later on
+            if ((heart && (t & 1)) || (!gloom_melee() && (t & 3) == 0)) sp++;
+            boss.x += sgn(dx) * sp; boss.y += sgn(dy) * sp;
+        } else if (t < 110) {
+            boss.state = 1;                          // locked: the shadow blinks
+        } else if (t < 118) {
+            boss.state = 0;
+            boss.hop = 96 - (t - 109) * 12;
+            if (boss.hop < 0) boss.hop = 0;
+        } else {
+            boss.hop = 0;
+            sfx_play(SFX_BUILD);
+            gloom_burst(cx, cy + 8, 20, 20);         // dust
+            if (dx * dx + dy * dy < 28 * 28) hurt(1, cx, cy);
+            if (!gloom_told_daze) { gloom_told_daze = 1; show_message("IT'S DAZED! HIT IT NOW!"); }
+            gloom_next(G_DAZED);
+        }
+        break;
+    default:                                         // dazed on the floor: no attacks, no touch damage
+        if (t >= (gloom_melee() ? 150 : 100)) {
+            gloom_tx = gloom_spot[rng() & 7][0]; gloom_ty = gloom_spot[rng() & 7][1];
+            gloom_next(G_MOVE);
+        }
+        break;
+    }
+    if (gloom_phase >= 2 && frame % 600 == 300) {    // a blob crawls out of the heart
+        for (s32 i = 0; i < 3; i++)
+            if (!enemies[i].alive) {
+                Enemy *e = &enemies[i];
+                e->type = E_BLOB; e->x = boss.x + 8; e->y = boss.y + 36; e->hp = 2;
+                e->timer = 0; e->dx = e->dy = 0; e->flash = e->knock = 0; e->alive = 1;
+                break;
+            }
+    }
+    if (gloom_act != G_DIVE && frame % 24 == 0)      // rot drips off it
+        add_mote(boss.x + 4 + (s32)(rng() % 24), boss.y + 22, 0, 6, 28);
+}
+
+// Spores fly until they hit you, a wall, or an attack (the whip and the slam swat them).
+static void update_gloom_dots(void) {
+    for (s32 i = 0; i < MAX_SPORES; i++) {
+        Dot *s = &spores[i];
+        if (!s->life) continue;
+        s->life--;
+        s->x += s->dx; s->y += s->dy;
+        s32 x = s->x >> 4, y = s->y >> 4;
+        if (is_solid(tile_at((x + 8) >> 4, (y + 8) >> 4)) || !in_world(x, y)) { s->life = 0; continue; }
+        if (atk.life && boxes_meet(atk.x, atk.y, atk.w, atk.h, x + 4, y + 4, 8, 8)) {
+            s->life = 0; spark(x, y); chime(988, 6); continue;
+        }
+        if (boxes_meet(px + 3, py + 4, 10, 12, x + 5, y + 5, 6, 6)) { s->life = 0; hurt(1, x + 8, y + 8); }
+    }
+    for (s32 i = 0; i < MAX_MOTES; i++) {
+        Dot *m = &motes[i];
+        if (!m->life) continue;
+        m->life--;
+        m->x += m->dx; m->y += m->dy;
+    }
+}
+
 // The mini bosses. state: 0 move, 1 wind up (flashing), 2 strike, 3 hidden (the Rot Root underground).
 static void update_boss(void) {
     if (!in_combat_area()) return;
@@ -1728,27 +1920,9 @@ static void update_boss(void) {
             }
         }
         break;
-    case B_GLOOM: {                                          // drifts, pulses rot rings, calls blobs
-        boss.x = 240 + (s32)(bob[(boss.timer >> 3) & 15]) * 12;
-        boss.y = 192 + (s32)(bob[((boss.timer >> 3) + 4) & 15]) * 6;
-        u32 len = gloom_phase >= NUM_SPIRITS ? 120 : 160, cycle = boss.timer % len;
-        boss.state = cycle >= len - 60 && cycle < len - 30 ? 1 : 0;   // flashing: a pulse is coming
-        if (cycle == len - 30) {
-            sfx_play(SFX_ROCK);
-            spark(boss.x + 8, boss.y + 8);
-            if (dx * dx + dy * dy < 64 * 64) hurt(1, boss.x + 16, boss.y + 16);
-        }
-        if (boss.timer % 420 == 210) {                       // a blob crawls out of the heart
-            for (s32 i = 0; i < 3; i++)
-                if (!enemies[i].alive) {
-                    Enemy *e = &enemies[i];
-                    e->type = E_BLOB; e->x = boss.x + 8; e->y = boss.y + 36; e->hp = 2;
-                    e->timer = 0; e->dx = e->dy = 0; e->flash = e->knock = 0; e->alive = 1;
-                    break;
-                }
-        }
+    case B_GLOOM:
+        update_gloom(dx, dy);
         break;
-    }
     default:                                                 // burrows toward you, bursts up where you stood
         if (boss.state == 0) {
             if (boss.timer >= 90) { boss.state = 3; boss.timer = 0; }
@@ -1764,7 +1938,8 @@ static void update_boss(void) {
     if (boss.y < 0) boss.y = 0;
     if (boss.x > WORLD_PX - 32) boss.x = WORLD_PX - 32;
     if (boss.y > WORLD_PX - 32) boss.y = WORLD_PX - 32;
-    if (boss.state != 3 && boss.hop < 8 &&
+    if (boss.kind == B_GLOOM) update_gloom_dots();
+    if (boss.state != 3 && boss.hop < 8 && !(boss.kind == B_GLOOM && gloom_act == G_DAZED) &&
         boxes_meet(px + 3, py + 4, 10, 12, boss.x + 4, boss.y + 4, 24, 24)) hurt(1, boss.x + 16, boss.y + 16);
 }
 
@@ -1784,6 +1959,42 @@ static void draw_boss_bar(void) {
     clear_row(1);
     put_text(1, 1, " ");
     put_text(2, 1, bar);
+}
+
+// Spores, motes, the rot ring, the landing shadow, and the dazed stars.
+static void draw_gloom_fx(void) {
+    int on = boss.kind == B_GLOOM && cur_area == HOLLOW_IN;
+    for (s32 i = 0; i < MAX_SPORES; i++) {
+        Dot *s = &spores[i];
+        if (on && s->life) sprite_set(OAM_SPORE + i, (s->x >> 4) - cam_x, (s->y >> 4) - cam_y, SPR_COMBAT + C_SPORE,
+                                      (frame >> 3) & 1, PAL_COMBAT);
+        else sprite_hide(OAM_SPORE + i);
+    }
+    for (s32 i = 0; i < MAX_MOTES; i++) {
+        Dot *m = &motes[i];
+        if (on && m->life) sprite_set(OAM_MOTE + i, (m->x >> 4) - cam_x, (m->y >> 4) - cam_y, SPR_COMBAT + C_MOTE, 0, PAL_COMBAT);
+        else sprite_hide(OAM_MOTE + i);
+    }
+    s32 r = gloom_ring < 0 ? -gloom_ring : gloom_ring;
+    int ring = on && boss.alive && gloom_ring;
+    for (s32 k = 0; k < RING_DOTS; k++) {
+        if (!ring) { sprite_hide(OAM_RING + k); continue; }
+        s32 x = boss.x + 16 + (dir16[k] * r >> 5) - 8, y = boss.y + 16 + (DIR16_Y(k) * r >> 5) - 8;
+        sprite_set(OAM_RING + k, x - cam_x, y - cam_y, SPR_COMBAT + (gloom_ring < 0 && (frame & 8) ? C_MOTE : C_RINGDOT), 0, PAL_COMBAT);
+    }
+    if (on && boss.alive && boss.hop && !(boss.state == 1 && (frame & 4))) {
+        u16 *o = &oam_shadow[OAM_SHADOW * 4];
+        s32 x = boss.x + 8 - cam_x, y = boss.y + 20 - cam_y;
+        if (x > -16 && x < SCREEN_W && y > -16 && y < SCREEN_H) {
+            o[0] = (y & 0xFF) | (1 << 10);           // see-through
+            o[1] = (x & 0x1FF) | (1 << 14);
+            o[2] = (SPR_COMBAT + C_SHADOW) * 4 | (1 << 10) | (PAL_COMBAT << 12);
+        } else sprite_hide(OAM_SHADOW);
+    } else sprite_hide(OAM_SHADOW);
+    if (on && boss.alive && gloom_act == G_DAZED)
+        sprite_set(OAM_STARS, boss.x + 8 - cam_x + bob[(frame >> 2) & 15], boss.y - 8 - cam_y, SPR_COMBAT + C_STARS,
+                   (frame >> 4) & 1, PAL_COMBAT);
+    else sprite_hide(OAM_STARS);
 }
 
 static void draw_combat(void) {
@@ -1815,18 +2026,19 @@ static void draw_combat(void) {
             }
         }
     }
+    draw_gloom_fx();
     if (boss.alive && in_combat_area() && !(boss.state == 3 && (frame & 2))) {
-        s32 x = boss.x - cam_x, y = boss.y - cam_y - boss.hop;
+        s32 x = boss.x - cam_x + (boss.kind == B_GLOOM ? gloom_shake : 0), y = boss.y - cam_y - boss.hop;
         u16 *o = &oam_shadow[OAM_BOSS * 4];
         if (x > -32 && x < SCREEN_W && y > -32 && y < SCREEN_H) {
             u32 f = boss.state == 1 || boss.state == 2 || boss.hop || ((frame >> 4) & 1);
-            u32 pal = boss.flash || (boss.state == 1 && (frame & 4)) ? PAL_FLASH : PAL_BOSS;
+            u32 pal = boss.flash || (boss.state == 1 && (frame & 4) && !(boss.kind == B_GLOOM && boss.hop)) ? PAL_FLASH : PAL_BOSS;
             o[0] = (y & 0xFF) | (boss.state == 3 ? (1 << 10) : 0);   // underground: see-through
             o[1] = (x & 0x1FF) | (2 << 14) | (dx_flip(boss.dx) << 12);
             o[2] = (TILE_BOSS + (boss.kind * 2 + f) * 16) | (1 << 10) | (pal << 12);
         } else sprite_hide(OAM_BOSS);
     } else sprite_hide(OAM_BOSS);
-    s32 shx = boss.x - cam_x, shy = boss.y - cam_y;
+    s32 shx = boss.x - cam_x + gloom_shake, shy = boss.y - cam_y - boss.hop;
     if (boss.alive && boss.kind == B_GLOOM && gloom_phase < NUM_SPIRITS &&
         shx > -32 && shx < SCREEN_W && shy > -32 && shy < SCREEN_H) {   // off screen: hidden, not wrapped round
         u16 *o = &oam_shadow[OAM_SHIELD * 4];
@@ -2583,9 +2795,24 @@ static void check_spring(void) {
     }
 }
 
+// v0.16.1 (Caleb: always looking up shoved the wizard to the bottom of the screen): the camera looks
+// up only while you stand in front of the Great Tree's trunk, more the closer you get, and eases there.
+// In the hollow the camera frames both you and the Gloomheart (halfway between, you kept off the edges).
+static s32 cam_ox, cam_oy;
+static s32 ease_to(s32 v, s32 want) { return v < want - 1 ? v + 2 : v > want + 1 ? v - 2 : want; }
+static s32 clamp_abs(s32 v, s32 m) { return v > m ? m : v < -m ? -m : v; }
 static void update_camera(void) {
-    cam_x = px + 8 - SCREEN_W / 2;
-    cam_y = py + 8 - SCREEN_H / 2 - (cur_area == WEST ? 72 : 0);   // look up at the Great Tree (and Bark's face)
+    s32 wx = 0, wy = 0;
+    if (cur_area == WEST && px + 8 >= 120 && px + 8 <= 392 && py < 430) wy = 430 - py > 56 ? -56 : py - 430;
+    if (cur_area == HOLLOW_IN && boss.alive && boss.kind == B_GLOOM) {
+        wx = clamp_abs((boss.x + 16 - (px + 8)) >> 1, SCREEN_W / 2 - 28);
+        wy = clamp_abs((boss.y + 16 - (py + 8)) >> 1, SCREEN_H / 2 - 32);
+    }
+    if (cur_area != WEST && cur_area != HOLLOW_IN) cam_ox = cam_oy = 0;
+    cam_ox = ease_to(cam_ox, wx);
+    cam_oy = ease_to(cam_oy, wy);
+    cam_x = px + 8 - SCREEN_W / 2 + cam_ox;
+    cam_y = py + 8 - SCREEN_H / 2 + cam_oy;
     if (cam_x < 0) cam_x = 0;
     if (cam_y < 0) cam_y = 0;
     if (cam_x > WORLD_PX - SCREEN_W) cam_x = WORLD_PX - SCREEN_W;

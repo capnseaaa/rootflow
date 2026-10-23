@@ -1943,7 +1943,7 @@ COMBAT_PAL = [
     (138, 144, 156),  # 15 metal
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
-                "spark", "leaf"]
+                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars"]
 
 
 def _canvas(n=16):
@@ -2027,6 +2027,26 @@ def combat_cell(name):
                     px[y][x] = 1 if d > 1.25 else 3 if x < 8 else 2
         for k in range(4, 12):
             px[k][k] = 2
+    elif name == "spore":                      # Gloomheart's spore: a dark rot ball with a pale glow
+        _disc(px, 7.5, 7.5, 4.6, 13, edge=1)
+        _disc(px, 7.5, 7.5, 2.6, 12)
+        px[6][6] = px[6][7] = px[7][6] = 14
+    elif name == "mote":                       # a small rot mote (warnings, dust, shards)
+        _disc(px, 7.5, 7.5, 2.2, 13, edge=12)
+        px[7][7] = 6
+    elif name == "ringdot":                    # a dot of the rot ring
+        _disc(px, 7.5, 7.5, 3.2, 13, edge=12)
+        _disc(px, 7.5, 7.5, 1.4, 14)
+    elif name == "shadow":                     # the shadow where the Gloomheart will land
+        for y in range(16):
+            for x in range(16):
+                if ((x - 7.5) / 7.5) ** 2 + ((y - 9.5) / 4) ** 2 < 1:
+                    px[y][x] = 1
+    elif name == "stars":                      # dazed: three little stars
+        for sx, sy in ((3, 6), (8, 3), (13, 7)):
+            px[sy][sx] = 6
+            for d in (-1, 1):
+                px[sy + d][sx] = px[sy][sx + d] = 14
     elif name == "spark":                      # a hit
         for k in range(-5, 6):
             px[8][7 + k] = px[8 + k][7] = 6

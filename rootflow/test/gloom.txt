@@ -1,0 +1,31 @@
+# v0.16.1: the Gloomheart's attacks (volley, ring, dive, the ranged round's ring of spores)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=7
+1 1
+1 0
+60 0 h0_opening.ppm
+0 0 @$cur_area,$boss_beaten,$maps+3692
+40 64
+30 0 h1_inside.ppm
+30 0
+0 0 !$px=200,$py=300,$dev_god=1
+30 0
+0 0 !$gloom_act=1,$boss+16=0,$boss+4=240,$boss+8=200,$boss+40=0,$gloom_ring=0
+20 0 gv1.ppm
+32 0 gv2.ppm
+14 0 gv3.ppm
+0 0 !$gloom_act=2,$boss+16=0,$boss+4=240,$boss+8=200,$boss+40=0,$gloom_ring=0
+20 0 gr1.ppm
+50 0 gr2.ppm
+0 0 !$gloom_act=3,$boss+16=0,$boss+4=240,$boss+8=200,$boss+40=0,$gloom_ring=0
+50 0 gd1.ppm
+50 0 gd2.ppm
+25 0 gd3.ppm
+30 0 gd4.ppm
+0 0 !$gloom_phase=1,$gloom_act=1,$boss+16=0,$boss+4=240,$boss+8=200,$boss+40=0,$gloom_ring=0
+60 0 gv4.ppm

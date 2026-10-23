@@ -1,0 +1,25 @@
+# v0.16.1: a natural dive: it lands dazed, Sprout walks up and whips it twice (shield 3 -> 1)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=7
+1 1
+1 0
+60 0 h0_opening.ppm
+0 0 @$cur_area,$boss_beaten,$maps+3692
+40 64
+30 0 h1_inside.ppm
+30 0
+0 0 !$px=248,$py=300,$dev_god=1,$active=0
+125 0 @$gloom_act,$boss+4,$boss+8,$px,$py,$gloom_shield,$pdir
+20 64 @$py,$gloom_act
+1 0
+2 1
+6 0 gm1.ppm
+30 0 @$gloom_shield,$gloom_act,$hearts_now
+1 0
+2 1
+30 0 @$gloom_shield,$gloom_act
