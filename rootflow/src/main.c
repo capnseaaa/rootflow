@@ -1204,8 +1204,8 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE && t == DRY_POOL) {
         // Ripple fills the Great Tree's dried root pool, all of it at once
-        for (s32 y = my - 2; y <= my + 2; y++)
-            for (s32 x = mx - 2; x <= mx + 2; x++)
+        for (s32 y = 0; y < MAP_H; y++)
+            for (s32 x = 0; x < MAP_W; x++)
                 if (tile_at(x, y) == DRY_POOL) { set_tile(x, y, WATER); sparkle_at(x, y); }
         sfx_play(SFX_BRIDGE);
     } else if (kind == KIND_RIPPLE) {
@@ -3046,7 +3046,7 @@ static void update_leafen(void) {
 // its two friends) who walk round them, swim in the root pool, or climb on Bark's trunk.
 enum { V_WALK, V_SWIM, V_CLIMB };
 static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 mushroom .. 5 dewhut)
-    { { 214, 410, 5 }, { 286, 404, 2 } },
+    { { 210, 406, 5 }, { 288, 402, 2 } },
     { { 40, 356, 0 }, { 66, 368, 1 } },
     { { 430, 356, 1 }, { 456, 368, 0 } },
     { { 62, 416, 3 }, { 30, 432, 2 } },
@@ -3054,7 +3054,7 @@ static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 m
     { { 204, 446, 0 }, { 294, 446, 5 } },
 };
 static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
-    { { 244, 420, V_SWIM }, { 220, 454, V_WALK }, { 168, 262, V_CLIMB } },
+    { { 242, 422, V_SWIM }, { 214, 470, V_WALK }, { 168, 262, V_CLIMB } },
     { { 44, 378, V_WALK }, { 28, 380, V_WALK }, { 182, 236, V_CLIMB } },
     { { 452, 384, V_WALK }, { 258, 432, V_SWIM }, { 338, 244, V_CLIMB } },
     { { 42, 470, V_WALK }, { 106, 454, V_WALK }, { 156, 286, V_CLIMB } },
@@ -3107,7 +3107,7 @@ static void draw_leafen(void) {
             u32 tt = frame + n * 53;
             if (mode == V_SWIM) {                        // paddling round the root pool
                 u32 a = (tt >> 2) % 48;
-                x += loop_x48[a] >> 2; y += loop_y48[a] >> 2;
+                x += loop_x48[a] >> 1; y += loop_y48[a] >> 1;
                 pose = POSE_SWIM; flip = a >= 24;
             } else if (mode == V_CLIMB) {                // up Bark's bark, a rest, and down again
                 u32 c = tt % 320;
@@ -3563,6 +3563,23 @@ static const struct { void *p; u32 n; } save_fields[] = {
 #define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 8)
 #define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 19)
 
+// v0.17.1: the root pool grew into an irregular oval. Older saves get the new cells: water if the pool
+// is already filled, dry if not; only over open ground, keeping LIFE % right.
+static const u8 root_pool[][2] = { { 15, 25 }, { 16, 25 }, { 14, 26 }, { 15, 26 }, { 16, 26 }, { 17, 26 }, { 14, 27 },
+                                   { 15, 27 }, { 16, 27 }, { 17, 27 }, { 18, 27 }, { 15, 28 }, { 16, 28 }, { 17, 28 } };
+static void widen_root_pool(void) {
+    u8 *m = maps[WEST];
+    u8 old = m[26 * MAP_W + 15];
+    if (old != WATER && old != DRY_POOL) return;          // the pool is not there (should not happen)
+    for (u32 i = 0; i < sizeof(root_pool) / sizeof(root_pool[0]); i++) {
+        u8 *c = &m[root_pool[i][1] * MAP_W + root_pool[i][0]];
+        if (*c == old || !(*c == DEAD || *c == DEAD_CRACK || *c == DIRT || *c == GRASS || *c == GRASS_TUFT ||
+                           *c == FLOWERS)) continue;
+        if (is_restorable(*c)) restorable[WEST]--;
+        *c = old;
+    }
+}
+
 static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
 static u32 sram_get32(u32 at) {
     u32 v = 0;
@@ -3621,6 +3638,7 @@ static int load_game(void) {
     if (tree_alive)                                       // saves from before v0.16.3: green at the trunk's foot
         for (s32 i = 0; i < MAP_W * MAP_H; i++) if (maps[WEST][i] == TRUNK_BLOCK) maps[WEST][i] = TRUNK_GRASS;
     clear_west_gate();                                    // saves from before v0.16.6: a tree may block the way out
+    widen_root_pool();                                    // saves from before v0.17.1: the small square pool
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
     for (s32 k = 0; k < NUM_HOMES; k++)

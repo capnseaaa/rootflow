@@ -1,0 +1,5 @@
+# v0.17.1: an older save (the small square pool) loads with the oval pool
+10 0
+1 8
+60 0
+0 0 @$maps+3884,$maps+3888,$maps+3916,$maps+3920,$maps+3948,$maps+3952,$maps+3980,$maps+3984,$restorable+12

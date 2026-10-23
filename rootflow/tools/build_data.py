@@ -53,7 +53,9 @@ for _pts, _w0, _w1 in _art.ROOTS:
     if _pts[-1][1] > _pts[-2][1] and 0 <= _x < 256:
         for _xx in (_x, _art.mirror_x(_x)):
             ROOT_TIPS.append((_xx // 16, (_y + _w1 // 2 + 15) // 16))
-ROOT_POOL = [(15, 26), (16, 26), (15, 27), (16, 27)]
+# v0.17.1 (Caleb): the root pool is a little bigger and an irregular oval (it fits between the roots)
+ROOT_POOL = [(15, 25), (16, 25), (14, 26), (15, 26), (16, 26), (17, 26), (14, 27), (15, 27), (16, 27), (17, 27),
+             (18, 27), (15, 28), (16, 28), (17, 28)]
 THORN_WALL = [(x, 21) for x in range(13, 19)]       # brambles in front of the trunk's opening
 EAST_GATE_ROWS = (19, 20, 21)      # valley x=31 <-> steppe x=0
 SOUTH_GATE_COLS = (14, 15, 16)     # valley y=31 <-> hollow y=0
