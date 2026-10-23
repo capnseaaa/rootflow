@@ -2754,8 +2754,8 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "BARK: NOW. MY FRIENDS," }, { RV_SAY, "THE LEAFEN. TINY SPROUT FOLK." },
     { RV_SAY, "CHEERY. NOT VERY BRIGHT." }, { RV_SAY, "VAEL TOOK THEM AWAY." },
     { RV_SAY, "A FEW GOT LOOSE. THEY HIDE" }, { RV_SAY, "IN THE VALLEY, THE STEPPE," },
-    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "EACH ONE WANTS SOMETHING" },
-    { RV_SAY, "BEFORE IT COMES HOME." }, { RV_SAY, "THE REST ARE LOCKED UP IN" },
+    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "SOME MIGHT NEED PERSUADING." },
+    { RV_SAY, "THE REST ARE LOCKED UP IN" },
     { RV_SAY, "VAEL'S FACTORY, FAR NORTH." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
 };
 #define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
