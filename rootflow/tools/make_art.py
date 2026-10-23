@@ -73,6 +73,7 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
 # v0.14: the Great Tree's trunk (6 x 6 metatiles, row by row), its roots, and Bark's quest pieces
 # (the trunk itself is drawn on its own layer, art/tree_trunk.png; under it the map has solid ground)
 META += ["trunk_block", "root_tip_dead", "root_tip_alive", "clamp", "dry_pool"]
+META += ["trunk_grass"]   # v0.16.3: the healed trunk's solid cells look like grass (its base)
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -939,6 +940,7 @@ def make_terrain():
     tiles += [stump(rng), stump(rng, grassy=True), chest(rng, ground=grass), chest(rng, True, ground=grass),
               wreck(rng, ground=grass)]
     tiles += [dead(rng), root_tip(rng, False), root_tip(rng, True), dead(rng), dry_pool(rng)]   # clamp: a sprite
+    tiles += [grass(rng, tufts=0)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])

@@ -1,4 +1,4 @@
-# v0.16.2: R during a dialogue line swaps the spirit but keeps the line (msg_timer keeps counting down)
+# v0.16.3: during a scene R does nothing (input is frozen) and the line keeps counting down
 # v0.16: the hollow, Gloomheart (a shield per spirit), the tree healed, YOU
 10 0
 1 8

@@ -17,6 +17,7 @@ STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS = range(65, 70)
 # v0.14: solid ground under the Great Tree's trunk (the trunk itself is its own layer), its roots,
 # and Bark's quest pieces
 TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 75)
+TRUNK_GRASS = 75
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)

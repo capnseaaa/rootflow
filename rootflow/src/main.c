@@ -91,9 +91,10 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS,
        // v0.14: solid ground under the Great Tree's trunk (the trunk is its own layer), its roots,
        // and Bark's quest pieces
-       TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL };   // CLAMP: solid; a sprite shows it
-static int is_trunk(u8 t) { return t == TRUNK_BLOCK; }
-static int is_tree_part(u8 t) { return t >= TRUNK_BLOCK && t <= DRY_POOL; }
+       TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL,   // CLAMP: solid; a sprite shows it
+       TRUNK_GRASS };   // v0.16.3: the healed trunk's cells, drawn as grass so its foot stands on green
+static int is_trunk(u8 t) { return t == TRUNK_BLOCK || t == TRUNK_GRASS; }
+static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t == TRUNK_GRASS; }
 #define WEST 3        // the Great Tree's area
 #define HOLLOW_IN 4   // the hollow inside the Great Tree (v0.16)
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
@@ -693,7 +694,7 @@ static u32 leaf_timer;                              // > 0 while leaves swirl ro
 // v0.16.2 revival inside the tree: Bark floats (float_on 1; 2 = shot up and gone), the screen goes white
 // (white_mode 1 opening like an old TV turning on, in reverse: a line, then the whole screen; 2 white;
 // 3 fading back; 4 fading to white).
-static s32 float_on, float_x, float_y, float_h, float_up, float_tx, float_ty, white_mode, white_t;
+static s32 float_on, float_x, float_y, float_h, float_up, float_tx, float_ty, white_mode, white_t, white_slow;
 static void combat_enter(void);   // enemies and the boss of the area you enter
 static void draw_hearts_hud(void);
 
@@ -1310,7 +1311,7 @@ static int interact(s32 mx, s32 my) {
         complete_quest(KIND_STONE);
         return 1;
     }
-    if (tree_alive && cur_area == WEST && t == TRUNK_BLOCK) {   // talk to Bark, in his tree
+    if (tree_alive && cur_area == WEST && is_trunk(t)) {   // talk to Bark, in his tree
         static const char *tree_talk[][2] = {
             { "BARK: STILL HERE. STILL HUGE.", "DON'T GET USED TO NICE ME." },
             { "BARK: MIND MY ROOTS, WIZARD.", "THEY TICKLE." },
@@ -1646,6 +1647,7 @@ static void update_attack(void) {
         if (boss.hp <= 0 && boss.kind == B_GLOOM) {
             boss.alive = 0;
             for (s32 i = 0; i < MAX_SPORES; i++) spores[i].life = 0;
+            for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;   // its blobs die with it
             gloom_ring = 0;
             gloom_burst(boss.x + 16, boss.y + 16, 32, 30);
             sfx_play(SFX_QUEST);
@@ -2726,24 +2728,35 @@ static void revive_world(void) {
     }
     for (s32 y = DOOR_Y; y <= DOOR_Y + 1; y++)                // the opening grows shut (Caleb: no way back in)
         for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = TRUNK_BLOCK;
+    for (s32 i = 0; i < MAP_W * MAP_H; i++)                   // the trunk stands on grass now
+        if (m[i] == TRUNK_BLOCK) m[i] = TRUNK_GRASS;
 }
 
 // Gloomheart beaten (v0.16.2, Caleb's scene): inside the tree it shakes; Bark floats up among green
 // sparks; the shaking stops and white light fills the screen; the room is clean again (the rot veins
 // turn to green moss); Bark feels tingly, leaves swirl round him, and he shoots up. White again, and
 // the team stands outside the healed tree, where Bark gives the wizard his power ("YOU" in R/L).
-enum { RV_SAY, RV_SHAKE, RV_FLOAT, RV_WHITE, RV_CLEAN, RV_LEAFUP, RV_FADE, RV_OUT, RV_LEAVES };
+enum { RV_SAY, RV_SHAKE, RV_FLOAT, RV_WHITE, RV_CLEAN, RV_LEAFUP, RV_FADE, RV_OUT, RV_UNFADE, RV_STILL, RV_LEAVES };
+// v0.16.3 (Caleb): the white stays while Bark turns back into his tree; it fades slowly into the
+// healed tree shaking outside, the shaking stops as the light is gone, and then Bark speaks.
 static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "THE GLOOMHEART CRUMBLES!" }, { RV_SHAKE, "WHAT'S HAPPENING?..." },
     { RV_FLOAT, "BARK: HMPH... SIGH..." }, { RV_WHITE, 0 }, { RV_CLEAN, 0 },
     { RV_SAY, "BARK: OH.. THIS LOOKS BETTER" }, { RV_SAY, "BARK: HMPH... WHAT'S THIS" },
     { RV_SAY, "TINGLY FEELING?..." }, { RV_SAY, "I DON'T LIKE IT..." }, { RV_LEAFUP, 0 }, { RV_FADE, 0 },
-    { RV_OUT, "YOU BROUGHT BACK BARK!" },
+    { RV_OUT, 0 }, { RV_SAY, "BARK: WHOA. I FEEL... ROOTS." }, { RV_SAY, "MY BARK... MY BRANCHES..." },
+    { RV_SAY, "I'M TURNING BACK INTO A TREE!" }, { RV_SAY, "HMPH. ABOUT TIME." },
+    { RV_UNFADE, 0 }, { RV_STILL, "YOU BROUGHT BACK BARK!" },
     { RV_SAY, "BARK: OH. OH! MY LEAVES!" }, { RV_SAY, "I'M HOME. I'M ME AGAIN." },
     { RV_SAY, "HMPH. THANK YOU, WIZARD." }, { RV_SAY, "TAKE MY POWER. YOU EARNED IT." },
     { RV_LEAVES, "BARK'S POWER IS YOURS!" }, { RV_SAY, "R/L TO YOU: CUT, CLEAR, SLAM." },
-    { RV_SAY, "NO CHARGES NEEDED." }, { RV_SAY, "BARK: NOW. MY FRIENDS, THE" },
-    { RV_SAY, "LEAFEN. VAEL TOOK THEM." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
+    { RV_SAY, "NO CHARGES NEEDED." },
+    { RV_SAY, "BARK: NOW. MY FRIENDS," }, { RV_SAY, "THE LEAFEN. TINY SPROUT FOLK." },
+    { RV_SAY, "CHEERY. NOT VERY BRIGHT." }, { RV_SAY, "VAEL TOOK THEM AWAY." },
+    { RV_SAY, "A FEW GOT LOOSE. THEY HIDE" }, { RV_SAY, "IN THE VALLEY, THE STEPPE," },
+    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "EACH ONE WANTS SOMETHING" },
+    { RV_SAY, "BEFORE IT COMES HOME." }, { RV_SAY, "THE REST ARE LOCKED UP IN" },
+    { RV_SAY, "VAEL'S FACTORY, FAR NORTH." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
 };
 #define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
 #define BLD_NORMAL ((1 << 2) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13))   // BG2 see-through
@@ -2752,7 +2765,7 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
 static void apply_white(void) {
     if (!white_mode) return;
     white_t++;
-    REG_BLDCNT = 0x3F | (2 << 6);                    // brighten every layer
+    REG_BLDCNT = 0x3E | (2 << 6);                    // brighten every layer but the text (lines stay readable)
     REG_DISPCNT &= ~(1 << 13);                       // no clear box meanwhile (window 0)
     if (white_mode == 1) {                           // a line grows across, then opens to the full screen
         s32 w = white_t < 16 ? white_t * 8 : SCREEN_W / 2, h = white_t < 16 ? 1 : (white_t - 15) * 4;
@@ -2768,10 +2781,12 @@ static void apply_white(void) {
     }
     REG_DISPCNT &= ~(1 << 14);
     REG_WINOUT = 0x3F;
-    s32 y = white_mode == 2 ? 16 : white_mode == 3 ? 16 - (white_t >> 1) : white_t >> 1;
+    s32 sh = white_slow ? 3 : 1, len = 16 << sh;     // a slow fade takes 128 frames
+    s32 y = white_mode == 2 ? 16 : white_mode == 3 ? 16 - (white_t >> sh) : white_t >> 1;
     REG_BLDY = y < 0 ? 0 : y > 16 ? 16 : y;
     if (white_mode == 4 && white_t >= 32) { white_mode = 2; white_t = 0; }
-    if (white_mode == 3 && white_t >= 32) {          // back to normal
+    if (white_mode == 3 && white_t >= len) {         // back to normal
+        white_slow = 0;
         white_mode = 0;
         REG_BLDY = 0;
         REG_BLDCNT = BLD_NORMAL;
@@ -2835,10 +2850,12 @@ static void update_revive(void) {
         draw_hearts_hud();
         clear_row(1);
         music_play(area_song(WEST));
-        sfx_play(SFX_WAKE);
-        white_mode = 3; white_t = 0;
-        revive_wait = 10;
+        msg_timer = 0; msgq_len = 0; clear_row(19);   // no area name over the scene
+        white_mode = 2;                              // still white while Bark turns back into his tree
+        revive_wait = 60;
     }
+    if (act == RV_UNFADE) { shake_timer = 2000; sfx_play(SFX_ROCK); white_slow = 1; white_mode = 3; white_t = 0; revive_wait = 0; }
+    if (act == RV_STILL) { shake_timer = 0; sfx_play(SFX_WAKE); revive_wait = 30; }
     if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
     if (m) show_message(m);
 }
@@ -2847,7 +2864,7 @@ static void update_revive(void) {
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "" };
 static void check_milestones(void) {
-    if (frame % 30) return;
+    if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
         if (!told_full[a] && restorable[a] && life_percent_of(a) >= 100) {
             told_full[a] = 1;
@@ -3085,6 +3102,8 @@ static int load_game(void) {
         tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
     }
+    if (tree_alive)                                       // saves from before v0.16.3: green at the trunk's foot
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) if (maps[WEST][i] == TRUNK_BLOCK) maps[WEST][i] = TRUNK_GRASS;
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
     for (s32 k = 0; k < NUM_HOMES; k++)
@@ -3679,12 +3698,13 @@ int main(void) {
         if (!dev_open && dev_combo()) { close_menu(); open_dev(); continue; }
         if (dev_open) { update_dev(); update_message(); continue; }
         dev_tick();
-        if (!paused && HIT(KEY_START) && !(revive_step && revive_step <= REVIVE_LEN)) { open_menu(); continue; }
+        if (!paused && HIT(KEY_START) && !scene_on) { open_menu(); continue; }
         if (paused) { update_menu(); update_message(); continue; }
 
-        update_player();
+        // v0.16.3 (Caleb): during a scene nothing moves: not you, the enemies, the bosses, or the pumps
+        if (!scene_on) { update_player(); } else pstep = 0;
         update_spirits();
-        handle_action();
+        if (!scene_on) handle_action();
         check_spring();
         update_homes();
         check_milestones();
@@ -3693,11 +3713,9 @@ int main(void) {
         check_tree();
         update_tips();
         update_growth();
-        update_pumps();
+        if (!scene_on) update_pumps();
         update_blooms();
-        update_attack();
-        update_enemies();
-        update_boss();
+        if (!scene_on) { update_attack(); update_enemies(); update_boss(); }
         if (hurt_timer) hurt_timer--;
         update_camera();
         draw_sprites();
