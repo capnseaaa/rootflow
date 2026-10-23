@@ -1,6 +1,7 @@
 # v0.17: the Leafen. From the dev jump TREE HEALED (materials 99, endless charges, no pumps, invincible):
 # all six rescues with the real powers where it is quick, pokes where it would take long (noted),
-# the welcome at the tree with its three skills, the village, LEAF STEP and SEEDFALL.
+# the welcome at the tree with its skills (v0.17.3: LEAF STEP at 2, LEAF SHIELD at 6), the village, LEAF STEP,
+# and SEEDFALL not given (it waits for the corner regions: A on dead ground fails).
 10 0
 1 8
 30 0
@@ -66,7 +67,11 @@
 0 0 !$px=232,$py=494
 40 128
 0 0 @$cur_area
-# Nub: Pebble breaks the rock pile from three sides
+# Nub: his leaves peek out of the pile and he calls out as you come near; Pebble breaks the pile from three sides
+0 0 !$px=248,$py=120
+20 0 lf_nub_peek.ppm
+0 0 @$leafen_state+4
+150 0
 0 0 !$px=248,$py=84,$active=2
 1 64
 1 0

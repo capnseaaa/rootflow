@@ -93,7 +93,9 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // and Bark's quest pieces
        TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL,   // CLAMP: solid; a sprite shows it
        TRUNK_GRASS,     // v0.16.3: the healed trunk's cells, drawn as grass so its foot stands on green
-       MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND };   // v0.17: the Leafen's gifts
+       MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND,   // v0.17: the Leafen's gifts
+       ROCK_GRASS };    // v0.17.3: a rock with grass round it; acts as a rock in every way
+static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
 static int is_trunk(u8 t) { return t == TRUNK_BLOCK || t == TRUNK_GRASS; }
 static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t == TRUNK_GRASS; }
 #define WEST 3        // the Great Tree's area
@@ -269,7 +271,7 @@ static void set_tile(s32 mx, s32 my, u8 t) {
 }
 
 static int is_solid(u8 t) {
-    return t == WATER || t == TREE || t == DEAD_TREE || t == ROCK || t == THORN ||
+    return t == WATER || t == TREE || t == DEAD_TREE || is_rock(t) || t == THORN ||
            t == CHEST || t == CHEST_OPEN || t == WRECK || t == MENHIR || t == DRY_RIVER ||
            t == SAPLING || t == FRUIT_TREE || t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH ||
            t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
@@ -289,7 +291,7 @@ static int is_alive(u8 t) {
 }
 
 static int is_restorable(u8 t) {
-    return !(t == WATER || t == ROCK || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
+    return !(t == WATER || is_rock(t) || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t));
 }
@@ -737,7 +739,9 @@ static u32 leafen_home_count(void) {
     for (s32 k = 0; k < NUM_LEAFEN; k++) n += leafen_state[k] == LS_HOME;
     return n;
 }
-static u32 skill_lv(void) { return leafen_home_count() / 2; }   // 1 LEAF STEP, 2 LEAF SHIELD, 3 SEEDFALL
+// v0.17.3 (Caleb: space them out, more Leafen come in the corners): LEAF STEP at 2 Leafen home, LEAF
+// SHIELD at all 6. SEEDFALL (level 3) waits for the corner regions; its code stays, unreachable for now.
+static u32 skill_lv(void) { u32 n = leafen_home_count(); return n >= NUM_LEAFEN ? 2 : n >= 2 ? 1 : 0; }
 // v0.16.2 revival inside the tree: Bark floats (float_on 1; 2 = shot up and gone), the screen goes white
 // (white_mode 1 opening like an old TV turning on, in reverse: a line, then the whole screen; 2 white;
 // 3 fading back; 4 fading to white).
@@ -875,7 +879,7 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
     for (s32 gy = 0; gy < g; gy++)
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
-            flood_open[gy * g + gx] = !(t == WATER || t == ROCK || t == THORN || t == MENHIR || t == DRY_RIVER ||
+            flood_open[gy * g + gx] = !(t == WATER || is_rock(t) || t == THORN || t == MENHIR || t == DRY_RIVER ||
                                         t == DAM || t == LOST_STONE || is_trunk(t) || t == CLAMP || t == DRY_POOL);
             dist[gy * g + gx] = 255;
         }
@@ -932,13 +936,20 @@ static int player_on_tile(s32 mx, s32 my) {
 }
 
 // The Great Tree region's way back east (x 24..31, rows 12..14): kept free of trees.
-static int in_west_gate(s32 mx, s32 my) { return work_area == WEST && mx >= 24 && my >= 12 && my <= 14; }
+// v0.17.3: the valley's side of that gate too (x 0..5, rows 12..14), where blooms could grow trees.
+static int in_west_gate(s32 mx, s32 my) {
+    if (my < 12 || my > 14) return 0;
+    return (work_area == WEST && mx >= 24) || (work_area == 0 && mx <= 5);
+}
 static void clear_west_gate(void) {
     for (s32 y = 12; y <= 14; y++)
         for (s32 x = 24; x < MAP_W; x++) {
             u8 *c = &maps[WEST][y * MAP_W + x];
             if (*c == TREE || *c == DEAD_TREE || *c == STUMP || *c == STUMP_GRASS) *c = tree_alive ? GRASS : DEAD;
         }
+    for (s32 y = 12; y <= 14; y++)                         // the valley side: only trees that grew there
+        for (s32 x = 0; x <= 5; x++)
+            if (maps[0][y * MAP_W + x] == TREE) maps[0][y * MAP_W + x] = GRASS;
 }
 static void grow_tile(s32 mx, s32 my, int edge) {
     if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return;
@@ -956,6 +967,9 @@ static void grow_tile(s32 mx, s32 my, int edge) {
     if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES) return;
     if (edge && t != DIRT) { set_tile(mx, my, DIRT); return; }
     u32 r = rng() % 100;
+    static const signed char nbx[4] = { 1, -1, 0, 0 }, nby[4] = { 0, 0, 1, -1 };
+    for (s32 k = 0; k < 4; k++)                    // v0.17.3 (Caleb): rocks beside new life get grass round them
+        if (tile_at(mx + nbx[k], my + nby[k]) == ROCK) set_tile(mx + nbx[k], my + nby[k], ROCK_GRASS);
     u8 nt = r < 55 ? GRASS : r < 80 ? GRASS_TUFT : r < 95 ? FLOWERS : TREE;
     if (nt == TREE && here && player_on_tile(mx, my)) nt = FLOWERS;
     if (nt == TREE && in_west_gate(mx, my)) nt = FLOWERS;   // never close the way back to the valley
@@ -1060,8 +1074,10 @@ static void check_exits(void) {
     if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
         enter_area(area_east[cur_area], 2, py);
     else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
-             (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED))   // the west opens with Bark
-        enter_area(area_west[cur_area], WORLD_PX - 18, py);
+             (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive)) {  // the west opens with Bark
+        if (!enter_area(area_west[cur_area], WORLD_PX - 18, py) && cur_area == 0)
+            enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);                // blocked there: in at the gate's middle
+    }
     else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0)
         enter_area(area_south[cur_area], px, 2);
     else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0)
@@ -1200,7 +1216,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
     int in_map = mx >= 0 && my >= 0 && mx < MAP_W && my < MAP_H;
     if (!in_map) return 0;
     if (kind == KIND_SPROUT) {
-        if (t == WATER || t == ROCK || t == BRIDGE || t == THORN || t == MENHIR) return 0;
+        if (t == WATER || is_rock(t) || t == BRIDGE || t == THORN || t == MENHIR) return 0;
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE && t == DRY_POOL) {
         // Ripple fills the Great Tree's dried root pool, all of it at once
@@ -1228,14 +1244,14 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         show_message("+2 STONE");
         sfx_play(SFX_ROCK);
     } else if (kind == KIND_STONE) {
-        if (t != ROCK) return 0;
+        if (!is_rock(t)) return 0;
         // Broken rock leaves bare ground that can bloom. With Pebble's cairn, two rocks in a line break.
         s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0;
         s32 sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
         s32 reach = 1 + home_level[KIND_STONE] + boosted(KIND_STONE) + (bonded == KIND_STONE ? 2 : 0);
-        for (s32 k = 0; k < reach && tile_at(mx, my) == ROCK; k++, mx += sx, my += sy) {
+        for (s32 k = 0; k < reach && is_rock(tile_at(mx, my)); k++, mx += sx, my += sy) {
             if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) break;
-            set_tile(mx, my, DIRT);
+            set_tile(mx, my, tile_at(mx, my) == ROCK_GRASS ? GRASS : DIRT);   // grass stays grass
             restorable[work_area]++;
             stone++;
             sparkle_at(mx, my);
@@ -1455,7 +1471,7 @@ enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_
 // They use OBJ bank 11 (the clamps' palette until the tree is healed; no clamp shows after that).
 #define SPR_LEAFEN (TILE_LEAFEN / 4)
 #define PAL_LEAFEN 11
-enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6 };
+enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK };
 static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive; }
 
 static void draw_hearts_hud(void) {
@@ -2855,6 +2871,7 @@ static void leafen_stamp(s32 a, s32 x, s32 y, u8 nt) {   // only over open groun
     *c = nt;
     if (a == cur_area) { use_area(a); draw_meta(x, y); }
 }
+static void nub_clear_ring(void);
 // Once the tree is healed: the Leafen take their places, with their troubles drawn into the maps.
 static void leafen_setup(void) {
     leafen_init = 1;
@@ -2870,7 +2887,25 @@ static void leafen_setup(void) {
     leafen_stamp(2, nx, ny, ROCK);
     leafen_stamp(2, nx - 1, ny, ROCK); leafen_stamp(2, nx + 1, ny, ROCK);
     leafen_stamp(2, nx, ny - 1, ROCK); leafen_stamp(2, nx, ny + 1, ROCK);
+    nub_clear_ring();
     use_area(cur_area);
+}
+
+// v0.17.3 (Caleb): nothing stands in the ring round Nub's rock pile, so the pile stands out.
+static void nub_clear_ring(void) {
+    s32 nx = leafen_cx[LF_NUB], ny = leafen_cy[LF_NUB];
+    for (s32 y = ny - 2; y <= ny + 2; y++)
+        for (s32 x = nx - 2; x <= nx + 2; x++) {
+            if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
+            s32 cx = x - nx, cy = y - ny;
+            if ((cx == 0 && cy >= -1 && cy <= 1) || (cy == 0 && cx >= -1 && cx <= 1)) continue;   // the pile
+            u8 *c = &maps[2][y * MAP_W + x];
+            if (is_rock(*c) || *c == MENHIR || *c == DEAD_TREE || *c == STUMP || *c == STUMP_GRASS || *c == TREE) {
+                if (!is_restorable(*c)) restorable[2]++;
+                *c = PEBBLES;
+                if (cur_area == 2) { use_area(2); draw_meta(x, y); use_area(cur_area); }
+            }
+        }
 }
 
 static int leafen_ready(s32 k) {
@@ -2896,8 +2931,8 @@ static int leafen_ready(s32 k) {
         return n >= 4;
     }
     case LF_NUB:
-        return LF_AT(x, y) != ROCK && LF_AT(x - 1, y) != ROCK && LF_AT(x + 1, y) != ROCK &&
-               LF_AT(x, y - 1) != ROCK && LF_AT(x, y + 1) != ROCK;
+        return !is_rock(LF_AT(x, y)) && !is_rock(LF_AT(x - 1, y)) && !is_rock(LF_AT(x + 1, y)) &&
+               !is_rock(LF_AT(x, y - 1)) && !is_rock(LF_AT(x, y + 1));
     default: return has_shiny;
     }
 #undef LF_AT
@@ -2942,7 +2977,7 @@ static u8 folk_hop[NUM_LEAFEN * 3];                               // a little ho
 static int leafen_talk(s32 fmx, s32 fmy) {
     if (!leafen_init || lf_scene) return 0;
     u8 faced = tile_at(fmx, fmy);
-    int trouble = faced == ROCK || faced == THORN || faced == WATER;
+    int trouble = is_rock(faced) || faced == THORN || faced == WATER;
     for (s32 k = 0; k < NUM_LEAFEN && !trouble; k++) {
         if (leafen_area[k] != cur_area || !leafen_waiting(k) || !near_leafen(k, k == LF_NUB ? 34 : 28)) continue;
         if (leafen_ready(k)) { leafen_rescue(k); return 1; }
@@ -3035,9 +3070,9 @@ static void update_leafen(void) {
             return;
         }
         if (leafen_home_count() == NUM_LEAFEN && welcome_step == 4) {
-            show_message("BARK: THAT'S ALL OF THEM HERE.");
-            queue_message("THE REST... VAEL STILL HAS.");
-            queue_message("UP NORTH. IN THAT FACTORY.");
+            show_message("BARK: THAT'S THESE ONES.");
+            queue_message("MORE WANDERED TO THE CORNERS.");
+            queue_message("AND VAEL HAS THE REST, NORTH.");
         }
         welcome_step = 0;
         return;
@@ -3061,6 +3096,14 @@ static void update_leafen(void) {
         sparkle_at(SHINY_X, SHINY_Y);
         sfx_play(SFX_GIFT);
         show_message("YOU FOUND A SHINY PEBBLE!");
+    }
+    // Nub, still buried, calls out the first time you come near his rock pile
+    if (cur_area == 2 && leafen_state[LF_NUB] == LS_WAIT && near_leafen(LF_NUB, 44) &&
+        is_rock(tile_at(leafen_cx[LF_NUB], leafen_cy[LF_NUB])) && !msg_timer && !msgq_len) {
+        leafen_state[LF_NUB] = LS_MET;
+        show_message(leafen_ask[LF_NUB][0]);
+        queue_message(leafen_ask[LF_NUB][1]);
+        sfx_play(SFX_GIFT);
     }
     // a trouble fixed on the map: the Leafen notices as soon as you come close
     for (s32 k = 0; k < NUM_LEAFEN; k++)
@@ -3113,7 +3156,10 @@ static void draw_leafen(void) {
         }
         if (leafen_area[k] != cur_area || !leafen_waiting(k)) continue;
         s32 x = leafen_x(k) * 16, y = leafen_y(k) * 16;
-        if (k == LF_NUB && tile_at(leafen_x(k), leafen_y(k)) == ROCK) continue;   // still buried
+        if (k == LF_NUB && is_rock(tile_at(leafen_x(k), leafen_y(k)))) {   // still buried: his leaves poke out
+            sprite_set(OAM_LEAFEN + slot++, x - cam_x, y - cam_y - 9, SPR_LEAFEN + C_PEEK, (frame >> 5) & 1, PAL_LEAFEN);
+            continue;
+        }
         u32 pose = k == LF_PIP ? POSE_SWIM : hop;
         sprite_set(OAM_LEAFEN + slot++, x - cam_x, y - cam_y, SPR_LEAFEN + C_LEAFEN + leafen_look[k] * 4 + pose,
                    px < x, PAL_LEAFEN);
@@ -3234,6 +3280,7 @@ static void revive_world(void) {
         else if (t == CHEST) m[i] = CHEST_GRASS;
         else if (t == CHEST_OPEN) m[i] = CHEST_OPEN_GRASS;
         else if (t == WRECK) m[i] = WRECK_GRASS;
+        else if (t == ROCK) m[i] = ROCK_GRASS;               // v0.17.3: grass round the rocks too
     }
     for (s32 y = DOOR_Y; y <= DOOR_Y + 1; y++)                // the opening grows shut (Caleb: no way back in)
         for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = TRUNK_BLOCK;
@@ -3268,6 +3315,7 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "THEY WANDER. SEARCH THE" }, { RV_SAY, "FAR CORNERS, TOO." }, { RV_SAY, "SOME MIGHT NEED PERSUADING." },
     { RV_SAY, "THE REST ARE LOCKED UP IN" },
     { RV_SAY, "VAEL'S FACTORY, FAR NORTH." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
+    { RV_SAY, "HMPH. DO THAT, AND I'LL" }, { RV_SAY, "TEACH YOU A THING OR TWO." },
 };
 #define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
 #define BLD_NORMAL ((1 << 2) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13))   // BG2 see-through
@@ -3667,6 +3715,16 @@ static int load_game(void) {
     if (tree_alive)                                       // saves from before v0.16.3: green at the trunk's foot
         for (s32 i = 0; i < MAP_W * MAP_H; i++) if (maps[WEST][i] == TRUNK_BLOCK) maps[WEST][i] = TRUNK_GRASS;
     clear_west_gate();                                    // saves from before v0.16.6: a tree may block the way out
+    if (leafen_init && leafen_state[LF_NUB] <= LS_MET) nub_clear_ring();   // saves from before v0.17.3
+    for (s32 a = 0; a < HOLLOW_IN; a++) {                 // and their rocks beside living land get grass round them
+        u8 *m = maps[a];
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            if (m[i] != ROCK) continue;
+            s32 x = i % MAP_W, y = i / MAP_W;
+            if ((x > 0 && is_alive(m[i - 1])) || (x < MAP_W - 1 && is_alive(m[i + 1])) ||
+                (y > 0 && is_alive(m[i - MAP_W])) || (y < MAP_H - 1 && is_alive(m[i + MAP_W]))) m[i] = ROCK_GRASS;
+        }
+    }
     widen_root_pool();                                    // saves from before v0.17.1: the small square pool
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);

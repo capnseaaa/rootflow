@@ -172,7 +172,7 @@
 0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
 200 0 h4_revive11.ppm
 0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
-4000 0
+6000 0
 0 0 @$revive_step,$tree_alive,$party_count,$active
 # YOU (Bark's slot): cut a tree with no charges; talk to Bark in his tree
 0 0 !$active=4,$spirits+128=0

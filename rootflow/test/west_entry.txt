@@ -1,0 +1,17 @@
+# v0.17.3: into the Great Tree region from the valley: away from the gate rows you still get in (at the gate)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=494,$py=202
+40 16
+0 0 @$cur_area
+0 0 !$px=2,$py=300
+40 32
+0 0 @$cur_area,$px,$py

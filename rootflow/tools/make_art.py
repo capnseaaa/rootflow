@@ -76,6 +76,7 @@ META += ["trunk_block", "root_tip_dead", "root_tip_alive", "clamp", "dry_pool"]
 META += ["trunk_grass"]   # v0.16.3: the healed trunk's solid cells look like grass (its base)
 # v0.17: the Leafen's gifts, six small things to build (on grass)
 META += ["mush_lamp", "leaf_swing", "acorn_bench", "flower_arch", "pebble_path", "dew_pond"]
+META += ["rock_grass"]   # v0.17.3: a rock with grass grown up round it (blooms still stop at rocks)
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -259,8 +260,8 @@ def dry_pool(rng):
     return px
 
 
-def rock(rng):
-    px = dead(rng)
+def rock(rng, on_grass=False):
+    px = grass(rng) if on_grass else dead(rng)
     for y in range(2, 15):
         for x in range(1, 15):
             d = ((x - 7.5) / 6.5) ** 2 + ((y - 9) / 5.5) ** 2
@@ -1022,6 +1023,7 @@ def make_terrain():
     tiles += [dead(rng), root_tip(rng, False), root_tip(rng, True), dead(rng), dry_pool(rng)]   # clamp: a sprite
     tiles += [grass(rng, tufts=0)]
     tiles += [mush_lamp(rng), leaf_swing(rng), acorn_bench(rng), flower_arch(rng), pebble_path(rng), dew_pond(rng)]
+    tiles += [rock(rng, on_grass=True)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -2033,6 +2035,7 @@ LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]
 LEAFEN_POSES = ["stand", "step", "swim", "climb"]
 LEAFEN_HOMES = ["mushroom", "tent", "acornhut", "pot", "pebblehut", "dewhut"]
 LEAFEN_ORDER = [f"lf_{l}_{p}" for l in LEAFEN_LOOKS for p in LEAFEN_POSES] + [f"lh_{h}" for h in LEAFEN_HOMES] + ["shiny"]
+LEAFEN_ORDER += ["peek"]          # v0.17.3: Nub's leaves and the top of his head, poking out of the rocks
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2174,6 +2177,15 @@ def leafen_cell(name):
         leafen(px, look, pose)
     elif name.startswith("lh_"):
         leafen_home(px, name[3:])
+    elif name == "peek":                       # a buried Leafen: two leaves and the top of a head
+        for y in range(11, 16):
+            for x in range(16):
+                d = ((x - 7.5) / 4.6) ** 2 + ((y - 15) / 3.7) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.7 else 3
+        px[10][7] = px[10][8] = 8
+        px[9][6] = px[9][9] = 9; px[9][5] = px[9][10] = 9
+        px[8][5] = px[8][10] = 9; px[8][4] = px[8][11] = 8
     else:                                      # Dewdrop's shiny pebble, glinting
         for y in range(16):
             for x in range(16):

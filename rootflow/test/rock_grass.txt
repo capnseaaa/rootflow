@@ -1,0 +1,25 @@
+# v0.17.3: a bloom beside rocks: they keep blocking it but get grass round them; Pebble breaks one to grass
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=1,$dev_val+8=1
+1 1
+1 0
+200 0
+# valley rocks at (11,11) and (14,5): bloom beside (12,11) with Sprout
+0 0 !$px=184,$py=164,$active=0
+1 16
+1 0
+2 1
+200 0 rk0.ppm
+0 0 @$maps+360,$maps+364
+# Pebble breaks the grassy rock: it leaves grass
+0 0 !$active=2,$px=184,$py=164
+1 32
+1 0
+2 1
+30 0
+0 0 @$maps+360,$maps+364
