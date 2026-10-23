@@ -77,6 +77,8 @@ META += ["trunk_grass"]   # v0.16.3: the healed trunk's solid cells look like gr
 # v0.17: the Leafen's gifts, six small things to build (on grass)
 META += ["mush_lamp", "leaf_swing", "acorn_bench", "flower_arch", "pebble_path", "dew_pond"]
 META += ["rock_grass"]   # v0.17.3: a rock with grass grown up round it (blooms still stop at rocks)
+# v0.18: the drowned marsh (its ground is the dead ground, tinted muddy by the marsh's palette)
+META += ["sludge", "lily_pad", "reeds", "vael_pipe"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -286,6 +288,64 @@ def water(rng, phase):
         x, y = rng.randrange(1, 14), rng.randrange(16)
         px[y][x] = 11
         px[y][x + 1] = 11
+    return px
+
+
+def sludge(rng):
+    """Vael's sludge: thick gray water with slow bubbles (dead colors, tinted by the area)."""
+    px = blank(1)
+    for y in range(16):
+        for x in range(16):
+            if (x * 2 + y * 3) % 13 == 0:
+                px[y][x] = 2
+            if (x + y * 2) % 17 == 0:
+                px[y][x] = 15
+    for _ in range(3):                                # bubbles
+        x, y = rng.randrange(2, 13), rng.randrange(2, 13)
+        px[y][x] = px[y][x + 1] = 3
+        px[y + 1][x] = px[y + 1][x + 1] = 2
+    return px
+
+
+def lily_pad(rng):
+    """A lily pad on clean water (walkable): a round green pad with a notch and a little flower."""
+    px = water(rng, 0)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 6.5) ** 2 + ((y - 8) / 5.5) ** 2
+            notch = x > 8 and y < 8 and abs((y - 8) + (x - 8)) < 1.2      # a thin cut toward the top right
+            if d < 1 and not notch:
+                px[y][x] = 15 if d > 0.78 else 8 if x + y < 13 else 7 if d < 0.5 else 6
+    px[6][5] = px[5][6] = px[6][6] = 14
+    px[5][5] = 13
+    return px
+
+
+def reeds(rng):
+    """Dead gray reeds standing in the mud (solid; YOU cuts them)."""
+    px = dead(rng)
+    for x0 in (2, 5, 8, 11, 13):
+        h = rng.randrange(7, 12)
+        lean = rng.choice((-1, 0, 1))
+        for k in range(h):
+            x = x0 + (lean if k > h * 0.6 else 0)
+            px[15 - k][x] = 15 if k < 2 else 3 if k % 3 else 2
+        px[15 - h][x0 + lean] = 14                  # a pale seed head
+    return px
+
+
+def vael_pipe(rng):
+    """A Vael pipe sticking out of the mud, pouring sludge (Pebble breaks it)."""
+    px = dead(rng)
+    for y in range(3, 11):
+        for x in range(4, 12):
+            px[y][x] = 15 if x in (4, 11) or y == 3 else 2 if x < 7 else 1
+    for x in range(3, 13):
+        px[4][x] = 15; px[5][x] = 12              # the rim
+    for y in range(11, 16):                         # sludge pouring out
+        for x in range(5, 11):
+            px[y][x] = 1 if (x + y) % 3 else 2
+    px[7][6] = px[8][6] = 14                        # a rivet glint
     return px
 
 
@@ -1024,6 +1084,7 @@ def make_terrain():
     tiles += [grass(rng, tufts=0)]
     tiles += [mush_lamp(rng), leaf_swing(rng), acorn_bench(rng), flower_arch(rng), pebble_path(rng), dew_pond(rng)]
     tiles += [rock(rng, on_grass=True)]
+    tiles += [sludge(rng), lily_pad(rng), reeds(rng), vael_pipe(rng)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -2465,6 +2526,68 @@ def make_boss():
     return img
 
 
+LILY_PAL = [                       # v0.18 Lily, the water-lily spirit (OBJ bank 10)
+    (255, 0, 255),    # 0 clear
+    (36, 44, 48),     # 1 outline, eyes
+    (44, 120, 64),    # 2 pad dark
+    (92, 184, 96),    # 3 pad
+    (252, 252, 248),  # 4 petal white
+    (252, 186, 206),  # 5 petal pink
+    (222, 112, 154),  # 6 petal deep pink
+    (252, 222, 96),   # 7 center yellow
+    (248, 146, 168),  # 8 cheeks
+    (136, 204, 250),  # 9 water
+    (78, 150, 222),   # 10 water dark
+] + [(0, 0, 0)] * 5
+
+
+def lily_cell(frame):
+    """Lily: a water-lily flower sitting on a round pad, with a happy face in her yellow center.
+    The petals are one shape with one outline; white on top, pink below."""
+    px = _canvas()
+    lift = frame
+    def ell(cx, cy, rx, ry):
+        return {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
+    pad = ell(7.5, 13.2, 7.2, 2.6)
+    petals = set()
+    for cx, cy, rx, ry in ((7.5, 4.6, 2.3, 3.4), (4.2, 6.4, 2.3, 3.0), (10.8, 6.4, 2.3, 3.0),
+                           (2.6, 9.6, 2.6, 2.2), (12.4, 9.6, 2.6, 2.2)):
+        petals |= ell(cx, cy - lift, rx, ry)
+    face = ell(7.5, 9.2 - lift, 3.6, 2.9)
+    body = petals | face
+    def outline(shape, x, y):
+        return any((x + dx, y + dy) not in shape for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+    for (x, y) in pad:
+        px[y][x] = 1 if outline(pad, x, y) else 3 if y < 13 else 2
+    for (x, y) in body:
+        if outline(body, x, y):
+            px[y][x] = 1
+        elif (x, y) in face and not outline(face, x, y):
+            px[y][x] = 7
+        elif (x, y) in face:
+            px[y][x] = 6
+        else:
+            px[y][x] = 4 if y < 7 - lift else 5
+    ey = int(9 - lift)
+    px[ey][6] = px[ey][9] = 1
+    px[ey + 1][5] = px[ey + 1][10] = 8
+    px[ey + 1][7] = px[ey + 1][8] = 6
+    if frame:
+        for x in (1, 2, 13, 14):
+            px[15][x] = 9
+    return px
+
+
+def make_lily():
+    img = Image.new("P", (32, 16), 0)
+    img.putpalette([c for rgb in LILY_PAL for c in rgb])
+    for f in range(2):
+        for y, row in enumerate(lily_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
+    return img
+
+
 def make_bark():
     return draw_sheet(BARK_SPRITES, BARK_ORDER, BARK_PAL)
 
@@ -2594,7 +2717,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen)):
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

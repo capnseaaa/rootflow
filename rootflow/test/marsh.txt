@@ -1,0 +1,90 @@
+# v0.18: the marsh. From the dev jump LILY JOINED (materials 99, endless charges, invincible):
+# south into the marsh; Lily is blocked while a pipe pours; Pebble breaks the pipes; Lily cleans sludge
+# and grows lily pads (Puddle, then a pad path to Bog's isle); Reedy's reeds (test setup: cut by pokes);
+# back at the tree the three are welcomed.
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=10,$dev_val+4=1,$dev_val+8=1,$dev_val+20=1
+1 1
+1 0
+200 0
+0 0 @$cur_area,$party_count,$lily_step,$spirits+148,$spirits+156
+30 0 m0_gate.ppm
+40 128
+0 0 @$cur_area,$px,$py
+30 0 m1_marsh.ppm
+# test setup: no enemies (this test is about the marsh, not combat)
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0,$enemies+276=0,$enemies+316=0
+# Puddle (3,11): Lily first, while pipe A still pours: refused
+0 0 !$px=44,$py=170,$active=5
+1 16
+1 0
+2 1
+20 0
+0 0 @$maps+5476
+30 0 m2_pipe_blocks.ppm
+# Pebble breaks pipe A (9,6) from above
+0 0 !$px=140,$py=74,$active=2
+1 128
+1 0
+2 1
+20 0
+0 0 @$maps+5320
+# Lily cleans the sludge beside Puddle: the rescue plays
+0 0 !$px=44,$py=170,$active=5
+1 16
+1 0
+2 1
+20 0
+30 0 m3_clean.ppm
+0 0 @$maps+5476
+1200 0
+0 0 @$leafen_state+8
+# Bog (16,25): Pebble breaks pipe C (12,21) from above
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0,$enemies+276=0,$enemies+316=0
+0 0 !$px=188,$py=314,$active=2
+1 128
+1 0
+2 1
+20 0
+0 0 @$maps+5804
+# Lily: clean, pad, step on, pad, step on, clean, pad: a path of lily pads to his isle
+0 0 !$px=252,$py=330,$active=5
+1 128
+1 0
+2 1
+20 0
+2 1
+20 0
+0 0 !$px=252,$py=346
+1 128
+1 0
+2 1
+20 0
+0 0 !$px=252,$py=362
+1 128
+1 0
+2 1
+20 0
+2 1
+20 0
+30 0 m4_pads.ppm
+0 0 @$maps+5840,$maps+5872,$maps+5904
+1200 0
+0 0 @$leafen_state+4,$leafen_state+8
+# Reedy (27,27): (test setup) its ring of reeds cut by pokes (YOU cuts reeds one at a time)
+0 0 !$maps+5976=0,$maps+5980=0,$maps+6008=0,$maps+6012=0,$maps+6040=0,$maps+6044=0
+0 0 !$px=412,$py=458
+30 0
+1200 0
+0 0 @$leafen_state+4,$leafen_state+8
+# home: north to the tree; the welcome
+0 0 !$px=240,$py=4
+40 64
+0 0 @$cur_area
+1500 0 m5_home.ppm
+0 0 @$leafen_state+4,$leafen_state+8,$welcome_step

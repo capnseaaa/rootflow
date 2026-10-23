@@ -20,6 +20,7 @@ TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 75)
 TRUNK_GRASS = 75
 MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND = range(76, 82)
 ROCK_GRASS = 82
+SLUDGE, LILY_PAD, REEDS, VAEL_PIPE = range(83, 87)   # v0.18 the drowned marsh
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -40,8 +41,12 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
-VALLEY, EAST, SOUTH, WEST, HOLLOW_IN = 0, 1, 2, 3, 4
-NUM_AREAS = 5                      # 4: the hollow inside the Great Tree (v0.16)
+VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH = 0, 1, 2, 3, 4, 5
+NUM_AREAS = 6                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18)
+# v0.18 the drowned marsh, south-west: in from the Great Tree region's south edge (these columns)
+MARSH_GATE_COLS = (14, 15, 16, 17)
+MARSH_PIPES = [(9, 6), (24, 9), (12, 21)]          # Vael pipes, each on the edge of its sludge pool
+MARSH_LEAFEN = [(16, 25), (27, 27), (3, 11)]       # Bog (sludge island), Reedy (in reeds), Puddle (by sludge)
 WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31 (opens when Bark joins)
 # The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
 # Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
@@ -500,6 +505,57 @@ def make_west():
     return m
 
 
+def make_marsh():
+    """The drowned marsh: muddy ground with dead reeds, three pools of Vael sludge fed by pipes, a small
+    clean pond by the way in, and three Leafen in trouble. Walkways are kept open between them."""
+    rng = random.Random(6060)
+    m = scatter(rng, crack=0.35, tree=0.03, rock=0.02)
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            if m[y][x] in (DEAD, DEAD_CRACK) and rng.random() < 0.08:
+                m[y][x] = REEDS
+    def blob(cx, cy, rx, ry, tile):
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
+                if d < 1 - 0.25 * ((x * 7 + y * 13) % 5) / 5:
+                    m[y][x] = tile
+    blob(8, 9.5, 4.6, 3.2, SLUDGE)                  # pool A (Puddle's)
+    blob(24, 13, 4.8, 3.6, SLUDGE)                  # pool B
+    blob(15.5, 25, 6.5, 3.8, SLUDGE)                # pool C, round Bog's island
+    blob(21, 4, 2.4, 1.6, WATER)                    # a clean pond by the way in
+    def clear(x0, y0, x1, y1):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                if m[y][x] not in (SLUDGE, WATER):
+                    m[y][x] = DEAD if (x + y) % 3 else DEAD_CRACK
+    clear(12, 0, 19, 3)                             # the way in from the Great Tree
+    for (x0, y0, x1, y1) in ((15, 0, 16, 31), (1, 18, 30, 19), (2, 4, 3, 30), (28, 4, 29, 30), (2, 4, 29, 5),
+                             (2, 30, 29, 30)):
+        clear(x0, y0, x1, y1)                       # walkways round and through the marsh
+    for (px_, py_) in MARSH_PIPES:
+        m[py_][px_] = VAEL_PIPE
+    bx, by = MARSH_LEAFEN[0]                         # Bog: on a mud island in pool C
+    for y in range(by - 1, by + 2):
+        for x in range(bx - 1, bx + 2):
+            m[y][x] = SLUDGE
+    m[by][bx] = DEAD
+    rx, ry = MARSH_LEAFEN[1]                         # Reedy: tangled in a ring of reeds
+    for y in range(ry - 2, ry + 3):
+        for x in range(rx - 2, rx + 3):
+            if 0 <= x < MAP_W and 0 <= y < MAP_H:
+                m[y][x] = DEAD
+    for y in range(ry - 1, ry + 2):
+        for x in range(rx - 1, rx + 2):
+            if (x, y) != (rx, ry):
+                m[y][x] = REEDS
+    qx, qy = MARSH_LEAFEN[2]                         # Puddle: on the mud by pool A, sludge right beside
+    m[qy][qx] = DEAD
+    m[qy][qx + 1] = SLUDGE
+    m[qy][qx - 1] = DEAD
+    return m
+
+
 def make_hollow_in():
     """The hollow inside the Great Tree: floor (walkable, never grows) inside the chamber and its
     corridor, solid elsewhere. The room itself is drawn by art/hollow.png on the trunk's layer."""
@@ -556,7 +612,7 @@ TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 def make_maps():
-    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in()]
+    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh()]
     return [v for m in maps for row in m for v in row]
 
 
@@ -613,7 +669,8 @@ def main():
     combat = Image.open(os.path.join(ART, "combat_sprite.png"))
     boss = Image.open(os.path.join(ART, "boss_sprite.png"))
     leafen = Image.open(os.path.join(ART, "leafen_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen):
+    lily = Image.open(os.path.join(ART, "lily_sprite.png"))
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -621,7 +678,7 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -678,6 +735,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_combat", palette_of(combat), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_boss", palette_of(boss), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")

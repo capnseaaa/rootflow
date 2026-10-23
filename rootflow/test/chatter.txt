@@ -9,7 +9,7 @@
 1 1
 1 0
 200 0
-0 0 !$leafen_state=67372036,$leafen_state+4=1028
+0 0 !$leafen_state=67372036,$leafen_state+4=1028,$lily_step=11
 # a walker of Mossy's group, by the pool swimmers, then again
 0 0 !$px=44,$py=378,$active=4
 60 0

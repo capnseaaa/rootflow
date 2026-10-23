@@ -1,0 +1,5 @@
+# v0.18: a v0.17 save loads: no Lily yet, a fresh marsh, the marsh Leafen waiting
+10 0
+1 8
+60 0
+0 0 @$tree_alive,$cur_area,$party_count,$spirits+148,$spirits+152,$lily_step,$leafen_state+4,$leafen_state+8,$restorable+20,$maps+5476
