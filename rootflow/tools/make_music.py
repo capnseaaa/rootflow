@@ -66,8 +66,32 @@ SONGS = {
             A2 8  F2 8  G2 8  A2 8
         """,
     },
+    # The Great Tree waking (v0.16.6): slow and glowing, F lydian rising into G.
+    "awaken": {
+        "frames_per_step": 20,
+        "melody": """
+            F4 2 A4 2 C5 2 E5 2  D5 4 C5 4  G4 2 B4 2 D5 2 F#5 2  E5 8
+            F4 2 A4 2 C5 2 E5 2  G5 4 F#5 2 E5 2  D5 2 E5 2 F#5 2 A5 2  G5 8
+        """,
+        "bass": """
+            F2 8  C3 8  G2 8  C3 8
+            F2 8  E3 8  D3 8  G2 8
+        """,
+    },
+    # The Great Tree healed (v0.16.6): warm and broad, G major, Bark at home.
+    "greattree": {
+        "frames_per_step": 16,
+        "melody": """
+            G4 2 B4 2 D5 4  E5 2 D5 2 B4 4  C5 2 E5 2 G5 2 E5 2  D5 8
+            G4 2 B4 2 D5 4  G5 2 F#5 2 E5 4  C5 2 A4 2 B4 2 A4 2  G4 6 r 2
+        """,
+        "bass": """
+            G2 4 D3 4  E2 4 B2 4  C3 4 G2 4  D3 8
+            G2 4 D3 4  E2 4 C3 4  A2 4 D3 4  G2 8
+        """,
+    },
 }
-SONG_ORDER = ["title", "valley", "steppe", "hollow"]
+SONG_ORDER = ["title", "valley", "steppe", "hollow", "awaken", "greattree"]
 
 NOTE_INDEX = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 

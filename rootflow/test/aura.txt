@@ -1,0 +1,15 @@
+# v0.16.6: YOU chosen: three leaves circle the wizard's feet (a1, a2)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=240,$py=440,$active=4
+30 0 a1.ppm
+0 0 !$py=444
+9 0 a2.ppm

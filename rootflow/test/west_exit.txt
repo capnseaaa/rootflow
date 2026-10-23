@@ -1,0 +1,17 @@
+# v0.16.6: after the whole revival, walking east at the gate leaves the healed west for the valley
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=8
+1 1
+1 0
+20 0
+0 0 @$cur_area,$revive_step,$boss+36,$tree_alive
+9000 0
+0 0 @$cur_area,$revive_step,$tree_alive,$party_count,$active
+0 0 !$px=494,$py=202
+60 16
+0 0 @$cur_area,$px,$py

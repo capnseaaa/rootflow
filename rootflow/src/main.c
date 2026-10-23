@@ -365,14 +365,12 @@ static void clear_row(s32 row) {
 
 static u32 msg_timer;
 static u32 msg_is_prompt;   // the message on screen is a repeating prompt (see prompt())
+// v0.16.6 (Caleb): the box spans the whole screen and the line sits in its middle.
 static void show_message(const char *s) {
     msg_is_prompt = 0;
-    clear_row(19);
     s32 n = 0; while (s[n]) n++;
-    s32 col = (30 - n - 2) / 2;
-    put_text(col, 19, " ");
-    put_text(col + 1, 19, s);
-    put_text(col + 1 + n, 19, " ");
+    for (s32 c = 0; c < 30; c++) SCREENBLOCK(TEXT_SB)[19 * 32 + c] = glyph_entry(' ');
+    put_text((30 - n) / 2, 19, s);
     msg_timer = 150;
 }
 
@@ -731,7 +729,7 @@ static void unstick_player(void) {
 // Once the Great Tree is healed, Bark lives in it and his slot is the wizard's own: "YOU".
 static int is_you(s32 kind) { return kind == KIND_BARK && tree_alive; }
 static void draw_active(void) {
-    for (s32 c = 16; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = 0;
+    for (s32 c = 16; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' ');   // the bar spans the screen
     if (party_count == 0) return;
     Spirit *s = &spirits[party[active]];
     const char *n = is_you(s->kind) ? "YOU" : spirit_name[s->kind];
@@ -878,6 +876,15 @@ static int player_on_tile(s32 mx, s32 my) {
            (py + 10) >> 4 <= my && my <= (py + 15) >> 4;
 }
 
+// The Great Tree region's way back east (x 24..31, rows 12..14): kept free of trees.
+static int in_west_gate(s32 mx, s32 my) { return work_area == WEST && mx >= 24 && my >= 12 && my <= 14; }
+static void clear_west_gate(void) {
+    for (s32 y = 12; y <= 14; y++)
+        for (s32 x = 24; x < MAP_W; x++) {
+            u8 *c = &maps[WEST][y * MAP_W + x];
+            if (*c == TREE || *c == DEAD_TREE || *c == STUMP || *c == STUMP_GRASS) *c = tree_alive ? GRASS : DEAD;
+        }
+}
 static void grow_tile(s32 mx, s32 my, int edge) {
     if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return;
     u8 t = tile_at(mx, my);
@@ -896,6 +903,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
     u32 r = rng() % 100;
     u8 nt = r < 55 ? GRASS : r < 80 ? GRASS_TUFT : r < 95 ? FLOWERS : TREE;
     if (nt == TREE && here && player_on_tile(mx, my)) nt = FLOWERS;
+    if (nt == TREE && in_west_gate(mx, my)) nt = FLOWERS;   // never close the way back to the valley
     set_tile(mx, my, nt);
 }
 
@@ -943,9 +951,11 @@ static const signed char area_south[NUM_AREAS] = { 2, -1, -1, -1, -1 }, area_nor
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
                                             "INSIDE THE GREAT TREE" };
 // Each area's tune (the Great Tree's two use Stone Hollow's quiet one until the tree is healed).
+static u32 revive_music, revive_slow;   // the revival's own song; its middle lines stay up longer
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_HOLLOW, SONG_HOLLOW };
-    return a == WEST && tree_alive ? SONG_VALLEY : song_of[a];
+    if (revive_music) return SONG_AWAKEN;                 // the Great Tree waking (v0.16.6)
+    return a == WEST && tree_alive ? SONG_GREATTREE : song_of[a];
 }
 
 // Walk into area a, standing at (nx, ny). Fails (returns 0) if that spot is blocked.
@@ -1381,7 +1391,7 @@ static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS; i++)
-        SCREENBLOCK(TEXT_SB)[11 + i] = in_combat_area() ? glyph_entry((u32)i < hearts_now ? '*' : '@') : 0;
+        SCREENBLOCK(TEXT_SB)[11 + i] = glyph_entry(in_combat_area() ? ((u32)i < hearts_now ? '*' : '@') : ' ');
 }
 
 // Enemies: blobs creep after you, drones dart at you through the air.
@@ -2057,7 +2067,14 @@ static void draw_combat(void) {
         o[1] = (shx & 0x1FF) | (2 << 14);
         o[2] = (TILE_BOSS + 10 * 16) | (1 << 10) | (PAL_SHIELD << 12);
     } else sprite_hide(OAM_SHIELD);
+    int aura = !leaf_timer && party_count && is_you(spirits[party[active]].kind);   // v0.16.6: YOU is chosen
     for (s32 k = 0; k < 6; k++) {                    // leaves swirl round the wizard (Bark's gift)
+        if (aura && k < 3) {                         // three small leaves circle him while YOU is chosen
+            u32 a = ((frame >> 1) + k * 16) % 48;
+            s32 lx = px - cam_x + ((s32)loop_x48[a] * 9 >> 4), ly = py - cam_y + 4 + ((s32)loop_y48[a] * 5 >> 4);   // round his feet
+            sprite_set(OAM_LEAF + k, lx, ly, SPR_COMBAT + C_LEAF, (a >> 4) & 1, PAL_COMBAT);
+            continue;
+        }
         if (!leaf_timer) { sprite_hide(OAM_LEAF + k); continue; }
         u32 a = ((leaf_timer >> 1) + k * 8) & 47;
         s32 ox = float_on == 1 ? float_x : px, oy = float_on == 1 ? float_y - float_h : py;   // round Bark, or you
@@ -2730,6 +2747,7 @@ static void revive_world(void) {
         for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = TRUNK_BLOCK;
     for (s32 i = 0; i < MAP_W * MAP_H; i++)                   // the trunk stands on grass now
         if (m[i] == TRUNK_BLOCK) m[i] = TRUNK_GRASS;
+    clear_west_gate();
 }
 
 // Gloomheart beaten (v0.16.2, Caleb's scene): inside the tree it shakes; Bark floats up among green
@@ -2754,7 +2772,8 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "BARK: NOW. MY FRIENDS," }, { RV_SAY, "THE LEAFEN. TINY SPROUT FOLK." },
     { RV_SAY, "CHEERY. NOT VERY BRIGHT." }, { RV_SAY, "VAEL TOOK THEM AWAY." },
     { RV_SAY, "A FEW GOT LOOSE. THEY HIDE" }, { RV_SAY, "IN THE VALLEY, THE STEPPE," },
-    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "SOME MIGHT NEED PERSUADING." },
+    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "THEY'RE EVERYWHERE, REALLY." },
+    { RV_SAY, "THEY WANDER. SEARCH THE" }, { RV_SAY, "FAR CORNERS, TOO." }, { RV_SAY, "SOME MIGHT NEED PERSUADING." },
     { RV_SAY, "THE REST ARE LOCKED UP IN" },
     { RV_SAY, "VAEL'S FACTORY, FAR NORTH." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
 };
@@ -2821,7 +2840,10 @@ static void update_revive(void) {
     const char *m = revive_scene[revive_step - 1].msg;
     revive_step++;
     revive_wait = 20;
-    if (act == RV_SHAKE) { shake_timer = 2000; sfx_play(SFX_ROCK); }   // until the light comes
+    if (act == RV_SHAKE) {                           // until the light comes
+        shake_timer = 2000; sfx_play(SFX_ROCK);
+        revive_music = 1; revive_slow = 1; music_play(SONG_AWAKEN);
+    }
     if (act == RV_FLOAT) {
         Spirit *b = &spirits[KIND_BARK];
         float_on = 1; float_x = b->x; float_y = b->y; float_h = 0; float_up = 0;
@@ -2855,9 +2877,12 @@ static void update_revive(void) {
         revive_wait = 60;
     }
     if (act == RV_UNFADE) { shake_timer = 2000; sfx_play(SFX_ROCK); white_slow = 1; white_mode = 3; white_t = 0; revive_wait = 0; }
-    if (act == RV_STILL) { shake_timer = 0; sfx_play(SFX_WAKE); revive_wait = 30; }
+    if (act == RV_STILL) {
+        shake_timer = 0; sfx_play(SFX_WAKE); revive_wait = 30;
+        revive_music = 0; revive_slow = 0; music_play(area_song(WEST));   // the healed tree's own song
+    }
     if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
-    if (m) show_message(m);
+    if (m) { show_message(m); if (revive_slow) msg_timer = 240; }   // Caleb: these went by too fast
 }
 
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
@@ -3104,6 +3129,7 @@ static int load_game(void) {
     }
     if (tree_alive)                                       // saves from before v0.16.3: green at the trunk's foot
         for (s32 i = 0; i < MAP_W * MAP_H; i++) if (maps[WEST][i] == TRUNK_BLOCK) maps[WEST][i] = TRUNK_GRASS;
+    clear_west_gate();                                    // saves from before v0.16.6: a tree may block the way out
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
     for (s32 k = 0; k < NUM_HOMES; k++)

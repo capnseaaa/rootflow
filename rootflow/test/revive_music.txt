@@ -1,0 +1,52 @@
+# v0.16.6: the song through the revival (hollow, awaken from the shake, greattree once it stops)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=8
+1 1
+1 0
+20 0
+0 0 @$cur_area,$revive_step,$boss+36,$tree_alive
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
+250 0 @$revive_step,$song,$cur_area,$white_mode,$msg_timer
