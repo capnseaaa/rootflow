@@ -74,6 +74,8 @@ META = ["dead", "dead_crack", "dirt", "grass", "grass_tuft", "flowers",
 # (the trunk itself is drawn on its own layer, art/tree_trunk.png; under it the map has solid ground)
 META += ["trunk_block", "root_tip_dead", "root_tip_alive", "clamp", "dry_pool"]
 META += ["trunk_grass"]   # v0.16.3: the healed trunk's solid cells look like grass (its base)
+# v0.17: the Leafen's gifts, six small things to build (on grass)
+META += ["mush_lamp", "leaf_swing", "acorn_bench", "flower_arch", "pebble_path", "dew_pond"]
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -516,6 +518,91 @@ def lantern(rng):
     return px
 
 
+def mush_lamp(rng):
+    """Dewdrop's gift: a glowing mushroom lamp (BG colors: 14 cream, 13 orange, 15 outline, 12 trunk)."""
+    px = grass(rng)
+    for y in range(9, 15):
+        px[y][7] = px[y][8] = 14
+        px[y][6] = px[y][9] = 15
+    for y in range(3, 9):
+        for x in range(2, 14):
+            d = ((x - 7.5) / 6) ** 2 + ((y - 8.5) / 5.5) ** 2
+            if d < 1:
+                px[y][x] = 15 if d > 0.75 or y == 8 else 13
+    px[5][5] = px[6][10] = px[4][8] = 14
+    px[14][6] = px[14][9] = 15
+    return px
+
+
+def leaf_swing(rng):
+    """Twig's gift: a leaf hanging on two vines from a little bar."""
+    px = grass(rng)
+    for x in range(2, 14):
+        px[2][x] = 15; px[3][x] = 12
+    for y in range(4, 10):
+        px[y][4] = px[y][11] = 6
+    for x in range(3, 13):                            # the leaf seat, light with a pale vein
+        px[10][x] = 15; px[11][x] = 14 if x in (5, 8, 11) else 8; px[12][x] = 15
+    px[11][3] = px[11][12] = 15
+    for y in range(3, 15):
+        px[y][2] = px[y][13] = 15
+    return px
+
+
+def acorn_bench(rng):
+    """Mossy's gift: a bench cut from a big acorn."""
+    px = grass(rng)
+    for y in range(7, 14):
+        for x in range(2, 14):
+            d = ((x - 7.5) / 6) ** 2 + ((y - 13) / 6) ** 2
+            if d < 1 and y < 13:
+                px[y][x] = 15 if d > 0.8 or y == 12 else 5 if y < 10 else 4
+    for x in range(3, 13):
+        px[6][x] = 15 if x in (3, 12) else 12
+        px[5][x] = 15
+    px[13][4] = px[13][11] = 15
+    return px
+
+
+def flower_arch(rng):
+    """Posy's gift: an arch of flowers."""
+    px = grass(rng)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 6.5) ** 2 + ((y - 15) / 12.5) ** 2
+            if 0.62 < d < 1:
+                px[y][x] = 6 if (x * 3 + y) % 4 else 13
+    for (x, y) in ((4, 5), (11, 5), (7, 2), (2, 10), (13, 10)):
+        px[y][x] = 14
+    return px
+
+
+def pebble_path(rng):
+    """Nub's gift: round stepping pebbles set in the grass (walkable, quick like a path)."""
+    px = grass(rng)
+    for cx, cy in ((4, 4), (11, 6), (5, 11), (11, 13)):
+        for y in range(16):
+            for x in range(16):
+                d = ((x - cx) / 3) ** 2 + ((y - cy) / 2.3) ** 2
+                if d < 1:
+                    px[y][x] = 15 if d > 0.7 else 14 if y < cy else 3
+    return px
+
+
+def dew_pond(rng):
+    """Pip's gift: a tiny pond in a ring of stones, with a lily pad."""
+    px = grass(rng)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 6.5) ** 2 + ((y - 8.5) / 5.5) ** 2
+            if d < 1:
+                px[y][x] = 3 if d > 0.72 else 15 if d > 0.6 else 10 if (x + y) % 5 else 11
+    for (x, y) in ((6, 8), (7, 8), (6, 9), (7, 9), (8, 9)):
+        px[y][x] = 7
+    px[8][8] = 6
+    return px
+
+
 def bench(rng):
     """A wooden bench for resting."""
     px = grass(rng)
@@ -934,6 +1021,7 @@ def make_terrain():
               wreck(rng, ground=grass)]
     tiles += [dead(rng), root_tip(rng, False), root_tip(rng, True), dead(rng), dry_pool(rng)]   # clamp: a sprite
     tiles += [grass(rng, tufts=0)]
+    tiles += [mush_lamp(rng), leaf_swing(rng), acorn_bench(rng), flower_arch(rng), pebble_path(rng), dew_pond(rng)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -1939,6 +2027,30 @@ COMBAT_PAL = [
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
                 "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint"]
+# v0.17 the Leafen: five looks (two-leaf sprout, tall leaf, flower bud, acorn cap, dewdrop), each standing,
+# stepping, swimming and climbing; six tiny homes; the shiny pebble. All in the combat palette (OBJ bank 12).
+LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]
+LEAFEN_POSES = ["stand", "step", "swim", "climb"]
+LEAFEN_HOMES = ["mushroom", "tent", "acornhut", "pot", "pebblehut", "dewhut"]
+LEAFEN_ORDER = [f"lf_{l}_{p}" for l in LEAFEN_LOOKS for p in LEAFEN_POSES] + [f"lh_{h}" for h in LEAFEN_HOMES] + ["shiny"]
+LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
+    (255, 0, 255),    # 0 clear
+    (34, 46, 30),     # 1 outline
+    (68, 148, 72),    # 2 body shade
+    (124, 210, 104),  # 3 body
+    (204, 242, 168),  # 4 face
+    (24, 28, 24),     # 5 eyes
+    (255, 255, 255),  # 6 white
+    (244, 146, 160),  # 7 blush, mushroom cap
+    (46, 126, 54),    # 8 leaf dark
+    (164, 232, 92),   # 9 leaf light
+    (112, 72, 42),    # 10 wood dark
+    (180, 128, 76),   # 11 wood light
+    (252, 220, 84),   # 12 yellow
+    (128, 196, 246),  # 13 water light
+    (56, 114, 198),   # 14 water dark
+    (158, 152, 142),  # 15 stone
+]
 
 
 def _canvas(n=16):
@@ -2053,6 +2165,162 @@ def combat_cell(name):
                 px[8 + k][7 + k] = 6 if abs(k) < 2 else 9
                 px[8 - k][7 + k] = 6 if abs(k) < 2 else 9
     return px
+
+
+def leafen_cell(name):
+    px = _canvas()
+    if name.startswith("lf_"):
+        _, look, pose = name.split("_")
+        leafen(px, look, pose)
+    elif name.startswith("lh_"):
+        leafen_home(px, name[3:])
+    else:                                      # Dewdrop's shiny pebble, glinting
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) / 4.2) ** 2 + ((y - 11) / 3.2) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.72 else 6 if x + y < 15 else 13 if x + y < 19 else 15
+        for k in (-2, -1, 1, 2):
+            px[4][11 + k] = 12
+            px[4 + k][11] = 12
+        px[4][11] = 6
+    return px
+
+
+def leafen(px, look, pose):
+    """A Leafen (redrawn small and cute at Caleb's ask): about 11 px tall, a big round head with a pale
+    face, big eyes with a shine, pink cheeks, a tiny body, and its look on top."""
+    swim, climb = pose == "swim", pose == "climb"
+    bob = 1 if pose == "step" else 0
+    hy = (11 if swim else 9) - bob                    # head center
+    if not swim:                                      # tiny body and feet
+        for y in (hy + 4, hy + 5):
+            for x in range(6, 10):
+                px[y][x] = 1 if x in (6, 9) else 3 if x == 7 else 2
+        if pose == "step":
+            px[15][5] = px[15][10] = 1
+        else:
+            px[15][6] = px[15][9] = 1
+        if climb:                                     # arms up, holding on
+            for y in (hy - 1, hy):
+                px[y][3] = px[y][12] = 3
+            px[hy - 2][3] = px[hy - 2][12] = 1
+        else:
+            px[hy + 4][5] = px[hy + 4][10] = 3      # little arms
+    for y in range(16):                               # the head
+        for x in range(16):
+            d = ((x - 7.5) / 4.6) ** 2 + ((y - hy) / 3.7) ** 2
+            if d < 1:
+                px[y][x] = 1 if d > 0.7 else 2 if (x >= 10 and y >= hy) else 3
+    if not climb:
+        for y in range(16):                           # a pale face
+            for x in range(16):
+                if ((x - 7.5) / 3.0) ** 2 + ((y - hy - 0.8) / 2.0) ** 2 < 1:
+                    px[y][x] = 4
+        for ex in (6, 9):                             # eyes: dark with a white shine on top
+            px[hy][ex] = 6
+            px[hy + 1][ex] = 5
+        px[hy + 2][5] = px[hy + 2][10] = 7           # cheeks
+        px[hy + 2][7] = px[hy + 2][8] = 2            # a small smile
+    top = hy - 4
+    if look == "sprout":                              # two round leaves on a stem
+        px[top][7] = px[top][8] = 8
+        px[top - 1][6] = px[top - 1][9] = 9; px[top - 1][5] = px[top - 1][10] = 9
+        px[top - 2][5] = px[top - 2][10] = 9; px[top - 2][4] = px[top - 2][11] = 8
+    elif look == "leaf":                              # one tall leaf
+        px[top][7] = 8
+        for y, xs in ((top - 1, (7, 8)), (top - 2, (7, 8, 9)), (top - 3, (8, 9))):
+            for x in xs:
+                px[y][x] = 9
+        px[top - 2][9] = 8
+    elif look == "bud":                               # a yellow flower
+        px[top][7] = 8
+        px[top - 2][7] = 6
+        for (x, y) in ((6, top - 2), (8, top - 2), (7, top - 1), (7, top - 3)):
+            px[y][x] = 12
+    elif look == "acorn":                             # an acorn cap with a stalk
+        for x in range(4, 12):
+            px[top + 1][x] = 10
+        for x in range(5, 11):
+            px[top][x] = 11
+        px[top - 1][8] = 10
+    else:                                             # dew: a little drop
+        px[top - 2][7] = 13
+        px[top - 1][6] = 13; px[top - 1][7] = 6; px[top - 1][8] = 14
+        px[top][7] = 14
+    if swim:                                          # ripples round the swimmer
+        for x in range(2, 14):
+            px[14][x] = 6 if x % 3 else 13
+            px[15][x] = 13 if x % 2 else 14
+
+
+def leafen_home(px, kind):
+    """A tiny Leafen home, smaller than a map tile: it sits at the bottom of a 16x16 cell."""
+    def box(x0, y0, x1, y1, c, edge=1):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                px[y][x] = edge if x in (x0, x1) or y in (y0, y1) else c
+    def door(x, y):
+        px[y][x] = px[y][x + 1] = px[y + 1][x] = px[y + 1][x + 1] = 1
+    if kind == "mushroom":                            # a pink cap with white spots on a pale stem
+        box(5, 9, 10, 15, 4)
+        door(7, 13)
+        for y in range(3, 10):
+            for x in range(2, 14):
+                d = ((x - 7.5) / 6) ** 2 + ((y - 9) / 6) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.78 or y == 9 else 7
+        px[5][6] = px[6][10] = px[7][4] = 6
+    elif kind == "tent":                              # a leaf folded into a tent
+        for y in range(4, 16):
+            w = (y - 4) // 2 + 1
+            for x in range(8 - w, 8 + w):
+                px[y][x] = 1 if x in (8 - w, 8 + w - 1) or y == 15 else 9 if x < 8 else 8
+        for y in range(11, 15):
+            px[y][7] = px[y][8] = 1
+    elif kind == "acornhut":                          # an acorn with a round door
+        for y in range(6, 16):
+            for x in range(3, 13):
+                d = ((x - 7.5) / 5) ** 2 + ((y - 11) / 5) ** 2
+                if d < 1:
+                    px[y][x] = 1 if d > 0.75 else 11
+        box(3, 5, 12, 7, 10)
+        px[4][7] = px[4][8] = 10
+        door(7, 12)
+    elif kind == "pot":                               # a flower pot with a flower roof
+        box(4, 10, 11, 15, 11)
+        for x in range(5, 11):
+            px[11][x] = 10
+        for (x, y) in ((7, 4), (6, 5), (8, 5), (7, 6), (5, 4), (9, 4), (7, 3)):
+            px[y][x] = 12
+        px[5][7] = 6
+        for y in range(7, 10):
+            px[y][7] = 8
+        door(7, 13)
+    elif kind == "pebblehut":                         # stacked pebbles with moss
+        box(4, 9, 11, 15, 15)
+        box(5, 5, 10, 9, 15)
+        px[5][6] = px[5][7] = px[9][5] = px[9][10] = 9
+        door(7, 13)
+    else:                                             # dewhut: a water-drop dome
+        for y in range(3, 16):
+            for x in range(3, 13):
+                w = min(5.0, (y - 2) * 0.7)
+                if abs(x - 7.5) < w:
+                    edge = abs(x - 7.5) > w - 1.2 or y == 15
+                    px[y][x] = 1 if edge else 13 if x < 8 else 14
+        px[6][7] = px[7][6] = 6
+        door(7, 13)
+
+
+def make_leafen():
+    img = Image.new("P", (16 * len(LEAFEN_ORDER), 16), 0)
+    img.putpalette([c for rgb in LEAFEN_PAL for c in rgb])
+    for i, name in enumerate(LEAFEN_ORDER):
+        for y, row in enumerate(leafen_cell(name)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * i + x, y), c)
+    return img
 
 
 def make_combat():
@@ -2313,7 +2581,8 @@ def main():
                      ("canopy.png", make_canopy), ("tree_trunk.png", make_trunk),
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
-                     ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves)):
+                     ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
+                     ("leafen_sprite.png", make_leafen)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

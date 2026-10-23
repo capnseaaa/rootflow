@@ -1,0 +1,129 @@
+# v0.17: the Leafen. From the dev jump TREE HEALED (materials 99, endless charges, no pumps, invincible):
+# all six rescues with the real powers where it is quick, pokes where it would take long (noted),
+# the welcome at the tree with its three skills, the village, LEAF STEP and SEEDFALL.
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9,$dev_val+4=1,$dev_val+8=1,$dev_val+12=1,$dev_val+20=1
+1 1
+1 0
+200 0
+0 0 @$leafen_init,$leafen_state,$leafen_state+4,$pip_cell
+# out east to the valley
+0 0 !$px=494,$py=202
+40 16
+0 0 @$cur_area,$px,$py
+# Pip: Ripple bridges the pond next to the lily pad; Pip notices and the rescue plays
+0 0 !$px=128,$py=388,$active=1
+1 16
+1 0
+30 0 lf_pip0.ppm
+2 1
+40 0 lf_pip1.ppm
+0 0 @$lf_scene,$leafen_state
+200 0 lf_pip2.ppm
+200 0 lf_pip3.ppm
+300 0 lf_pip4.ppm
+300 0
+0 0 @$lf_scene,$leafen_state
+# Mossy: A with 3 fruit (materials 99)
+0 0 !$px=392,$py=340,$active=4
+1 16
+1 0
+10 0
+2 1
+30 0 lf_mossy.ppm
+1200 0
+0 0 @$lf_scene,$leafen_state
+# the shiny pebble, then out east to the steppe
+0 0 !$px=40,$py=228
+1 32
+20 0
+0 0 @$has_shiny
+0 0 !$px=494,$py=308
+40 16
+0 0 @$cur_area
+# Twig: (test setup) the thorn ring cleared by pokes (Breeze would need eight gusts)
+0 0 !$maps+1636=17,$maps+1668=17,$maps+1700=17
+0 0 @$maps+1636,$maps+1668,$maps+1700
+0 0 !$px=72,$py=308
+30 0 lf_twig.ppm
+1200 0
+0 0 @$lf_scene,$leafen_state
+# Posy: (test setup) four flowers round her by pokes (blooms are random)
+0 0 !$maps+1904=85004561,$maps+1908=286328069,$maps+1936=85004561
+0 0 !$px=296,$py=436
+30 0 lf_posy.ppm
+1200 0
+0 0 @$lf_scene,$leafen_state
+# back to the valley and south to Stone Hollow
+0 0 !$px=2,$py=308
+40 32
+0 0 @$cur_area
+0 0 !$px=232,$py=494
+40 128
+0 0 @$cur_area
+# Nub: Pebble breaks the rock pile from three sides
+0 0 !$px=248,$py=84,$active=2
+1 64
+1 0
+2 1
+30 0
+0 0 !$px=216,$py=52
+1 16
+1 0
+2 1
+30 0
+0 0 !$px=280,$py=52
+1 32
+1 0
+2 1
+30 0 lf_nub.ppm
+1200 0
+0 0 @$lf_scene,$leafen_state
+# Dewdrop: A with the shiny pebble
+0 0 !$px=424,$py=340
+1 16
+1 0
+10 0
+2 1
+30 0 lf_dew.ppm
+1200 0
+0 0 @$lf_scene,$leafen_state,$leafen_state+4,$has_shiny,$fruit
+# home: north to the valley, west to the Great Tree; the welcome and the skills
+0 0 !$px=232,$py=2
+40 64
+0 0 @$cur_area
+0 0 !$px=2,$py=202
+40 32
+0 0 @$cur_area
+200 0 lf_welcome0.ppm
+600 0 lf_welcome1.ppm
+1500 0
+0 0 @$welcome_step,$leafen_state,$leafen_state+4
+# the village (Leafen walking, swimming in the root pool, climbing Bark)
+0 0 !$px=240,$py=440
+60 0 lf_village0.ppm
+0 0 !$px=80,$py=420
+60 0 lf_village1.ppm
+0 0 !$px=420,$py=420
+60 0 lf_village2.ppm
+0 0 !$px=248,$py=330
+60 0 lf_village3.ppm
+# LEAF STEP: back in the valley, YOU walks over dead ground; SEEDFALL: A on dead ground
+0 0 !$px=494,$py=202
+40 16
+0 0 @$cur_area
+0 0 !$px=200,$py=140,$active=4
+0 0 @$maps+300,$maps+304
+30 16
+0 0 @$maps+300,$maps+304
+0 0 !$px=200,$py=180
+1 128
+1 0
+2 1
+60 0 lf_seedfall.ppm
+0 0 @$blooms+20,$blooms+12,$blooms,$blooms+4

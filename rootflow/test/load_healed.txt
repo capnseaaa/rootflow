@@ -1,0 +1,5 @@
+# v0.17: a save from before the Leafen loads; the Leafen are set up on load
+10 0
+1 8
+60 0
+0 0 @$tree_alive,$cur_area,$leafen_init,$leafen_state,$leafen_state+4,$pip_cell,$maps+1636,$maps+1668,$maps+2112

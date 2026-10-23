@@ -1,0 +1,28 @@
+# make a save at TREE HEALED (any version)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+2 8
+5 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 1
+5 0
+2 0
+2 1
+10 0
+2 0
+2 8
+5 0
+0 0 @$tree_alive,$cur_area

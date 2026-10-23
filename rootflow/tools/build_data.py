@@ -18,6 +18,7 @@ STUMP, STUMP_GRASS, CHEST_GRASS, CHEST_OPEN_GRASS, WRECK_GRASS = range(65, 70)
 # and Bark's quest pieces
 TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL = range(70, 75)
 TRUNK_GRASS = 75
+MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND = range(76, 82)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -608,14 +609,16 @@ def main():
     clamp = Image.open(os.path.join(ART, "clamp_sprite.png"))
     combat = Image.open(os.path.join(ART, "combat_sprite.png"))
     boss = Image.open(os.path.join(ART, "boss_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss):
+    leafen = Image.open(os.path.join(ART, "leafen_sprite.png"))
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
     # Sprite VRAM layout in 8x8 tiles; main.c uses these offsets.
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
-              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16)]
+              ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
+              ("LEAFEN", leafen, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -671,12 +674,14 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_clamp", palette_of(clamp), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_combat", palette_of(combat), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_boss", palette_of(boss), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
-    base = terrain.size[0] // 16 * 4             # tree tiles follow the map's tiles in charblock 0
+    # tree tiles follow the map's tiles in charblock 0; the 9 home animation frames are not loaded there
+    base = (terrain.size[0] // 16 - 9) * 4
     out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
     # Tile sets loaded into the same slots by area: the dead tree, the hollow, the living tree.
     for name, files in (("dead", ("tree_trunk.png", "canopy.png")), ("hollow", ("hollow.png",)),

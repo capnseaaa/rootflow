@@ -92,7 +92,8 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // v0.14: solid ground under the Great Tree's trunk (the trunk is its own layer), its roots,
        // and Bark's quest pieces
        TRUNK_BLOCK, ROOT_TIP_DEAD, ROOT_TIP_ALIVE, CLAMP, DRY_POOL,   // CLAMP: solid; a sprite shows it
-       TRUNK_GRASS };   // v0.16.3: the healed trunk's cells, drawn as grass so its foot stands on green
+       TRUNK_GRASS,     // v0.16.3: the healed trunk's cells, drawn as grass so its foot stands on green
+       MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND };   // v0.17: the Leafen's gifts
 static int is_trunk(u8 t) { return t == TRUNK_BLOCK || t == TRUNK_GRASS; }
 static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t == TRUNK_GRASS; }
 #define WEST 3        // the Great Tree's area
@@ -247,9 +248,13 @@ static u8 tile_at(s32 mx, s32 my) {
     return world[my * MAP_W + mx];
 }
 
+// v0.17: the nine home animation frames never sit on the map (they are copied from ROM), so they get no
+// room in video memory; metatiles after them move down nine places there. This left room for the
+// Leafen's gifts next to the Great Tree's art.
+static u32 meta_vram(u32 m) { return m > NOOK2_SPIN ? m - (NOOK2_SPIN + 1 - SPRING1_RING1) : m; }
 static void draw_meta(s32 mx, s32 my) {
     if (work_area != cur_area) return;   // off-screen area: memory only
-    u16 base = world[my * MAP_W + mx] * 4;
+    u16 base = meta_vram(world[my * MAP_W + mx]) * 4;
     for (s32 k = 0; k < 4; k++) {
         s32 tx = mx * 2 + (k & 1);
         s32 ty = my * 2 + (k >> 1);
@@ -270,13 +275,14 @@ static int is_solid(u8 t) {
            t == DAM || t == LEVER || t == LEVER_PULLED || t == LOST_STONE || t == BLOSSOM || t == FOUNTAIN ||
            t == STATUE || t == PINWHEEL || t == VAEL_PUMP || is_home(t) ||
            t == STUMP || t == STUMP_GRASS || t == CHEST_GRASS || t == CHEST_OPEN_GRASS || t == WRECK_GRASS ||
-           is_trunk(t) || t == CLAMP || t == DRY_POOL;   // roots can be walked on
+           is_trunk(t) || t == CLAMP || t == DRY_POOL ||   // roots can be walked on
+           t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND;
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
     return t == PATH || t == FLOWERBED || t == FLOWERBED_EMPTY || t == SAPLING || t == FRUIT_TREE ||
            t == FRUIT_TREE_BARE || t == LANTERN || t == BENCH || t == BLOSSOM || t == FOUNTAIN ||
-           t == STATUE || t == PINWHEEL || is_home(t);
+           t == STATUE || t == PINWHEEL || is_home(t) || (t >= MUSH_LAMP && t <= DEW_POND);
 }
 static int is_alive(u8 t) {
     return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS || is_built(t);
@@ -495,6 +501,10 @@ static void oam_flush(void) {
 #define OAM_RING    66  // 66..81: the dots of its rot ring
 #define OAM_SHADOW  82  // where it will land
 #define OAM_STARS   83  // dazed
+#define OAM_LEAFEN  84  // 84..89: Leafen waiting in this area, or the three of a rescue
+#define OAM_SHINY   90  // Dewdrop's shiny pebble
+#define OAM_FOLK    91  // 91..108: the Leafen living round Bark's tree
+#define OAM_LHOME   109 // 109..120: their tiny homes
 #define PAL_SHIELD  15
 
 // ---------- game state ----------
@@ -571,6 +581,7 @@ static u8 home_done[NUM_SPIRITS];
 static u8 home_level[NUM_SPIRITS];     // 0 = not built, 1, 2
 // Build items (hold SELECT). The last four are quest rewards, shown once unlocked.
 enum { B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH, B_UPGRADE, B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL,
+       B_DEWPOND, B_ACORNBENCH, B_LEAFSWING, B_FLOWERARCH, B_PEBBLEPATH, B_MUSHLAMP,   // v0.17: one per Leafen
        NUM_BUILDS };
 static s32 build_item;                 // the item SELECT-building places
 static s32 cursor_mx = -1, cursor_my, cursor_ok;   // build preview: faced tile (mx -1 = hidden)
@@ -627,7 +638,7 @@ static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim) {
 }
 
 // Copy a 16x16 metatile's graphics into another metatile's slot in VRAM.
-static void set_meta_gfx(u32 slot, u32 src) { copy32(CHARBLOCK(0) + slot * 32, terrain_tiles + src * 32, 32); }
+static void set_meta_gfx(u32 slot, u32 src) { copy32(CHARBLOCK(0) + meta_vram(slot) * 32, terrain_tiles + src * 32, 32); }
 
 // Run every frame: each home whose spirit is inside shows that spirit's animation frame.
 static void animate_homes(void) {
@@ -712,6 +723,21 @@ static u32 tree_step, tree_wait, tree_done;
 static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
 static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
+// ---------- the Leafen (v0.17) ----------
+// Six Leafen hide in the valley, the steppe, and Stone Hollow once the Great Tree is healed. Help one
+// and it calls up two friends; they walk to Bark's tree, where they build tiny homes. Every two that
+// Bark welcomes, he teaches YOU a skill: LEAF STEP, LEAF SHIELD, SEEDFALL.
+enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, NUM_LEAFEN };
+enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
+static u8 leafen_state[NUM_LEAFEN];
+static u32 leafen_init, has_shiny, pip_cell, shield_wait;
+static s32 lf_scene, welcome_step;                    // a rescue scene, the welcome at the tree (not saved)
+static u32 leafen_home_count(void) {
+    u32 n = 0;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) n += leafen_state[k] == LS_HOME;
+    return n;
+}
+static u32 skill_lv(void) { return leafen_home_count() / 2; }   // 1 LEAF STEP, 2 LEAF SHIELD, 3 SEEDFALL
 // v0.16.2 revival inside the tree: Bark floats (float_on 1; 2 = shot up and gone), the screen goes white
 // (white_mode 1 opening like an old TV turning on, in reverse: a line, then the whole screen; 2 white;
 // 3 fading back; 4 fading to white).
@@ -786,6 +812,9 @@ static void reset_game(void) {
     tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
     tree_alive = revive_step = revive_wait = shake_timer = leaf_timer = 0;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_NONE;
+    leafen_init = has_shiny = pip_cell = shield_wait = 0;
+    lf_scene = welcome_step = 0;
     spirits[KIND_STONE].area = STONE_AREA;     // Pebble sleeps in the Windy Steppe
     spirits[KIND_BREEZE].area = BREEZE_AREA;   // Breeze sleeps in Stone Hollow
     for (s32 i = 0; i < NUM_SPIRITS; i++) home_done[i] = 0;
@@ -878,13 +907,14 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
 static s32 bloom_grid_r(const Bloom *b) { return b->maxr > 4 ? BR : 4; }
 static void bloom_distances(Bloom *b) { flood_dist(b->dist, b->cx, b->cy, bloom_grid_r(b)); }
 
-static void start_bloom(s32 mx, s32 my) {
+static void start_bloom_r(s32 mx, s32 my, s32 reach) {   // reach < 0: Sprout's own (water, homes, hearts)
     for (s32 i = 0; i < MAX_BLOOMS; i++) {
         if (blooms[i].active) continue;
         Bloom *b = &blooms[i];
         b->cx = mx; b->cy = my; b->r = -1; b->timer = 0; b->active = 1;
         int wet = water_near(mx, my, 3);
-        b->maxr = (wet ? 4 : 2) + home_level[KIND_SPROUT] + boosted(KIND_SPROUT) + (bonded == KIND_SPROUT) +
+        b->maxr = reach >= 0 ? reach :
+                  (wet ? 4 : 2) + home_level[KIND_SPROUT] + boosted(KIND_SPROUT) + (bonded == KIND_SPROUT) +
                   (harmony ? 2 : 0);
         bloom_distances(b);
         sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 40;
@@ -893,6 +923,8 @@ static void start_bloom(s32 mx, s32 my) {
         return;
     }
 }
+
+static void start_bloom(s32 mx, s32 my) { start_bloom_r(mx, my, -1); }
 
 static int player_on_tile(s32 mx, s32 my) {
     return (px + 3) >> 4 <= mx && mx <= (px + 12) >> 4 &&
@@ -1047,7 +1079,8 @@ static void update_player(void) {
     s32 speed = HELD(KEY_B) ? 2 : 1;
     if (home_level[KIND_BREEZE] == 1) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
     if (home_level[KIND_BREEZE] == 2) speed += 1;                              // level 2: 2x walk, 3 run
-    if (tile_at((px + 8) >> 4, (py + 12) >> 4) == PATH) speed += 1;            // paths are quick
+    u8 under = tile_at((px + 8) >> 4, (py + 12) >> 4);
+    if (under == PATH || under == PEBBLE_PATH) speed += 1;                     // paths are quick
     s32 dx = 0, dy = 0;
     if (HELD(KEY_LEFT))  { dx = -speed; pdir = DIR_LEFT; }
     if (HELD(KEY_RIGHT)) { dx =  speed; pdir = DIR_RIGHT; }
@@ -1061,6 +1094,14 @@ static void update_player(void) {
 
     if (moved) {
         if ((frame & 7) == 0) pstep++;
+        if (skill_lv() >= 1 && cur_area != HOLLOW_IN && party_count && is_you(spirits[party[active]].kind)) {
+            s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4;     // LEAF STEP (v0.17): dead ground greens underfoot
+            u8 g = tile_at(fx, fy);
+            if (g == DEAD || g == DEAD_CRACK || g == DIRT || g == DRY_GRASS || g == PEBBLES) {
+                set_tile(fx, fy, (rng() & 3) ? GRASS : GRASS_TUFT);
+                draw_life();
+            }
+        }
         hist_head = (hist_head + 1) & (HIST - 1);
         hist_x[hist_head] = px; hist_y[hist_head] = py;
     } else {
@@ -1410,6 +1451,11 @@ static int interact(s32 mx, s32 my) {
 #define SPR_COMBAT (TILE_COMBAT / 4)
 enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
        C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT };
+// v0.17 the Leafen's own sheet (leafen_sprite.png): 5 looks x 4 poses, 6 tiny homes, the shiny pebble.
+// They use OBJ bank 11 (the clamps' palette until the tree is healed; no clamp shows after that).
+#define SPR_LEAFEN (TILE_LEAFEN / 4)
+#define PAL_LEAFEN 11
+enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6 };
 static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive; }
 
 static void draw_hearts_hud(void) {
@@ -1550,6 +1596,14 @@ static void faint(void) {
 
 static void hurt(s32 n, s32 fromx, s32 fromy) {
     if (hurt_timer || dev_god) return;
+    if (skill_lv() >= 2 && !shield_wait) {                    // LEAF SHIELD (v0.17): leaves take the hit
+        shield_wait = 600;                                    // back after 10 s
+        hurt_timer = 40;
+        leaf_timer = 60;
+        chime(1319, 10);
+        show_message("THE LEAF SHIELD HELD!");
+        return;
+    }
     hearts_now = (u32)n >= hearts_now ? 0 : hearts_now - n;
     hurt_timer = 60;
     sfx_play(SFX_FAIL);
@@ -2114,6 +2168,7 @@ static void draw_combat(void) {
     } else sprite_hide(OAM_HIT);
 }
 
+static int leafen_talk(s32 fmx, s32 fmy);
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
@@ -2125,11 +2180,16 @@ static void use_ability(void) {
         if (!atk_cooldown) start_attack(spirits[party[active]].kind);
         return;
     }
+    if (leafen_talk(fx >> 4, fy >> 4)) return;               // a Leafen in need comes first
     if (interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
     if (is_you(s->kind)) {                                   // the wizard: Bark's power, no charges
-        if (!use_power(KIND_BARK, fx >> 4, fy >> 4)) sfx_play(SFX_FAIL);
+        if (use_power(KIND_BARK, fx >> 4, fy >> 4)) return;
+        u8 t = tile_at(fx >> 4, fy >> 4);
+        if (skill_lv() >= 3 && (t == DEAD || t == DEAD_CRACK || t == DIRT || t == DRY_GRASS || t == PEBBLES))
+            start_bloom_r(fx >> 4, fy >> 4, 2);              // SEEDFALL (v0.17): a small bloom, free
+        else sfx_play(SFX_FAIL);
         return;
     }
     if (s->energy == 0 && !(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) {
@@ -2228,20 +2288,28 @@ static int near_px(s32 x, s32 y, s32 r) {
 // ---------- building (hold SELECT) ----------
 // The last four items are quest rewards and appear once their quest is done (unlocked[]).
 static const u8 build_tile[NUM_BUILDS] = { PATH, FLOWERBED, SAPLING, LANTERN, BENCH, 0,
-                                           BLOSSOM, FOUNTAIN, STATUE, PINWHEEL };
+                                           BLOSSOM, FOUNTAIN, STATUE, PINWHEEL,
+                                           DEW_POND, ACORN_BENCH, LEAF_SWING, FLOWER_ARCH, PEBBLE_PATH, MUSH_LAMP };
 static const u8 build_cost[NUM_BUILDS][3] = {   // stone, seeds, fruit
     { 1, 0, 0 }, { 0, 2, 0 }, { 0, 1, 1 }, { 3, 0, 0 }, { 2, 0, 1 }, { 5, 5, 3 },
     { 0, 3, 2 }, { 4, 0, 2 }, { 6, 0, 0 }, { 2, 2, 0 },
+    { 3, 0, 1 }, { 2, 0, 2 }, { 1, 2, 0 }, { 0, 4, 0 }, { 1, 0, 0 }, { 2, 1, 0 },
 };
 static const char *build_text[NUM_BUILDS] = {
     "PATH: 1 STONE", "FLOWER BED: 2 SEEDS", "SAPLING: 1 SEED 1 FRUIT", "LANTERN: 3 STONE",
     "BENCH: 2 STONE 1 FRUIT", "HOME: 5 STONE 5 SEED 3 FRUIT",
     "BLOSSOM: 3 SEEDS 2 FRUIT", "FOUNTAIN: 4 STONE 2 FRUIT", "STATUE: 6 STONE", "PINWHEEL: 2 STONE 2 SEEDS",
+    "DEW POND: 3 STONE 1 FRUIT", "ACORN BENCH: 2 STONE 2 FRUIT", "LEAF SWING: 1 STONE 2 SEEDS",
+    "FLOWER ARCH: 4 SEEDS", "PEBBLE PATH: 1 STONE", "MUSHROOM LAMP: 2 STONE 1 SEED",
 };
-static int build_ok(s32 b) { return b < B_BLOSSOM || unlocked[b - B_BLOSSOM]; }
+static int build_ok(s32 b) {
+    if (b >= B_DEWPOND) return leafen_state[b - B_DEWPOND] >= LS_FREE;   // a Leafen's gift, once it is free
+    return b < B_BLOSSOM || unlocked[b - B_BLOSSOM];
+}
 // The order L/R walks the list in: the home upgrade first (Caleb, v0.13.1), then the rest.
 static const u8 build_order[NUM_BUILDS] = { B_UPGRADE, B_PATH, B_BED, B_SAPLING, B_LANTERN, B_BENCH,
-                                            B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL };
+                                            B_BLOSSOM, B_FOUNTAIN, B_STATUE, B_PINWHEEL,
+                                            B_DEWPOND, B_ACORNBENCH, B_LEAFSWING, B_FLOWERARCH, B_PEBBLEPATH, B_MUSHLAMP };
 static void build_step(s32 dir) {
     s32 i = 0;
     while (build_order[i] != build_item) i++;
@@ -2260,6 +2328,12 @@ static s32 build_of_tile(u8 t) {
     case FOUNTAIN: return B_FOUNTAIN;
     case STATUE: return B_STATUE;
     case PINWHEEL: return B_PINWHEEL;
+    case DEW_POND: return B_DEWPOND;
+    case ACORN_BENCH: return B_ACORNBENCH;
+    case LEAF_SWING: return B_LEAFSWING;
+    case FLOWER_ARCH: return B_FLOWERARCH;
+    case PEBBLE_PATH: return B_PEBBLEPATH;
+    case MUSH_LAMP: return B_MUSHLAMP;
     }
     return -1;
 }
@@ -2741,11 +2815,327 @@ static s32 area_song(s32 a) {
     if (a == HOLLOW_IN) return boss.alive && !gloom_intro ? SONG_GLOOMFIGHT : SONG_UNEASY;
     return song_of[a];
 }
+// ---------- the Leafen (v0.17): where they wait, what they need, the rescue, the welcome ----------
+enum { LOOK_SPROUT, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_DEW };
+enum { POSE_STAND, POSE_STEP, POSE_SWIM, POSE_CLIMB };
+static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2 };
+static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28 }, leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22 };
+static const u8 leafen_look[NUM_LEAFEN] = { LOOK_SPROUT, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT, LOOK_DEW };
+static const char *leafen_name[NUM_LEAFEN] = { "PIP", "MOSSY", "TWIG", "POSY", "NUB", "DEWDROP" };
+static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you meet it (its problem, not the fix)
+    { "PIP: HELP! I'M STUCK ON THIS", "LILY PAD. I CAN'T SWIM YET!" },
+    { "MOSSY: SO... HUNGRY...", "SOME FRUIT? THREE, MAYBE?" },
+    { "TWIG: OW! THORNS! EVERYWHERE!", "I CAN'T GET OUT!" },
+    { "POSY: IT'S ALL SO GRAY...", "I WANT FLOWERS ALL AROUND ME!" },
+    { "...MMF! HELP! UNDER HERE!", "THE ROCKS ARE SO HEAVY!" },
+    { "DEWDROP: MY SHINY PEBBLE!", "I LOST IT IN THE VALLEY..." },
+};
+static const char *leafen_thanks[NUM_LEAFEN] = {
+    "PIP: A BRIDGE! YOU'RE GREAT!", "MOSSY: MMM! FRUIT! THANK YOU!", "TWIG: NO MORE THORNS! YAY!",
+    "POSY: FLOWERS! SO PRETTY!", "NUB: PHEW! I CAN BREATHE!", "DEWDROP: MY SHINY! THANK YOU!",
+};
+static const char *leafen_gift[NUM_LEAFEN] = {
+    "NEW BUILD: DEW POND", "NEW BUILD: ACORN BENCH", "NEW BUILD: LEAF SWING",
+    "NEW BUILD: FLOWER ARCH", "NEW BUILD: PEBBLE PATH", "NEW BUILD: MUSHROOM LAMP",
+};
+#define SHINY_X 2    // Dewdrop's shiny pebble lies in the valley, far west
+#define SHINY_Y 15
+static s32 leafen_x(s32 k) { return k == LF_PIP ? (s32)(pip_cell % MAP_W) : leafen_cx[k]; }
+static s32 leafen_y(s32 k) { return k == LF_PIP ? (s32)(pip_cell / MAP_W) : leafen_cy[k]; }
+
+static int plain_ground(u8 t) {
+    return t == DEAD || t == DEAD_CRACK || t == DIRT || t == DRY_GRASS || t == PEBBLES || t == GRASS ||
+           t == GRASS_TUFT || t == FLOWERS;
+}
+static void leafen_stamp(s32 a, s32 x, s32 y, u8 nt) {   // only over open ground (never a home or a build)
+    if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) return;
+    u8 *c = &maps[a][y * MAP_W + x];
+    if (!plain_ground(*c)) return;
+    if (is_restorable(*c) && !is_restorable(nt)) restorable[a]--;   // clearing it later adds it back
+    *c = nt;
+    if (a == cur_area) { use_area(a); draw_meta(x, y); }
+}
+// Once the tree is healed: the Leafen take their places, with their troubles drawn into the maps.
+static void leafen_setup(void) {
+    leafen_init = 1;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_WAIT;
+    static const u8 pond[][2] = { { 10, 25 }, { 11, 25 }, { 10, 24 }, { 11, 24 }, { 10, 26 }, { 11, 26 } };
+    pip_cell = 25 * MAP_W + 10;                          // Pip: on a lily pad in the valley's pond
+    for (u32 i = 0; i < sizeof(pond) / sizeof(pond[0]); i++)
+        if (maps[0][pond[i][1] * MAP_W + pond[i][0]] == WATER) { pip_cell = pond[i][1] * MAP_W + pond[i][0]; break; }
+    for (s32 dy = -1; dy <= 1; dy++)                     // Twig: inside a ring of thorns, in the steppe
+        for (s32 dx = -1; dx <= 1; dx++)
+            if (dx || dy) leafen_stamp(1, leafen_cx[LF_TWIG] + dx, leafen_cy[LF_TWIG] + dy, THORN);
+    s32 nx = leafen_cx[LF_NUB], ny = leafen_cy[LF_NUB];  // Nub: under a pile of rocks, in Stone Hollow
+    leafen_stamp(2, nx, ny, ROCK);
+    leafen_stamp(2, nx - 1, ny, ROCK); leafen_stamp(2, nx + 1, ny, ROCK);
+    leafen_stamp(2, nx, ny - 1, ROCK); leafen_stamp(2, nx, ny + 1, ROCK);
+    use_area(cur_area);
+}
+
+static int leafen_ready(s32 k) {
+    s32 x = leafen_x(k), y = leafen_y(k);
+    const u8 *m = maps[leafen_area[k]];
+#define LF_AT(xx, yy) (((xx) < 0 || (yy) < 0 || (xx) >= MAP_W || (yy) >= MAP_H) ? ROCK : m[(yy) * MAP_W + (xx)])
+    switch (k) {
+    case LF_PIP:
+        return LF_AT(x, y) == BRIDGE || LF_AT(x - 1, y) == BRIDGE || LF_AT(x + 1, y) == BRIDGE ||
+               LF_AT(x, y - 1) == BRIDGE || LF_AT(x, y + 1) == BRIDGE;
+    case LF_MOSSY: return fruit >= 3;
+    case LF_TWIG:
+        for (s32 dy = -1; dy <= 1; dy++)
+            for (s32 dx = -1; dx <= 1; dx++) if (LF_AT(x + dx, y + dy) == THORN) return 0;
+        return 1;
+    case LF_POSY: {
+        s32 n = 0;
+        for (s32 dy = -1; dy <= 1; dy++)
+            for (s32 dx = -1; dx <= 1; dx++) {
+                u8 c = LF_AT(x + dx, y + dy);
+                if ((dx || dy) && (c == FLOWERS || c == FLOWERBED || c == BLOSSOM || c == FLOWER_ARCH)) n++;
+            }
+        return n >= 4;
+    }
+    case LF_NUB:
+        return LF_AT(x, y) != ROCK && LF_AT(x - 1, y) != ROCK && LF_AT(x + 1, y) != ROCK &&
+               LF_AT(x, y - 1) != ROCK && LF_AT(x, y + 1) != ROCK;
+    default: return has_shiny;
+    }
+#undef LF_AT
+}
+static int leafen_waiting(s32 k) { return leafen_state[k] == LS_WAIT || leafen_state[k] == LS_MET; }
+static int near_leafen(s32 k, s32 r) {
+    s32 dx = px + 8 - (leafen_x(k) * 16 + 8), dy = py + 8 - (leafen_y(k) * 16 + 8);
+    return dx * dx + dy * dy < r * r;
+}
+
+// The rescue scene: thanks, friends pop up out of the ground, and all three walk off to the tree.
+static s32 lf_k = -1, lf_wait;
+static s32 lf_sx[3], lf_sy[3], lf_rise;               // the three walkers (pixels) and the friends' rise
+static char lf_line[32];
+static void leafen_rescue(s32 k) {
+    if (k == LF_MOSSY) fruit -= 3;
+    if (k == LF_DEW) has_shiny = 0;
+    lf_k = k; lf_scene = 1; lf_wait = 10; lf_rise = 0;
+    s32 x = leafen_x(k) * 16, y = leafen_y(k) * 16;
+    lf_sx[0] = x; lf_sy[0] = y;
+    lf_sx[1] = x - 18; lf_sy[1] = y + 6;
+    lf_sx[2] = x + 18; lf_sy[2] = y + 6;
+    if (k == LF_PIP) { lf_sx[1] = px - 14; lf_sy[1] = py; lf_sx[2] = px + 14; lf_sy[2] = py; }   // on land
+}
+// A at a waiting Leafen: its trouble, or (when the trouble is fixed) the rescue. Returns 1 if it talked.
+// Facing a rock, thorn or water next to it, A is the spirit's power instead (to break Nub out, and so on).
+static int leafen_talk(s32 fmx, s32 fmy) {
+    if (!leafen_init || lf_scene) return 0;
+    u8 faced = tile_at(fmx, fmy);
+    if (faced == ROCK || faced == THORN || faced == WATER) return 0;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) {
+        if (leafen_area[k] != cur_area || !leafen_waiting(k) || !near_leafen(k, k == LF_NUB ? 34 : 28)) continue;
+        if (leafen_ready(k)) { leafen_rescue(k); return 1; }
+        leafen_state[k] = LS_MET;
+        show_message(leafen_ask[k][0]);
+        queue_message(leafen_ask[k][1]);
+        sfx_play(SFX_GIFT);
+        return 1;
+    }
+    return 0;
+}
+
+// The welcome at Bark's tree, and the skills he teaches every second Leafen.
+static const char *skill_name[3] = { "NEW SKILL: LEAF STEP!", "NEW SKILL: LEAF SHIELD!", "NEW SKILL: SEEDFALL!" };
+static const char *skill_help[3] = { "AS YOU, DEAD GROUND GREENS.", "A LEAF RING BLOCKS A HIT.",
+                                     "AS YOU, A ON DEAD LAND BLOOMS." };
+static s32 welcome_skill_from;
+
+static void update_leafen(void) {
+    if (!tree_alive) return;
+    if (!leafen_init) leafen_setup();
+    if (shield_wait) shield_wait--;
+    // the rescue scene
+    if (lf_scene) {
+        scene_on = 1;
+        if (lf_scene == 3 && lf_rise < 12) {             // the friends pop up out of the ground
+            lf_rise++;
+            if ((lf_rise & 3) == 0) {
+                add_mote_c(lf_sx[1], lf_sy[1] + 8, 0, -8, 20, C_GLINT);
+                add_mote_c(lf_sx[2], lf_sy[2] + 8, 0, -8, 20, C_GLINT);
+            }
+            return;
+        }
+        if (lf_scene == 5) {                             // walking off toward the tree
+            s32 dx = leafen_area[lf_k] == 2 ? 0 : -1, dy = leafen_area[lf_k] == 2 ? -1 : 0;
+            for (s32 i = 0; i < 3; i++) { lf_sx[i] += dx; lf_sy[i] += dy; }
+            if (++lf_wait < 150) return;
+            lf_scene = 6; lf_wait = 0;
+        }
+        if (lf_wait) { lf_wait--; return; }
+        if (msg_timer || msgq_len) return;
+        char *p = lf_line;
+        switch (lf_scene) {
+        case 1: show_message(leafen_thanks[lf_k]); sfx_play(SFX_QUEST); lf_scene = 2; lf_wait = 10; break;
+        case 2:
+            str_cat(&p, leafen_name[lf_k]); str_cat(&p, " CALLS ITS FRIENDS!"); *p = 0;
+            show_message(lf_line); sfx_play(SFX_WAKE); lf_scene = 3; lf_wait = 0;
+            break;
+        case 3: show_message("WE'RE GOING HOME! TO BARK!"); lf_scene = 4; lf_wait = 20; break;
+        case 4: lf_scene = 5; lf_wait = 0; break;
+        default: {
+            leafen_state[lf_k] = LS_FREE;
+            u32 n = 0;
+            for (s32 k = 0; k < NUM_LEAFEN; k++) n += leafen_state[k] >= LS_FREE;
+            str_cat(&p, "LEAFEN FREED: "); *p++ = (char)('0' + n); str_cat(&p, " OF 6"); *p = 0;
+            show_message(lf_line);
+            queue_message(leafen_gift[lf_k]);
+            sfx_play(SFX_CHEST);
+            lf_scene = 0; lf_k = -1;
+        }
+        }
+        return;
+    }
+    // the welcome at the tree (the next time you come back to it)
+    if (welcome_step) {
+        scene_on = 1;
+        if (msg_timer || msgq_len) return;
+        static const char *lines[] = { "THE LEAFEN MADE IT HOME!", "BARK: HMPH. LOUD LITTLE THINGS.",
+                                       "...GOOD TO HAVE THEM BACK." };
+        if (welcome_step <= 3) { show_message(lines[welcome_step - 1]); welcome_step++; return; }
+        s32 lv = (s32)skill_lv();
+        if (welcome_skill_from < lv) {                   // a new skill for each two Leafen home
+            s32 s = welcome_skill_from++;
+            show_message(s == 0 ? "BARK: WIZARD. HOLD STILL." : "BARK: HERE. ANOTHER ONE.");
+            queue_message(skill_name[s]);
+            queue_message(skill_help[s]);
+            leaf_timer = 150;
+            sfx_play(SFX_QUEST);
+            return;
+        }
+        if (leafen_home_count() == NUM_LEAFEN && welcome_step == 4) {
+            show_message("BARK: THAT'S ALL OF THEM HERE.");
+            queue_message("THE REST... VAEL STILL HAS.");
+            queue_message("UP NORTH. IN THAT FACTORY.");
+        }
+        welcome_step = 0;
+        return;
+    }
+    if (cur_area == WEST && !scene_on && !msg_timer && !msgq_len) {
+        s32 any = 0;
+        for (s32 k = 0; k < NUM_LEAFEN; k++) if (leafen_state[k] == LS_FREE) any = 1;
+        if (any) {
+            welcome_skill_from = (s32)skill_lv();
+            for (s32 k = 0; k < NUM_LEAFEN; k++) if (leafen_state[k] == LS_FREE) leafen_state[k] = LS_HOME;
+            welcome_step = 1;
+            sfx_play(SFX_JOIN);
+            return;
+        }
+    }
+    if (scene_on) return;
+    // Dewdrop's shiny pebble: picked up by walking onto it
+    if (cur_area == 0 && !has_shiny && leafen_waiting(LF_DEW) &&
+        ((px + 8) >> 4) == SHINY_X && ((py + 12) >> 4) == SHINY_Y) {
+        has_shiny = 1;
+        sparkle_at(SHINY_X, SHINY_Y);
+        sfx_play(SFX_GIFT);
+        show_message("YOU FOUND A SHINY PEBBLE!");
+    }
+    // a trouble fixed on the map: the Leafen notices as soon as you come close
+    for (s32 k = 0; k < NUM_LEAFEN; k++)
+        if (leafen_area[k] == cur_area && leafen_waiting(k) && k != LF_MOSSY && k != LF_DEW &&
+            leafen_ready(k) && near_leafen(k, 48)) { leafen_rescue(k); return; }
+}
+
+// The Leafen village round Bark's tree: per freed Leafen, two tiny homes and three Leafen (itself and
+// its two friends) who walk round them, swim in the root pool, or climb on Bark's trunk.
+enum { V_WALK, V_SWIM, V_CLIMB };
+static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 mushroom .. 5 dewhut)
+    { { 214, 410, 5 }, { 286, 404, 2 } },
+    { { 40, 356, 0 }, { 66, 368, 1 } },
+    { { 430, 356, 1 }, { 456, 368, 0 } },
+    { { 62, 416, 3 }, { 30, 432, 2 } },
+    { { 436, 420, 4 }, { 452, 418, 3 } },
+    { { 204, 446, 0 }, { 294, 446, 5 } },
+};
+static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
+    { { 244, 420, V_SWIM }, { 220, 454, V_WALK }, { 168, 262, V_CLIMB } },
+    { { 44, 378, V_WALK }, { 28, 380, V_WALK }, { 182, 236, V_CLIMB } },
+    { { 452, 384, V_WALK }, { 258, 432, V_SWIM }, { 338, 244, V_CLIMB } },
+    { { 42, 470, V_WALK }, { 106, 454, V_WALK }, { 156, 286, V_CLIMB } },
+    { { 456, 436, V_WALK }, { 392, 456, V_WALK }, { 352, 280, V_CLIMB } },
+    { { 296, 474, V_WALK }, { 162, 472, V_WALK }, { 330, 300, V_CLIMB } },
+};
+static short folk_x[NUM_LEAFEN * 3], folk_y[NUM_LEAFEN * 3];
+static u8 folk_look(s32 k, s32 i) { return i == 0 ? leafen_look[k] : (u8)((leafen_look[k] + i * 2 + k) % 5); }
+
+static void draw_leafen(void) {
+    for (s32 i = 0; i < 6; i++) sprite_hide(OAM_LEAFEN + i);
+    sprite_hide(OAM_SHINY);
+    for (s32 i = 0; i < NUM_LEAFEN * 3; i++) sprite_hide(OAM_FOLK + i);
+    for (s32 i = 0; i < NUM_LEAFEN * 2; i++) sprite_hide(OAM_LHOME + i);
+    if (!tree_alive || !leafen_init) return;
+    for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_LEAFEN * 16 + i] = obj_pal_leafen[i];   // the clamps' bank is free now
+    s32 slot = 0;
+    u32 hop = (frame >> 4) & 1;
+    // the waiting Leafen in this area (and the rescue's three walkers)
+    for (s32 k = 0; k < NUM_LEAFEN && slot < 6; k++) {
+        if (k == lf_k && lf_scene) {
+            for (s32 i = 0; i < 3; i++) {
+                if (i && lf_scene < 3) continue;
+                s32 sink = i && lf_scene == 3 ? 12 - lf_rise : 0;   // friends rising out of the ground
+                u32 pose = lf_scene == 5 ? ((frame >> 3) & 1) : (k == LF_PIP && i == 0 && lf_scene < 5) ? POSE_SWIM : hop;
+                sprite_set(OAM_LEAFEN + slot++, lf_sx[i] - cam_x, lf_sy[i] - cam_y + sink,
+                           SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose, lf_scene == 5, PAL_LEAFEN);
+            }
+            continue;
+        }
+        if (leafen_area[k] != cur_area || !leafen_waiting(k)) continue;
+        s32 x = leafen_x(k) * 16, y = leafen_y(k) * 16;
+        if (k == LF_NUB && tile_at(leafen_x(k), leafen_y(k)) == ROCK) continue;   // still buried
+        u32 pose = k == LF_PIP ? POSE_SWIM : hop;
+        sprite_set(OAM_LEAFEN + slot++, x - cam_x, y - cam_y, SPR_LEAFEN + C_LEAFEN + leafen_look[k] * 4 + pose,
+                   px < x, PAL_LEAFEN);
+    }
+    if (cur_area == 0 && !has_shiny && leafen_waiting(LF_DEW) && ((frame >> 3) & 7))   // glinting
+        sprite_set(OAM_SHINY, SHINY_X * 16 - cam_x, SHINY_Y * 16 - cam_y, SPR_LEAFEN + C_SHINY, 0, PAL_LEAFEN);
+    if (cur_area != WEST) return;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) {
+        if (leafen_state[k] != LS_HOME) continue;
+        for (s32 h = 0; h < 2; h++)
+            sprite_set(OAM_LHOME + k * 2 + h, village_home[k][h][0] - cam_x, village_home[k][h][1] - cam_y,
+                       SPR_LEAFEN + C_LHOME + village_home[k][h][2], 0, PAL_LEAFEN);
+        for (s32 i = 0; i < 3; i++) {
+            s32 n = k * 3 + i, ax = village_folk[k][i][0], ay = village_folk[k][i][1], mode = village_folk[k][i][2];
+            s32 x = ax, y = ay;
+            u32 pose = POSE_STAND, flip = 0;
+            u32 tt = frame + n * 53;
+            if (mode == V_SWIM) {                        // paddling round the root pool
+                u32 a = (tt >> 2) % 48;
+                x += loop_x48[a] >> 2; y += loop_y48[a] >> 2;
+                pose = POSE_SWIM; flip = a >= 24;
+            } else if (mode == V_CLIMB) {                // up Bark's bark, a rest, and down again
+                u32 c = tt % 320;
+                s32 up = c < 100 ? (s32)c / 2 : c < 160 ? 50 : c < 260 ? 50 - (s32)(c - 160) / 2 : 0;
+                y -= up;
+                pose = POSE_CLIMB; flip = (c < 100 || (c >= 160 && c < 260)) && ((tt >> 3) & 1);
+            } else {                                      // pottering round their homes
+                if (!folk_x[n]) { folk_x[n] = ax; folk_y[n] = ay; }
+                u32 seg = tt >> 7;
+                s32 tx = ax + (s32)((seg * 37 + n * 11) % 33) - 16, ty = ay + (s32)((seg * 23 + n * 7) % 17) - 8;
+                if ((frame & 1) == 0) { folk_x[n] += sgn(tx - folk_x[n]); folk_y[n] += sgn(ty - folk_y[n]); }
+                int moving = folk_x[n] != tx || folk_y[n] != ty;
+                x = folk_x[n]; y = folk_y[n];
+                pose = moving ? ((tt >> 3) & 1) : POSE_STAND;
+                flip = tx < x;
+            }
+            sprite_set(OAM_FOLK + n, x - cam_x, y - cam_y, SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose, flip,
+                       PAL_LEAFEN);
+        }
+    }
+}
+
 static void update_bark(void) {
     if (bark_fall) bark_fall--;
     scene_on = bark_step && bark_step <= BARK_SCENE_LEN;
     update_tree_scene();
     update_gloom_intro();
+    update_leafen();
     if (!(bark_step && bark_step <= BARK_SCENE_LEN)) return;
     if (bark_wait) { bark_wait--; return; }
     if (msg_timer || msgq_len) return;                      // let the messages before it finish
@@ -3134,7 +3524,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x38534652u   // "RFS8" (v0.16: the healed tree)
+#define SAVE_MAGIC 0x39534652u   // "RFS9" (v0.17: the Leafen)
+#define SAVE_MAGIC_V16 0x38534652u   // "RFS8": v0.16 saves still load (the Leafen set up on load)
 #define SAVE_MAGIC_V15 0x37534652u   // "RFS7": v0.15 saves still load
 #define SAVE_MAGIC_V14 0x36534652u   // "RFS6": v0.14 saves still load
 #define SAVE_MAGIC_V13 0x35534652u   // "RFS5": v0.13 saves (three areas) still load
@@ -3163,11 +3554,14 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &boss_beaten, 4 },
     // v0.16
     { &tree_alive, 4 }, { &revive_step, 4 }, { &revive_wait, 4 },
+    // v0.17: the Leafen
+    { leafen_state, sizeof(leafen_state) }, { &leafen_init, 4 }, { &has_shiny, 4 }, { &pip_cell, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V15_FIELDS (NUM_SAVE_FIELDS - 3)
-#define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 4)
-#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 15)
+#define NUM_V16_FIELDS (NUM_SAVE_FIELDS - 4)
+#define NUM_V15_FIELDS (NUM_SAVE_FIELDS - 7)
+#define NUM_V14_FIELDS (NUM_SAVE_FIELDS - 8)
+#define NUM_V13_FIELDS (NUM_SAVE_FIELDS - 19)
 
 static void sram_put32(u32 at, u32 v) { for (u32 k = 0; k < 4; k++) SRAM[at + k] = (u8)(v >> (8 * k)); }
 static u32 sram_get32(u32 at) {
@@ -3192,6 +3586,7 @@ static int load_game(void) {
     if (magic == SAVE_MAGIC_V13) nf = NUM_V13_FIELDS;    // a v0.13 save: everything but the west
     else if (magic == SAVE_MAGIC_V14) { nf = NUM_V14_FIELDS; boss_beaten = 0; }   // no bosses yet
     else if (magic == SAVE_MAGIC_V15) nf = NUM_V15_FIELDS;
+    else if (magic == SAVE_MAGIC_V16) nf = NUM_V16_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -3202,7 +3597,11 @@ static int load_game(void) {
         u8 *b = save_fields[f].p;
         for (u32 i = 0; i < save_fields[f].n; i++) b[i] = SRAM[at++];
     }
-    if (nf < NUM_SAVE_FIELDS) { tree_alive = revive_step = revive_wait = 0; }
+    if (nf < NUM_V16_FIELDS) { tree_alive = revive_step = revive_wait = 0; }
+    if (nf < NUM_SAVE_FIELDS) {                           // no Leafen yet: update_leafen sets them up
+        for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_NONE;
+        leafen_init = has_shiny = pip_cell = 0;
+    }
     for (s32 i = 0; i < MAP_W * MAP_H; i++) maps[HOLLOW_IN][i] = start_maps[HOLLOW_IN * MAP_W * MAP_H + i];
     restorable[HOLLOW_IN] = 0;
     tileset_now = TS_NONE;
@@ -3370,10 +3769,17 @@ static void draw_page(void) {
             put_text_win(2, r++, quest_short[k][1]);
             if (k == KIND_SPROUT) put_text_win(2, r++, num_line("BEDS", beds_by_grove(), 3, 16));
             if (k == KIND_BREEZE) put_text_win(2, r++, num_line("CLEARED", thorn_quest, 30, 16));
-            if (k == KIND_BARK) {
+            if (k == KIND_BARK && !tree_alive) {
                 u32 n = 0;
                 for (s32 i = 0; i < 4; i++) n += (tree_done >> i) & 1;
                 put_text_win(2, r++, num_line("TASKS", n, 4, 16));
+            }
+            if (k == KIND_BARK && tree_alive) {          // v0.17: his new quest, the Leafen
+                u32 n = 0;
+                for (s32 i = 0; i < NUM_LEAFEN; i++) n += leafen_state[i] >= LS_FREE;
+                put_text_win(2, r - 2, "BRING THE LEAFEN");
+                put_text_win(2, r - 1, "HOME             ");
+                put_text_win(2, r++, num_line("FREED", n, NUM_LEAFEN, 16));
             }
         }
         r++;
@@ -3769,7 +4175,9 @@ int main(void) {
     PAL_BG[32 + 4] = (22) | (16 << 5) | (7 << 10);
     PAL_BG[32 + 5] = (29) | (7 << 5) | (8 << 10);     // heart red
 
-    copy32(CHARBLOCK(0), terrain_tiles, sizeof(terrain_tiles) / 4);
+    copy32(CHARBLOCK(0), terrain_tiles, SPRING1_RING1 * 32);   // the map's tiles, without the animation frames
+    copy32(CHARBLOCK(0) + SPRING1_RING1 * 32, terrain_tiles + (NOOK2_SPIN + 1) * 32,
+           sizeof(terrain_tiles) / 4 - (NOOK2_SPIN + 1) * 32);
     copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
     copy32(CHARBLOCK(3) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
     // the Great Tree's tiles load by area (load_tileset, from set_ground_palette)
@@ -3847,6 +4255,7 @@ int main(void) {
         update_camera();
         draw_sprites();
         draw_combat();
+        draw_leafen();
         draw_boss_bar();
 
         update_message();
