@@ -176,36 +176,59 @@ static void chime(u32 hz, u32 vol) {
 }
 static const u16 scale[] = { 523, 587, 659, 784, 880, 1047, 1175, 1319 };
 
-// ---------- music: melody on channel 2, bass on channel 3 (sound effects keep channel 1) ----------
+// ---------- music: melody on channel 2, bass on channel 3, harmony on channel 1 ----------
+// The chimes (sound effects) share channel 1, so a chime cuts into a song's harmony for a moment.
+// Each song carries its own tone (song_mel_env, song_har_env, song_bass_cnt) and loops or plays
+// once (song_loop); a song that played once leaves song at -1 (silence).
 static s32 song = -1;
-static u32 voice_pos[2], voice_left[2];   // note index and frames left, per voice
+static u32 voice_pos[3], voice_left[3], voice_done[3];   // note index, frames left, finished (play once)
 static void music_note(s32 v, u16 freq) {
     if (v == 0) {
         if (!freq) { REG_SND2CNT = 0; REG_SND2FREQ = 0x8000; return; }      // rest: silence
-        REG_SND2CNT = (10 << 12) | (6 << 8) | (2 << 6);                   // soft pluck that rings ~1 s, 50% duty
+        REG_SND2CNT = song_mel_env[song];
         REG_SND2FREQ = freq | 0x8000;
-    } else {
+    } else if (v == 1) {
         if (!freq) { REG_SND3SEL = 0; return; }
         REG_SND3SEL = 0x0080;                                             // on, 32-sample bank 0
-        REG_SND3CNT = 2 << 13;                                            // 50% volume
+        REG_SND3CNT = song_bass_cnt[song];
         REG_SND3FREQ = freq | 0x8000;
+    } else {
+        if (!freq) { REG_SND1CNT = 0; REG_SND1FREQ = 0x8000; return; }
+        REG_SND1CNT = song_har_env[song];
+        REG_SND1FREQ = freq | 0x8000;
     }
 }
-static void music_play(s32 s) {
-    if (s == song) return;
-    song = s;
-    for (s32 v = 0; v < 2; v++) { voice_pos[v] = 0; voice_left[v] = 0; }
+static void music_silence(void) {
+    REG_SND2CNT = 0; REG_SND2FREQ = 0x8000;
+    REG_SND3SEL = 0;
+    REG_SND1CNT = 0; REG_SND1FREQ = 0x8000;
 }
+static void music_play(s32 s) {                        // -1: no music
+    if (s == song) return;
+    if (song >= 0 && song_count[song][2]) { REG_SND1CNT = 0; REG_SND1FREQ = 0x8000; }   // the old harmony stops
+    song = s;
+    for (s32 v = 0; v < 3; v++) { voice_pos[v] = 0; voice_left[v] = 0; voice_done[v] = 0; }
+    if (s < 0) music_silence();
+}
+static int music_once_playing(void) { return song >= 0 && !song_loop[song]; }
 static void music_tick(void) {
     sfx_tick();
     if (song < 0) return;
-    for (s32 v = 0; v < 2; v++) {
+    int busy = 0;
+    for (s32 v = 0; v < 3; v++) {
+        if (!song_count[song][v] || voice_done[v]) continue;
+        busy = 1;
         if (voice_left[v]) { voice_left[v]--; continue; }
         u32 i = voice_pos[v];
+        if (i >= song_count[song][v]) {                 // the end: loop, or this voice is done
+            if (!song_loop[song]) { voice_done[v] = 1; continue; }
+            i = 0;
+        }
         music_note(v, song_freq[song][v][i]);
         voice_left[v] = song_len[song][v][i] * song_fps[song] - 1;
-        voice_pos[v] = (i + 1) % song_count[song][v];
+        voice_pos[v] = i + 1;
     }
+    if (!song_loop[song] && !busy) music_play(-1);     // a jingle ended: silence
 }
 
 // ---------- world ----------
@@ -950,13 +973,13 @@ static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1 }, area_west[
 static const signed char area_south[NUM_AREAS] = { 2, -1, -1, -1, -1 }, area_north[NUM_AREAS] = { -1, -1, 0, -1, -1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
                                             "INSIDE THE GREAT TREE" };
-// Each area's tune (the Great Tree's two use Stone Hollow's quiet one until the tree is healed).
-static u32 revive_music, revive_slow;   // the revival's own song; its middle lines stay up longer
-static s32 area_song(s32 a) {
-    static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_HOLLOW, SONG_HOLLOW };
-    if (revive_music) return SONG_AWAKEN;                 // the Great Tree waking (v0.16.6)
-    return a == WEST && tree_alive ? SONG_GREATTREE : song_of[a];
-}
+// Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
+// A scene may set its own (scene_song; -1 = silence).
+#define NO_SCENE_SONG (-2)
+static s32 scene_song = NO_SCENE_SONG;
+static u32 revive_slow;                 // the revival's middle lines stay up longer
+static u32 omen_step;                   // the last mini boss's jingle is playing (update_music)
+static s32 area_song(s32 a);
 
 // Walk into area a, standing at (nx, ny). Fails (returns 0) if that spot is blocked.
 static int enter_area(s32 a, s32 nx, s32 ny) {
@@ -1661,6 +1684,7 @@ static void update_attack(void) {
             for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;   // its blobs die with it
             gloom_ring = 0;
             gloom_burst(boss.x + 16, boss.y + 16, 32, 30);
+            music_play(SONG_WIN_WARM);                       // the victory jingle (plays once)
             sfx_play(SFX_QUEST);
             spark(boss.x + 8, boss.y + 8);
             revive_step = 1;                                  // the tree comes back (update_revive)
@@ -1680,6 +1704,8 @@ static void update_attack(void) {
                 queue_message("IN MY HEART. IN THE HOLLOW.");
                 open_door();
                 queue_message("THE WAY INTO THE TREE OPENS.");
+                omen_step = 1;                                // a quiet, open jingle, then the tree shakes
+                music_play(SONG_OMEN);
             }
         }
     }
@@ -1790,7 +1816,7 @@ static void update_gloom(s32 dx, s32 dy) {
             }
         } else if (t == 48) {
             boss.state = 0;
-            sfx_play(SFX_ROCK);
+            sfx_play(SFX_GLOOM_SHOOT);
             if (gloom_melee()) {                     // three slow spores, aimed at you
                 s32 best = 0, bd = -(1 << 30);
                 for (s32 k = 0; k < 16; k++) {
@@ -1801,7 +1827,7 @@ static void update_gloom(s32 dx, s32 dy) {
             } else
                 for (s32 k = 0; k < 8; k++) fire_spore(k * 2, 26);   // a ring of eight
         } else if (t == 72 && heart) {
-            sfx_play(SFX_ROCK);
+            sfx_play(SFX_GLOOM_SHOOT);
             for (s32 k = 0; k < 8; k++) fire_spore(k * 2 + 1, 26);   // the open heart fires twice
         } else if (t >= 90) {
             gloom_tx = gloom_spot[rng() & 7][0]; gloom_ty = gloom_spot[rng() & 7][1];
@@ -1817,7 +1843,7 @@ static void update_gloom(s32 dx, s32 dy) {
         } else if (t < 54 + (RING_REACH - 16) / 2) {
             boss.state = 0;
             gloom_ring = 16 + (t - 54) * 2;
-            if (t == 54) sfx_play(SFX_ROCK);
+            if (t == 54) sfx_play(SFX_GLOOM_ROAR);
             s32 d2 = dx * dx + dy * dy, lo = gloom_ring - 10, hi = gloom_ring + 10;
             if (!gloom_ring_hit && d2 >= lo * lo && d2 <= hi * hi) { gloom_ring_hit = 1; hurt(1, cx, cy); }
         } else {
@@ -1840,7 +1866,7 @@ static void update_gloom(s32 dx, s32 dy) {
             if (boss.hop < 0) boss.hop = 0;
         } else {
             boss.hop = 0;
-            sfx_play(SFX_BUILD);
+            sfx_play(SFX_GLOOM_SLAM);
             gloom_burst(cx, cy + 8, 20, 20);         // dust
             if (dx * dx + dy * dy < 28 * 28) hurt(1, cx, cy);
             if (!gloom_told_daze) { gloom_told_daze = 1; show_message("IT'S DAZED! HIT IT NOW!"); }
@@ -2670,9 +2696,9 @@ static void check_tree(void) {
     }
 }
 
-static const char *gloom_intro_lines[] = {
-    "THE GLOOMHEART ROARS!", "BARK: HMPH. THAT. THE ROT.", "IT'S BEEN CHEWING ON MY", "INSIDES FOR AGES. UGH.",
-    "SQUISH IT, WIZARD. NOW.", "ALL OF YOU. ONE AT A TIME.",
+static const char *gloom_intro_lines[] = {   // Bark's words (Caleb)
+    "THE GLOOMHEART ROARS!", "BARK: GRRR...", "SO THAT'S WHAT WAS OFF..", "LOOKS LIKE IT MADE ITSELF",
+    "AT HOME.", "SQUISH IT, WIZARD.",
 };
 static const char *gloom_again_lines[] = { "THE GLOOMHEART ROARS!", "BARK: AGAIN. SQUISH IT." };
 static void update_gloom_intro(void) {
@@ -2695,7 +2721,7 @@ static void update_gloom_intro(void) {
     }
     if (gloom_intro == 1) {                                  // the roar shakes the whole tree
         shake_timer = 90; boss.state = 1;
-        sfx_play(SFX_ROCK);
+        sfx_play(SFX_GLOOM_ROAR);
     }
     if (gloom_intro == 2) boss.state = 0;
     show_message(gloom_intro_seen ? gloom_again_lines[gloom_intro - 1] : gloom_intro_lines[gloom_intro - 1]);
@@ -2703,6 +2729,18 @@ static void update_gloom_intro(void) {
     gloom_intro_wait = 20;
 }
 
+// v0.16.8 (Caleb's picks): the Great Tree's region is withered while dead, rootward once Bark's tasks are
+// done, uneasy after the four mini bosses (and inside until the Gloomheart's roar is over), heartwood
+// once healed; the fight is gloomfight.
+static s32 area_song(s32 a) {
+    static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY };
+    if (scene_song != NO_SCENE_SONG) return scene_song;
+    if (a == WEST)
+        return tree_alive ? SONG_HEARTWOOD : boss_beaten == (1 << NUM_BOSSES) - 1 ? SONG_UNEASY :
+               tree_done == 15 ? SONG_ROOTWARD : SONG_WITHERED;
+    if (a == HOLLOW_IN) return boss.alive && !gloom_intro ? SONG_GLOOMFIGHT : SONG_UNEASY;
+    return song_of[a];
+}
 static void update_bark(void) {
     if (bark_fall) bark_fall--;
     scene_on = bark_step && bark_step <= BARK_SCENE_LEN;
@@ -2870,14 +2908,14 @@ static void update_revive(void) {
     }
     if (white_mode == 1 || white_mode >= 3) return;  // wait for the light
     if (revive_wait) { revive_wait--; return; }
-    if ((msg_timer && !msg_is_prompt) || msgq_len) return;
+    if ((msg_timer && !msg_is_prompt) || msgq_len || music_once_playing()) return;   // a jingle plays out
     u32 act = revive_scene[revive_step - 1].act;
     const char *m = revive_scene[revive_step - 1].msg;
     revive_step++;
     revive_wait = 20;
     if (act == RV_SHAKE) {                           // until the light comes
         shake_timer = 2000; sfx_play(SFX_ROCK);
-        revive_music = 1; revive_slow = 1; music_play(SONG_AWAKEN);
+        revive_slow = 1; scene_song = SONG_WHOLETONE; music_play(SONG_WHOLETONE);
     }
     if (act == RV_FLOAT) {
         Spirit *b = &spirits[KIND_BARK];
@@ -2896,7 +2934,10 @@ static void update_revive(void) {
         revive_wait = 40;
     }
     if (act == RV_LEAFUP) { leaf_timer = 150; sfx_play(SFX_BUILD); revive_wait = 170; }
-    if (act == RV_FADE) { white_mode = 4; white_t = 0; revive_wait = 30; chime(1568, 30); }
+    if (act == RV_FADE) {                            // white again, and silence (Caleb)
+        white_mode = 4; white_t = 0; revive_wait = 30;
+        scene_song = -1; music_play(-1);
+    }
     if (act == RV_OUT) {                             // while white: outside, the tree healed, the region green
         float_on = 0;
         tree_alive = 1;
@@ -2911,13 +2952,29 @@ static void update_revive(void) {
         white_mode = 2;                              // still white while Bark turns back into his tree
         revive_wait = 60;
     }
-    if (act == RV_UNFADE) { shake_timer = 2000; sfx_play(SFX_ROCK); white_slow = 1; white_mode = 3; white_t = 0; revive_wait = 0; }
+    if (act == RV_UNFADE) {                          // the reveal: the tree shakes until the jingle ends
+        shake_timer = 2000; white_slow = 1; white_mode = 3; white_t = 0; revive_wait = 0;
+        scene_song = SONG_REVEAL_GRAND; music_play(SONG_REVEAL_GRAND);
+    }
     if (act == RV_STILL) {
         shake_timer = 0; sfx_play(SFX_WAKE); revive_wait = 30;
-        revive_music = 0; revive_slow = 0; music_play(area_song(WEST));   // the healed tree's own song
+        revive_slow = 0; scene_song = NO_SCENE_SONG; music_play(area_song(WEST));   // the healed tree's own song
     }
     if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
     if (m) { show_message(m); if (revive_slow) msg_timer = 240; }   // Caleb: these went by too fast
+}
+
+// The last mini boss falls: omen (Bright, quiet and open) plays once, then the tree shakes and the
+// music turns uneasy. Otherwise the Great Tree's music follows area_song as the story moves on.
+static void update_music(void) {
+    if (omen_step == 1 && !music_once_playing()) {
+        omen_step = 0;
+        shake_timer = 100;
+        sfx_play(SFX_GLOOM_ROAR);                              // something inside the tree stirs
+    }
+    if (omen_step || music_once_playing()) return;
+    if (revive_step && revive_step <= REVIVE_LEN) return;     // the revival sets its own music
+    if (cur_area == WEST || cur_area == HOLLOW_IN) music_play(area_song(cur_area));
 }
 
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
@@ -3779,6 +3836,7 @@ int main(void) {
         check_milestones();
         update_bark();
         update_revive();
+        update_music();
         check_tree();
         update_tips();
         update_growth();

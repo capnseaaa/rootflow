@@ -1,0 +1,17 @@
+# v0.16.8: the last mini boss falls: omen plays once, then the tree shakes (roar) and the music turns uneasy
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=6,$dev_val+20=1
+1 1
+1 0
+300 0
+0 0 @$song,$cur_area,$boss+36,$boss
+0 0 !$boss+36=0,$boss_beaten=15,$omen_step=1,$song=6,$voice_pos=0,$voice_pos+4=0,$voice_pos+8=0,$voice_left=0,$voice_left+4=0,$voice_left+8=0,$voice_done=0,$voice_done+4=0,$voice_done+8=0
+60 0 @$song,$omen_step,$shake_timer
+60 0 @$song,$omen_step,$shake_timer
+60 0 @$song,$omen_step,$shake_timer
+60 0 @$song,$omen_step,$shake_timer

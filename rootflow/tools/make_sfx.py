@@ -41,7 +41,9 @@ SFX = {
     "save":      ("kenney_interface/files/Audio/confirmation_002.ogg", 0.53, 1.0),
     "fail":      ("kenney_interface/files/Audio/error_004.ogg", 0.12, 1.0),
 }
-ORDER = list(SFX)
+# Made by tools/synth_sfx.py (no download): the Gloomheart's roar, shot, and slam.
+SYNTH = ["gloom_roar", "gloom_shoot", "gloom_slam"]
+ORDER = list(SFX) + SYNTH
 
 
 def convert(name, src, max_len, gain):
@@ -89,7 +91,7 @@ def write_header():
 def main():
     os.makedirs(SFX_DIR, exist_ok=True)
     if "--import" in sys.argv:
-        for name in ORDER:
+        for name in SFX:
             convert(name, *SFX[name])
     write_header()
 

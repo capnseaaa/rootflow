@@ -1,0 +1,46 @@
+# v0.16.8: the Great Tree music at each story point (dev jumps), then the hollow intro and fight
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=5
+1 1
+1 0
+300 0
+0 0 @$dev_val,$song,$cur_area,$tree_done,$boss_beaten
+1 770
+1 0
+5 0
+0 0 !$dev_val=6
+1 1
+1 0
+300 0
+0 0 @$dev_val,$song,$cur_area,$tree_done,$boss_beaten
+1 770
+1 0
+5 0
+0 0 !$dev_val=7
+1 1
+1 0
+300 0
+0 0 @$dev_val,$song,$cur_area,$tree_done,$boss_beaten
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+300 0
+0 0 @$dev_val,$song,$cur_area,$tree_done,$boss_beaten
+1 770
+1 0
+5 0
+0 0 !$dev_val=7,$dev_val+20=1
+1 1
+1 0
+60 0
+40 64
+30 0 @$cur_area,$song,$gloom_intro
+1400 0 @$cur_area,$song,$gloom_intro
