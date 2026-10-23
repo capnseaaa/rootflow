@@ -33,6 +33,9 @@ typedef signed int     s32;
 #define REG_WIN0V     REG16(0x04000044)
 #define REG_WININ     REG16(0x04000048)
 #define REG_WINOUT    REG16(0x0400004A)
+#define REG_WIN1H     REG16(0x04000042)
+#define REG_WIN1V     REG16(0x04000046)
+#define REG_BLDY      REG16(0x04000054)
 #define REG_BLDCNT    REG16(0x04000050)
 #define REG_BLDALPHA  REG16(0x04000052)
 #define REG_KEYINPUT  REG16(0x04000130)
@@ -687,6 +690,10 @@ static u32 tree_step, tree_wait, tree_done;
 static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
 static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
+// v0.16.2 revival inside the tree: Bark floats (float_on 1; 2 = shot up and gone), the screen goes white
+// (white_mode 1 opening like an old TV turning on, in reverse: a line, then the whole screen; 2 white;
+// 3 fading back; 4 fading to white).
+static s32 float_on, float_x, float_y, float_h, float_up, float_tx, float_ty, white_mode, white_t;
 static void combat_enter(void);   // enemies and the boss of the area you enter
 static void draw_hearts_hud(void);
 
@@ -1368,7 +1375,7 @@ static int interact(s32 mx, s32 my) {
 // wakes at the nearest home with nothing lost; the boss there starts over.
 #define SPR_COMBAT (TILE_COMBAT / 4)
 enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
-       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS };
+       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT };
 static int in_combat_area(void) { return (cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive; }
 
 static void draw_hearts_hud(void) {
@@ -1408,7 +1415,7 @@ enum { G_MOVE, G_VOLLEY, G_RING, G_DIVE, G_DAZED };
 #define MAX_MOTES 16
 #define RING_DOTS 16
 #define RING_REACH 72
-typedef struct { s32 x, y, dx, dy, life; } Dot;      // x, y, dx, dy in 1/16 px
+typedef struct { s32 x, y, dx, dy, life, c; } Dot;   // x, y, dx, dy in 1/16 px; c: the sprite cell (motes)
 static Dot spores[MAX_SPORES], motes[MAX_MOTES];
 static void gloom_burst(s32 x, s32 y, s32 speed, s32 life);
 static s32 gloom_act, gloom_step, gloom_tx, gloom_ty, gloom_ring, gloom_ring_hit, gloom_shake, gloom_told_daze;
@@ -1715,13 +1722,15 @@ static const u8 gloom_plan[NUM_SPIRITS + 1][4] = {
 };
 static int gloom_melee(void) { return gloom_phase == KIND_SPROUT || gloom_phase == KIND_BARK; }
 
-static void add_mote(s32 x, s32 y, s32 dx, s32 dy, s32 life) {
+static void add_mote_c(s32 x, s32 y, s32 dx, s32 dy, s32 life, s32 c) {
     for (s32 i = 0; i < MAX_MOTES; i++)
         if (!motes[i].life) {
             motes[i].x = x << 4; motes[i].y = y << 4; motes[i].dx = dx; motes[i].dy = dy; motes[i].life = life;
+            motes[i].c = c;
             return;
         }
 }
+static void add_mote(s32 x, s32 y, s32 dx, s32 dy, s32 life) { add_mote_c(x, y, dx, dy, life, C_MOTE); }
 // Motes fly out from (x, y): speed in 1/32 of the dir16 speed (32 = 2 px per frame).
 static void gloom_burst(s32 x, s32 y, s32 speed, s32 life) {
     for (s32 k = 0; k < 8; k++)
@@ -1972,7 +1981,7 @@ static void draw_gloom_fx(void) {
     }
     for (s32 i = 0; i < MAX_MOTES; i++) {
         Dot *m = &motes[i];
-        if (on && m->life) sprite_set(OAM_MOTE + i, (m->x >> 4) - cam_x, (m->y >> 4) - cam_y, SPR_COMBAT + C_MOTE, 0, PAL_COMBAT);
+        if (on && m->life) sprite_set(OAM_MOTE + i, (m->x >> 4) - cam_x, (m->y >> 4) - cam_y, SPR_COMBAT + m->c, 0, PAL_COMBAT);
         else sprite_hide(OAM_MOTE + i);
     }
     s32 r = gloom_ring < 0 ? -gloom_ring : gloom_ring;
@@ -2049,7 +2058,8 @@ static void draw_combat(void) {
     for (s32 k = 0; k < 6; k++) {                    // leaves swirl round the wizard (Bark's gift)
         if (!leaf_timer) { sprite_hide(OAM_LEAF + k); continue; }
         u32 a = ((leaf_timer >> 1) + k * 8) & 47;
-        s32 lx = px - cam_x + (s32)loop_x48[a] - 8 + 8, ly = py - cam_y - 8 + (s32)loop_y48[a];
+        s32 ox = float_on == 1 ? float_x : px, oy = float_on == 1 ? float_y - float_h : py;   // round Bark, or you
+        s32 lx = ox - cam_x + (s32)loop_x48[a] - 8 + 8, ly = oy - cam_y - 8 + (s32)loop_y48[a];
         sprite_set(OAM_LEAF + k, lx, ly - (s32)(120 - leaf_timer) / 8, SPR_COMBAT + C_LEAF, k & 1, PAL_COMBAT);
     }
     if (hit_life) {
@@ -2442,7 +2452,10 @@ static void handle_action(void) {
     if (party_count > 1 && step) {
         active = (active + step) % party_count;
         sfx_play(SFX_MENU_MOVE);
-        show_message(is_you(spirits[party[active]].kind) ? "YOU: CUT, CLEAR, SLAM" : spirit_skill[spirits[party[active]].kind]);
+        if (!scene_on && !msgq_len && !(msg_timer && !msg_is_prompt)) {   // dialogue comes first (Caleb)
+            show_message(is_you(spirits[party[active]].kind) ? "YOU: CUT, CLEAR, SLAM" : spirit_skill[spirits[party[active]].kind]);
+            msg_is_prompt = 1;                         // and the next line of dialogue may replace it
+        }
         draw_active();
     }
 
@@ -2715,12 +2728,17 @@ static void revive_world(void) {
         for (s32 x = DOOR_X; x <= DOOR_X + 1; x++) m[y * MAP_W + x] = TRUNK_BLOCK;
 }
 
-// Gloomheart beaten: out of the hollow, the tree shakes, wakes green, Bark lives in it again and
-// gives the wizard his power ("YOU" in R/L). One step at a time, like Bark's arrival.
-enum { RV_SAY, RV_OUT, RV_SHAKE, RV_SWAP, RV_LEAVES };
+// Gloomheart beaten (v0.16.2, Caleb's scene): inside the tree it shakes; Bark floats up among green
+// sparks; the shaking stops and white light fills the screen; the room is clean again (the rot veins
+// turn to green moss); Bark feels tingly, leaves swirl round him, and he shoots up. White again, and
+// the team stands outside the healed tree, where Bark gives the wizard his power ("YOU" in R/L).
+enum { RV_SAY, RV_SHAKE, RV_FLOAT, RV_WHITE, RV_CLEAN, RV_LEAFUP, RV_FADE, RV_OUT, RV_LEAVES };
 static const struct { u8 act; const char *msg; } revive_scene[] = {
-    { RV_SAY, "THE GLOOMHEART CRUMBLES!" }, { RV_OUT, 0 }, { RV_SAY, "BARK: ...WAIT. LISTEN." },
-    { RV_SHAKE, "THE GREAT TREE SHAKES!" }, { RV_SWAP, "...AND WAKES UP!" },
+    { RV_SAY, "THE GLOOMHEART CRUMBLES!" }, { RV_SHAKE, "WHAT'S HAPPENING?..." },
+    { RV_FLOAT, "BARK: HMPH... SIGH..." }, { RV_WHITE, 0 }, { RV_CLEAN, 0 },
+    { RV_SAY, "BARK: OH.. THIS LOOKS BETTER" }, { RV_SAY, "BARK: HMPH... WHAT'S THIS" },
+    { RV_SAY, "TINGLY FEELING?..." }, { RV_SAY, "I DON'T LIKE IT..." }, { RV_LEAFUP, 0 }, { RV_FADE, 0 },
+    { RV_OUT, "YOU BROUGHT BACK BARK!" },
     { RV_SAY, "BARK: OH. OH! MY LEAVES!" }, { RV_SAY, "I'M HOME. I'M ME AGAIN." },
     { RV_SAY, "HMPH. THANK YOU, WIZARD." }, { RV_SAY, "TAKE MY POWER. YOU EARNED IT." },
     { RV_LEAVES, "BARK'S POWER IS YOURS!" }, { RV_SAY, "R/L TO YOU: CUT, CLEAR, SLAM." },
@@ -2728,35 +2746,98 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "LEAFEN. VAEL TOOK THEM." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
 };
 #define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
+#define BLD_NORMAL ((1 << 2) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13))   // BG2 see-through
+
+// The white light, set once a frame in vblank. Brightening is the GBA's own fade to white.
+static void apply_white(void) {
+    if (!white_mode) return;
+    white_t++;
+    REG_BLDCNT = 0x3F | (2 << 6);                    // brighten every layer
+    REG_DISPCNT &= ~(1 << 13);                       // no clear box meanwhile (window 0)
+    if (white_mode == 1) {                           // a line grows across, then opens to the full screen
+        s32 w = white_t < 16 ? white_t * 8 : SCREEN_W / 2, h = white_t < 16 ? 1 : (white_t - 15) * 4;
+        if (h > SCREEN_H / 2) h = SCREEN_H / 2;
+        REG_DISPCNT |= 1 << 14;
+        REG_WIN1H = ((SCREEN_W / 2 - w) << 8) | (SCREEN_W / 2 + w);
+        REG_WIN1V = ((SCREEN_H / 2 - h) << 8) | (SCREEN_H / 2 + h);
+        REG_WININ = (REG_WININ & 0xFF) | (0x3F << 8);
+        REG_WINOUT = 0x1F;                           // outside the light: no effect
+        REG_BLDY = 16;
+        if (h >= SCREEN_H / 2) { white_mode = 2; white_t = 0; }
+        return;
+    }
+    REG_DISPCNT &= ~(1 << 14);
+    REG_WINOUT = 0x3F;
+    s32 y = white_mode == 2 ? 16 : white_mode == 3 ? 16 - (white_t >> 1) : white_t >> 1;
+    REG_BLDY = y < 0 ? 0 : y > 16 ? 16 : y;
+    if (white_mode == 4 && white_t >= 32) { white_mode = 2; white_t = 0; }
+    if (white_mode == 3 && white_t >= 32) {          // back to normal
+        white_mode = 0;
+        REG_BLDY = 0;
+        REG_BLDCNT = BLD_NORMAL;
+        if (cur_area == WEST) REG_DISPCNT |= 1 << 13;
+    }
+}
+
+static void green_motes(s32 x, s32 y, s32 n, s32 up) {   // sparks of life round (x, y)
+    for (s32 k = 0; k < n; k++)
+        add_mote_c(x - 8 + (s32)(rng() % 24) - 12, y - 8 + (s32)(rng() % 16) - 8,
+                   up ? 0 : dir16[(k * 2) & 15] >> 1, up ? -10 : DIR16_Y((k * 2) & 15) >> 1, up ? 40 : 30, C_GLINT);
+}
+
 static void update_revive(void) {
     if (shake_timer) shake_timer--;
     if (leaf_timer) leaf_timer--;
     if (!revive_step || revive_step > REVIVE_LEN) return;
     scene_on = 1;
+    if (cur_area == HOLLOW_IN) update_gloom_dots();
+    if (float_on == 1) {                             // Bark floats, sparks rise; at the end he shoots up
+        if (leaf_timer && leaf_timer < 40) float_up = 1;
+        float_x += sgn(float_tx - float_x); float_y += sgn(float_ty - float_y);   // drifts to its spot
+        if (float_up) float_h += 5;
+        else if (float_h < 20 && (frame & 1)) float_h++;
+        if (!float_up && frame % 8 == 0) green_motes(float_x + 8, float_y + 8 - float_h, 1, 1);
+        if (float_h > 220) { float_on = 2; leaf_timer = 0; }
+    }
+    if (white_mode == 1 || white_mode >= 3) return;  // wait for the light
     if (revive_wait) { revive_wait--; return; }
-    if (msg_timer || msgq_len || shake_timer > 60) return;
+    if ((msg_timer && !msg_is_prompt) || msgq_len) return;
     u32 act = revive_scene[revive_step - 1].act;
     const char *m = revive_scene[revive_step - 1].msg;
     revive_step++;
     revive_wait = 20;
-    if (act == RV_OUT) {                                     // out in front of the tree
-        enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);
+    if (act == RV_SHAKE) { shake_timer = 2000; sfx_play(SFX_ROCK); }   // until the light comes
+    if (act == RV_FLOAT) {
+        Spirit *b = &spirits[KIND_BARK];
+        float_on = 1; float_x = b->x; float_y = b->y; float_h = 0; float_up = 0;
+        float_tx = px; float_ty = py - 20;            // in front of the wizard, above him
+        sfx_play(SFX_WAKE);
+    }
+    if (act == RV_WHITE) { shake_timer = 0; white_mode = 1; white_t = 0; revive_wait = 30; chime(1568, 40); }
+    if (act == RV_CLEAN) {                           // the rot veins become moss; light fades back
+        PAL_BG[TREE_BANK * 16 + 11] = RGB5(40, 76, 36);
+        PAL_BG[TREE_BANK * 16 + 12] = RGB5(92, 150, 66);
+        for (s32 i = 0; i < MAX_MOTES; i++) motes[i].life = 0;
+        green_motes(float_x + 8, float_y + 8 - float_h, 8, 0);
+        white_mode = 3; white_t = 0;
+        sfx_play(SFX_QUEST);
         revive_wait = 40;
     }
-    if (act == RV_SHAKE) { shake_timer = 120; sfx_play(SFX_ROCK); }
-    if (act == RV_SWAP) {                                    // mid-shake: the living tree, a green region
+    if (act == RV_LEAFUP) { leaf_timer = 150; sfx_play(SFX_BUILD); revive_wait = 170; }
+    if (act == RV_FADE) { white_mode = 4; white_t = 0; revive_wait = 30; chime(1568, 30); }
+    if (act == RV_OUT) {                             // while white: outside, the tree healed, the region green
+        float_on = 0;
         tree_alive = 1;
         revive_world();
-        REG_DISPCNT |= 0x0080;
-        set_ground_palette(WEST);
-        draw_area();
-        REG_DISPCNT &= ~0x0080;
+        enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);
         draw_life();
         draw_active();
         draw_hearts_hud();
         clear_row(1);
         music_play(area_song(WEST));
         sfx_play(SFX_WAKE);
+        white_mode = 3; white_t = 0;
+        revive_wait = 10;
     }
     if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
     if (m) show_message(m);
@@ -2856,7 +2937,12 @@ static void draw_sprites(void) {
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
-        if (s->state == SP_HIDDEN || is_you(i)) {         // Bark lives in his tree once it is healed
+        if (i == KIND_BARK && float_on) {                // the revival: Bark floats, then shoots up
+            if (float_on == 2) sprite_hide(OAM_SPIRIT + i);
+            else sprite_set(OAM_SPIRIT + i, float_x - cam_x, float_y - cam_y - 4 - float_h + (float_up ? 0 : b),
+                            spirit_tile[s->kind] + anim, 0, spirit_pal[s->kind]);
+            sprite_hide(OAM_ZZZ + i);
+        } else if (s->state == SP_HIDDEN || is_you(i)) {  // Bark lives in his tree once it is healed
             sprite_hide(OAM_SPIRIT + i);
             sprite_hide(OAM_ZZZ + i);
         } else if (s->state == SP_HOME) {
@@ -3580,6 +3666,7 @@ int main(void) {
         REG_BG2HOFS = REG_BG3HOFS = cam_x + shake;
         REG_BG2VOFS = REG_BG3VOFS = cam_y;
         clear_box();
+        apply_white();
         oam_flush();
         if ((frame & 31) == 0) animate_water();
         animate_homes();
@@ -3592,7 +3679,7 @@ int main(void) {
         if (!dev_open && dev_combo()) { close_menu(); open_dev(); continue; }
         if (dev_open) { update_dev(); update_message(); continue; }
         dev_tick();
-        if (!paused && HIT(KEY_START)) { open_menu(); continue; }
+        if (!paused && HIT(KEY_START) && !(revive_step && revive_step <= REVIVE_LEN)) { open_menu(); continue; }
         if (paused) { update_menu(); update_message(); continue; }
 
         update_player();

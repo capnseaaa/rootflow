@@ -1,0 +1,151 @@
+# v0.16.2: R during a dialogue line swaps the spirit but keeps the line (msg_timer keeps counting down)
+# v0.16: the hollow, Gloomheart (a shield per spirit), the tree healed, YOU
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=7,$dev_val+20=1
+1 1
+1 0
+60 0 h0_opening.ppm
+0 0 @$cur_area,$boss_beaten,$maps+3692
+# walk up into the opening
+40 64
+30 0 h1_inside.ppm
+0 0 @$cur_area,$boss+36,$boss,$gloom_phase,$hearts_now
+600 0 h2_gloom.ppm
+# Ripple first: the Sprout shield ignores it
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 0: spirit slot 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=0,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 1: spirit slot 1
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=1,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 2: spirit slot 2
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=2,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 3: spirit slot 3
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=3,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+# shield 4: spirit slot 4
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+200 0
+0 0 @$gloom_phase,$gloom_shield
+10 0 h3_heart_open.ppm
+# the open heart: Bark slams (2 a hit) until it falls
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 !$active=4,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+1 64
+1 0
+2 1
+40 0
+0 0 @$boss+36,$boss+12,$revive_step
+300 0 @$msg_timer,$active
+1 256
+1 0 @$msg_timer,$active

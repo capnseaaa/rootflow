@@ -145,7 +145,7 @@
 2 1
 40 0
 0 0 @$boss+36,$boss+12,$revive_step
-# the revival plays out (messages, the shake, the swap, the leaves)
+# the revival plays out (v0.16.2: the shake and Bark floating inside, the white light, the clean room, Bark shoots up, outside)
 200 0 h4_revive00.ppm
 0 0 @$revive_step,$tree_alive,$cur_area,$shake_timer,$leaf_timer
 200 0 h4_revive01.ppm

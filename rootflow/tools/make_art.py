@@ -1943,7 +1943,7 @@ COMBAT_PAL = [
     (138, 144, 156),  # 15 metal
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
-                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars"]
+                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint"]
 
 
 def _canvas(n=16):
@@ -2047,6 +2047,9 @@ def combat_cell(name):
             px[sy][sx] = 6
             for d in (-1, 1):
                 px[sy + d][sx] = px[sy][sx + d] = 14
+    elif name == "glint":                      # a green spark of life (Bark floating, the hollow healed)
+        _disc(px, 7.5, 7.5, 2.4, 3, edge=2)
+        px[7][7] = px[8][8] = px[7][8] = px[8][7] = 6
     elif name == "spark":                      # a hit
         for k in range(-5, 6):
             px[8][7 + k] = px[8 + k][7] = 6
