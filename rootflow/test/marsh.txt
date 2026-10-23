@@ -90,7 +90,7 @@
 30 0
 1200 0
 0 0 @$leafen_state+4,$leafen_state+8
-# out along the river bank to Stone Hollow (east edge, row 19) and back
+# east to Stone Hollow (middle third, v0.18.2) and back
 0 0 !$px=494,$py=298,$in_water=0
 40 16
 0 0 @$cur_area,$px,$py

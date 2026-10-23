@@ -503,17 +503,29 @@ def log(rng):
 
 
 def vael_pipe(rng):
-    """A Vael pipe sticking out of the mud, pouring sludge (Pebble breaks it)."""
-    px = dead(rng)
-    for y in range(3, 11):
-        for x in range(4, 12):
-            px[y][x] = 15 if x in (4, 11) or y == 3 else 2 if x < 7 else 1
-    for x in range(3, 13):
-        px[4][x] = 15; px[5][x] = 12              # the rim
-    for y in range(11, 16):                         # sludge pouring out
+    """A Vael pipe jutting out of the mud and pouring sludge (Pebble breaks it). v0.18.2 (Caleb: make
+    them obvious): a big rusty pipe with a red warning light. Drawn with the sludge's bank (BG bank 5):
+    1-3 sludge, 4/5 metal, 12 red light, 13 rust, 9-11 mud, 15 outline."""
+    px = blank(10)
+    for _ in range(20):
+        px[rng.randrange(16)][rng.randrange(16)] = rng.choice((9, 11))
+    for y in range(1, 11):                            # the pipe, rising out of the mud
+        for x in range(3, 13):
+            edge = x in (3, 12) or y == 1
+            px[y][x] = 15 if edge else 4 if x < 6 else 5 if x < 10 else 13
+    for x in range(2, 14):                            # a riveted collar
+        px[3][x] = 15; px[4][x] = 13 if x % 3 else 4
+    for y in range(1, 3):                             # the dark mouth
         for x in range(5, 11):
-            px[y][x] = 1 if (x + y) % 3 else 2
-    px[7][6] = px[8][6] = 14                        # a rivet glint
+            px[y][x] = 1
+    px[6][9] = px[6][10] = 12; px[7][9] = px[7][10] = 12   # the red warning light
+    px[5][9] = 15
+    for y in range(9, 16):                            # sludge spilling down the front and spreading
+        w = 2 + (y - 9) // 2
+        for x in range(8 - w, 8 + w):
+            if 0 <= x < 16:
+                px[y][x] = 1 if (x + y) % 3 else 2
+    px[12][6] = px[14][9] = 3
     return px
 
 
@@ -2261,7 +2273,7 @@ COMBAT_PAL = [
     (138, 144, 156),  # 15 metal
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
-                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint", "bubble", "splash"]
+                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint", "bubble", "splash", "petal"]
 # v0.17 the Leafen: five looks (two-leaf sprout, tall leaf, flower bud, acorn cap, dewdrop), each standing,
 # stepping, swimming and climbing; six tiny homes; the shiny pebble. All in the combat palette (OBJ bank 12).
 LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]
@@ -2394,6 +2406,10 @@ def combat_cell(name):
             px[sy][sx] = 6
             for d in (-1, 1):
                 px[sy + d][sx] = px[sy][sx + d] = 14
+    elif name == "petal":                      # Lily's attack: a little spinning lily blossom (v0.18.2)
+        for (cx, cy) in ((7.5, 4.5), (10.5, 7.5), (7.5, 10.5), (4.5, 7.5)):
+            _disc(px, cx, cy, 2.2, 6, edge=1)
+        _disc(px, 7.5, 7.5, 1.6, 14)
     elif name == "splash":                     # a tiny splash: a few white flecks flicking up (the swimmer's wake)
         for (x, y) in ((6, 9), (9, 9), (7, 7), (8, 8), (5, 10), (10, 10)):
             px[y][x] = 6
@@ -2764,12 +2780,12 @@ def lily_cell(frame):
     lift = frame
     def ell(cx, cy, rx, ry):
         return {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
-    pad = ell(7.5, 13.2, 7.2, 2.6)
+    pad = ell(7.5, 13.4, 5.6, 2.3)                    # v0.18.2 (Caleb: a little too fat): slimmer all round
     petals = set()
-    for cx, cy, rx, ry in ((7.5, 4.6, 2.3, 3.4), (4.2, 6.4, 2.3, 3.0), (10.8, 6.4, 2.3, 3.0),
-                           (2.6, 9.6, 2.6, 2.2), (12.4, 9.6, 2.6, 2.2)):
+    for cx, cy, rx, ry in ((7.5, 4.4, 1.9, 3.3), (5.0, 6.2, 1.9, 2.9), (10.0, 6.2, 1.9, 2.9),
+                           (3.8, 9.6, 2.0, 2.0), (11.2, 9.6, 2.0, 2.0)):
         petals |= ell(cx, cy - lift, rx, ry)
-    face = ell(7.5, 9.2 - lift, 3.6, 2.9)
+    face = ell(7.5, 9.2 - lift, 2.9, 2.7)
     body = petals | face
     def outline(shape, x, y):
         return any((x + dx, y + dy) not in shape for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
@@ -2786,10 +2802,11 @@ def lily_cell(frame):
             px[y][x] = 4 if y < 7 - lift else 5
     ey = int(9 - lift)
     px[ey][6] = px[ey][9] = 1
-    px[ey + 1][5] = px[ey + 1][10] = 8
+    px[ey][6] = px[ey][9] = 1
+    px[ey + 1][6] = px[ey + 1][9] = 8
     px[ey + 1][7] = px[ey + 1][8] = 6
     if frame:
-        for x in (1, 2, 13, 14):
+        for x in (2, 3, 12, 13):
             px[15][x] = 9
     return px
 

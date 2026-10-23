@@ -1,0 +1,20 @@
+# v0.18.2 Lily's petal shot: from the dev jump TREE TASKS DONE, Lily put in slot 0 facing a blob
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=6
+1 1
+1 0
+400 0
+0 0 !$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0,$enemies+276=0,$enemies+316=0
+0 0 !$px=82,$py=10,$active=0,$party=5,$enemies=0,$enemies+4=130,$enemies+8=12,$enemies+12=3,$enemies+36=1,$boss+4=400,$boss+8=420
+1 16
+1 0
+2 1
+4 0 la1.ppm
+0 0 @$atk,$atk+4
+12 0
+0 0 @$enemies+12,$enemies+36

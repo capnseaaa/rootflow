@@ -551,7 +551,7 @@ def make_marsh():
         if x >= MAP_W - 2:
             mid = 21
         for y in range(mid - 1, mid + 2):
-            m[y][x] = WATER if x > 25 else BOG_WATER
+            m[y][x] = BOG_WATER                       # v0.18.2 (Caleb): only bog water and sludge in the marsh
     for x in range(26, MAP_W):
         land(x, MARSH_BANK_ROW)
     # sludge: each pipe stands on a bank and fouls the water next to it

@@ -1,0 +1,41 @@
+# v0.18.2 region crossings land in the matching third of the next region's edge
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 @$cur_area,$px,$py
+# west -> valley, north third
+0 0 !$px=494,$py=40
+30 16
+0 0 @$cur_area,$px,$py
+# valley -> west, south third
+0 0 !$px=2,$py=440
+30 32
+0 0 @$cur_area,$px,$py
+# west -> valley, middle third
+0 0 !$px=494,$py=250
+30 16
+0 0 @$cur_area,$px,$py
+# valley -> steppe (east), north and south thirds
+0 0 !$px=494,$py=60
+30 16
+0 0 @$cur_area,$px,$py
+0 0 !$px=2,$py=440
+30 32
+0 0 @$cur_area,$px,$py
+0 0 !$px=494,$py=440
+30 16
+0 0 @$cur_area,$px,$py
+# valley/steppe north and south
+0 0 !$px=60,$py=2
+30 64
+0 0 @$cur_area,$px,$py
+0 0 !$px=440,$py=494
+30 128
+0 0 @$cur_area,$px,$py

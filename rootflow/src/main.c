@@ -288,7 +288,7 @@ static void draw_meta(s32 mx, s32 my) {
         }
         if (mask) look = (m == WATER ? WATER_EDGE : BOG_EDGE) + mask - 1;
     }
-    u16 base = meta_vram(look) * 4 | (m == SLUDGE ? SLUDGE_BANK << 12 : (is_bog(m) || m == BOG_PAD) ? BOG_BANK << 12 : 0);
+    u16 base = meta_vram(look) * 4 | ((m == SLUDGE || m == VAEL_PIPE) ? SLUDGE_BANK << 12 : (is_bog(m) || m == BOG_PAD) ? BOG_BANK << 12 : 0);
     for (s32 k = 0; k < 4; k++) {
         s32 tx = mx * 2 + (k & 1);
         s32 ty = my * 2 + (k >> 1);
@@ -394,7 +394,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(28, 82, 68), RGB5(46, 118, 94), RGB5(84, 158, 122) },
     { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
     { 0, 0, 0 },
-    { RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(108, 160, 84) },    // the marsh: deep swamp green
+    { RGB5(40, 116, 78), RGB5(72, 166, 98), RGB5(150, 214, 118) },  // the marsh: a fresh bog green (v0.18.2)
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -1202,25 +1202,42 @@ static void region_hint(void) {
     queue_message(east && south ? "IN THE EAST AND SOUTH..." : east ? "IN THE EAST..." : "IN THE SOUTH...");
 }
 
-// Pressing against an open map edge leads to the next area.
+// Pressing against an open map edge leads to the next area. v0.18.2 (Caleb: often you could not cross):
+// each edge is cut into thirds, and leaving through a third arrives in the same third of the other
+// area's facing edge, at the nearest spot you can stand on (searched along the edge and inward).
+enum { SIDE_WEST, SIDE_EAST, SIDE_NORTH, SIDE_SOUTH };
+static int try_arrive(s32 a, s32 side, s32 third) {
+    s32 c = (third * 2 + 1) * WORLD_PX / 6 - 8;          // the third's middle, along the edge
+    use_area(a);
+    for (s32 in = 0; in < 8; in++)
+        for (s32 j = 0; j < 11; j++) {
+            s32 along = c + ((j + 1) / 2) * 16 * ((j & 1) ? 1 : -1);
+            if (along < 0 || along > WORLD_PX - 16) continue;
+            s32 x = side == SIDE_WEST ? 2 + in * 16 : side == SIDE_EAST ? WORLD_PX - 18 - in * 16 : along;
+            s32 y = side == SIDE_NORTH ? 2 + in * 16 : side == SIDE_SOUTH ? WORLD_PX - 18 - in * 16 : along - 6;
+            if (!blocked_at(x, y)) { use_area(cur_area); return enter_area(a, x, y); }
+        }
+    use_area(cur_area);
+    return 0;
+}
+static void cross_to(s32 a, s32 side, s32 along) {
+    s32 third = along < WORLD_PX / 3 ? 0 : along < WORLD_PX * 2 / 3 ? 1 : 2;
+    if (try_arrive(a, side, third)) return;
+    for (s32 k = 0; k < 3; k++) if (k != third && try_arrive(a, side, k)) return;   // that third is shut: another
+}
+
 static void check_exits(void) {
-    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0) {
-        if (!enter_area(area_east[cur_area], 2, py) && cur_area == MARSH)
-            enter_area(2, 2, MARSH_BANK_ROW * 16 - 6);                    // out along the river bank to Stone Hollow
-    }
+    int lily = lily_step > LILY_SCENE_LEN;                 // the marsh opens once Lily has joined (v0.18)
+    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
+        cross_to(area_east[cur_area], SIDE_WEST, py + 8);
     else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
              (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive) &&
-             (cur_area != 2 || lily_step > LILY_SCENE_LEN)) {   // the west opens with Bark; the marsh with Lily
-        if (!enter_area(area_west[cur_area], WORLD_PX - 18, py)) {
-            if (cur_area == 0) enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // blocked there: in at the gate's middle
-            else if (cur_area == 2) enter_area(MARSH, WORLD_PX - 18, MARSH_BANK_ROW * 16 - 6);   // along the river bank
-        }
-    }
-    else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 &&
-             (cur_area != WEST || (lily_step > LILY_SCENE_LEN && ((px + 8) >> 4) >= 14 && ((px + 8) >> 4) <= 17)))
-        enter_area(area_south[cur_area], px, 2);       // the marsh opens once Lily has joined (v0.18)
+             (cur_area != 2 || lily))                         // the west opens with Bark
+        cross_to(area_west[cur_area], SIDE_EAST, py + 8);
+    else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 && (cur_area != WEST || lily))
+        cross_to(area_south[cur_area], SIDE_NORTH, px + 8);
     else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0)
-        enter_area(area_north[cur_area], px, WORLD_PX - 18);
+        cross_to(area_north[cur_area], SIDE_SOUTH, px + 8);
     else if (cur_area == 0 && ((HELD(KEY_UP) && py <= 0) || (HELD(KEY_LEFT) && px <= 0)))
         region_hint();
     else if (cur_area == HOLLOW_IN && HELD(KEY_DOWN) && py >= WORLD_PX - 18)
@@ -1230,7 +1247,10 @@ static void check_exits(void) {
         enter_area(HOLLOW_IN, DOOR_X * 16 + 8, WORLD_PX - 42);      // into the tree
 }
 
+static s32 pick_hold, pick_on, pick_sel;   // the spirit picker (hold R or L)
+static u32 pick_key;
 static void update_player(void) {
+    if (pick_on) { pstep = 0; return; }       // standing still while you pick
     s32 speed = HELD(KEY_B) ? 2 : 1;
     if (home_level[KIND_BREEZE] == 1) speed += HELD(KEY_B) ? 1 : (frame & 1);   // nook bonus: 1.5x walk, 3 run
     if (home_level[KIND_BREEZE] == 2) speed += 1;                              // level 2: 2x walk, 3 run
@@ -1382,7 +1402,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
     int in_map = mx >= 0 && my >= 0 && mx < MAP_W && my < MAP_H;
     if (!in_map) return 0;
     if (kind == KIND_SPROUT) {
-        if (t == WATER || is_rock(t) || t == BRIDGE || t == THORN || t == MENHIR) return 0;
+        if (liquid(t) || is_rock(t) || t == BRIDGE || t == THORN || t == MENHIR || t == VAEL_PIPE) return 0;   // v0.18.2: not into water
         start_bloom(mx, my);
     } else if (kind == KIND_RIPPLE && t == DRY_POOL) {
         // Ripple fills the Great Tree's dried root pool, all of it at once
@@ -1407,7 +1427,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         // v0.18 Lily: sludge becomes clean water (a cross of five) unless a Vael pipe still feeds that
         // pool; on clean water she grows a lily pad you can walk on.
         if (t == SLUDGE) {
-            if (sludge_fed(mx, my)) { show_message("THE PIPE KEEPS POURING SLUDGE!"); queue_message("BREAK IT FIRST."); return 0; }
+            if (sludge_fed(mx, my)) { show_message("THE PIPE KEEPS POURING SLUDGE!"); queue_message("PEBBLE CAN SMASH THE PIPE."); return 0; }
             static const signed char cx[5] = { 0, 1, -1, 0, 0 }, cy[5] = { 0, 0, 0, 1, -1 };
             for (s32 k = 0; k < 5; k++)
                 if (tile_at(mx + cx[k], my + cy[k]) == SLUDGE) { set_tile(mx + cx[k], my + cy[k], BOG_WATER); sparkle_at(mx + cx[k], my + cy[k]); }
@@ -1661,7 +1681,7 @@ static int interact(s32 mx, s32 my) {
 // wakes at the nearest home with nothing lost; the boss there starts over.
 #define SPR_COMBAT (TILE_COMBAT / 4)
 enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
-       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT, C_BUBBLE, C_SPLASH };
+       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT, C_BUBBLE, C_SPLASH, C_PETAL };
 // v0.17 the Leafen's own sheet (leafen_sprite.png): 5 looks x 4 poses, 6 tiny homes, the shiny pebble.
 // They use OBJ bank 11 (the clamps' palette until the tree is healed; no clamp shows after that).
 #define SPR_LEAFEN (TILE_LEAFEN / 4)
@@ -1682,7 +1702,7 @@ typedef struct { s32 type, x, y, hp, timer, dx, dy, flash, knock, alive; } Enemy
 static Enemy enemies[MAX_ENEMIES];
 static const u8 enemy_spawn[][3] = {           // type, tile x, tile y
     { E_BLOB, 4, 6 }, { E_BLOB, 27, 5 }, { E_BLOB, 3, 27 }, { E_BLOB, 28, 26 },
-    { E_DRONE, 3, 1 }, { E_DRONE, 28, 1 }, { E_DRONE, 22, 30 },
+    { E_DRONE, 3, 1 }, { E_DRONE, 28, 1 },   // v0.18.2: two drones, not three (Caleb: too annoying)
 };
 #define NUM_SPAWNS (sizeof(enemy_spawn) / sizeof(enemy_spawn[0]))
 
@@ -1747,7 +1767,7 @@ static int open_at(s32 x, s32 y) {             // a 12x12 body at (x+2, y+2) fit
 
 // v0.18: the marsh has a few of its own (light: three blobs in the mud, two drones over the sludge)
 static const u8 marsh_spawn[][3] = { { E_BLOB, 10, 15 }, { E_BLOB, 21, 16 }, { E_BLOB, 12, 29 },
-                                     { E_DRONE, 22, 11 }, { E_DRONE, 16, 21 } };
+                                     { E_DRONE, 22, 11 } };   // v0.18.2: one drone
 static void spawn_enemies(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
     const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : enemy_spawn;
@@ -1805,7 +1825,9 @@ static void faint(void) {
     hurt_timer = 90;
     if (best < 0) { hearts_now = MAX_HEARTS; return; }
     s32 hx = home_site_x[best], hy = home_site_y[best] + 1;
-    enter_area(home_site_area[best], hx * 16, hy * 16 - 6);
+    static const signed char near_x[9] = { 0, -1, 1, 0, -1, 1, -2, 2, 0 }, near_y[9] = { 0, 0, 0, 1, 1, 1, 0, 0, 2 };
+    for (s32 r = 0; r < 9; r++)                          // its doorstep, or the nearest open spot (v0.18.2: regrowth can fill it)
+        if (enter_area(home_site_area[best], (hx + near_x[r]) * 16, (hy + near_y[r]) * 16 - 6)) break;
     unstick_player();
     hearts_now = MAX_HEARTS;
     draw_hearts_hud();
@@ -1832,7 +1854,7 @@ static void hurt(s32 n, s32 fromx, s32 fromy) {
     if (hearts_now == 0) faint();
 }
 
-static int can_fight(s32 kind) { return kind == KIND_BARK || home_level[kind] >= 2; }
+static int can_fight(s32 kind) { return kind == KIND_BARK || kind == KIND_LILY || home_level[kind] >= 2; }
 
 // Is something to hit within reach, in the direction the wizard faces?
 static int enemy_ahead(void) {
@@ -1867,6 +1889,8 @@ static void start_attack(s32 kind) {
         sfx_play(SFX_ROCK); break;
     case KIND_BREEZE: atk.life = 28; atk.w = atk.h = 16; atk.dmg = 1; atk.push = 28; atk.dx = fx * 3; atk.dy = fy * 3;
         sfx_play(SFX_GUST); break;
+    case KIND_LILY: atk.life = 20; atk.w = atk.h = 12; atk.dmg = 1; atk.push = 6; atk.dx = fx * 3; atk.dy = fy * 3;
+        chime(1319, 6); break;                            // v0.18.2: a spinning lily blossom
     default: atk.life = 14; atk.x = px - 16; atk.y = py - 16; atk.w = atk.h = 48; atk.dmg = 2; atk.push = 14;
         sfx_play(SFX_BUILD); break;                       // Bark slams the ground all around
     }
@@ -2010,9 +2034,10 @@ static void update_enemies(void) {
                 move_enemy(e, e->dx, e->dy, 0);
             }
         } else {                                             // darts at you, rests, darts again
-            u32 t = e->timer % 100;
+            u32 t = e->timer % 160;                          // v0.18.2: darts less often, and shorter
             if (t == 0) { e->dx = near ? sgn(dx) : (s32)(rng() % 3) - 1; e->dy = near ? sgn(dy) : (s32)(rng() % 3) - 1; }
-            if (t < 36) move_enemy(e, e->dx * 2, e->dy * 2, 1);
+            if (t < 22) move_enemy(e, e->dx * 2, e->dy * 2, 1);
+            else if (t > 100 && (e->timer & 3) == 0) move_enemy(e, e->dx, e->dy, 1);   // a slow drift between
         }
         if (boxes_meet(px + 3, py + 4, 10, 12, e->x + 3, e->y + 3, 10, 10)) hurt(1, e->x + 8, e->y + 8);
     }
@@ -2337,6 +2362,7 @@ static void draw_combat(void) {
         case KIND_RIPPLE: sprite_set(OAM_ATTACK, x - 3, y - 3, SPR_COMBAT + C_WATER, 0, PAL_COMBAT); break;
         case KIND_STONE: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_ROCK, 0, PAL_COMBAT); break;
         case KIND_BREEZE: sprite_set(OAM_ATTACK, x, y, SPR_COMBAT + C_GUST, (frame >> 2) & 1, PAL_COMBAT); break;
+        case KIND_LILY: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_PETAL, (frame >> 2) & 1, PAL_COMBAT); break;
         default:                                         // four quarters of the ring, flipped into place
             for (s32 k = 0; k < 4; k++) {
                 u16 *o = &oam_shadow[(OAM_ATTACK + k) * 4];
@@ -2388,6 +2414,29 @@ static void draw_combat(void) {
     } else sprite_hide(OAM_HIT);
 }
 
+// The spirit picker's row: each party spirit (YOU as a leaf) at the top of the screen, a bracket on the
+// chosen one. It borrows the spore slots (OAM 42-47), which only the Gloomheart's fight uses.
+static void draw_picker(void) {
+    static int shown;
+    s32 x0 = SCREEN_W / 2 - party_count * 10;
+    if (!pick_on) {                                // the build preview keeps the cursor otherwise
+        if (shown) { shown = 0; sprite_hide(OAM_CURSOR); for (s32 r = 2; r <= 4; r++) clear_row(r); }
+        return;
+    }
+    if (!shown)                                    // a dark strip behind the row (the text layer's box)
+        for (s32 r = 2; r <= 4; r++)
+            for (s32 c = x0 / 8 - 1; c <= (x0 + party_count * 20) / 8; c++) SCREENBLOCK(TEXT_SB)[r * 32 + c] = glyph_entry(' ');
+    shown = 1;
+    for (s32 p = 0; p < party_count && p < 6; p++) {
+        s32 k = spirits[party[p]].kind, x = x0 + p * 20, y = 20 + (p == pick_sel ? -2 : 0);
+        if (is_you(k)) sprite_set(OAM_SPORE + p, x, y, SPR_COMBAT + C_LEAF, 0, PAL_COMBAT);
+        else sprite_set(OAM_SPORE + p, x, y, spirit_tile[k], 0, spirit_pal[k]);
+    }
+    sprite_set(OAM_CURSOR, x0 + pick_sel * 20, 20, SPR_SPARKLE + 1, 0, PAL_FX);
+    for (s32 p = 0; p < party_count && p < 6; p++) oam_shadow[(OAM_SPORE + p) * 4 + 2] &= ~(3 << 10);   // above the strip
+    oam_shadow[OAM_CURSOR * 4 + 2] &= ~(3 << 10);
+}
+
 static int leafen_talk(s32 fmx, s32 fmy);
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
@@ -2418,7 +2467,11 @@ static void use_ability(void) {
         if (msgq_len == 0) queue_message(REST_TIP);
         return;
     }
-    if (!use_power(s->kind, fx >> 4, fy >> 4)) { sfx_play(SFX_FAIL); return; }
+    if (!use_power(s->kind, fx >> 4, fy >> 4)) {
+        sfx_play(SFX_FAIL);
+        if (tile_at(fx >> 4, fy >> 4) == VAEL_PIPE && !msg_timer) show_message("A VAEL PIPE! PEBBLE CAN SMASH IT.");
+        return;
+    }
     if (!(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) s->energy--;   // a bonded Sprout blooms for free
     add_fp(s->kind, 2);
     draw_active();
@@ -2804,7 +2857,25 @@ static void handle_action(void) {
     }
     // R swaps to the next spirit, L to the previous one.
     if (HELD(KEY_SELECT)) { build_mode(); return; }   // SELECT is the builder
-    s32 step = HIT(KEY_R) ? 1 : HIT(KEY_L) ? party_count - 1 : 0;
+    // v0.18.2 (Caleb: cycling through six was tedious): a tap of R or L steps once; holding either opens
+    // a row of every spirit at the top (pick_on); the D-pad moves along it; letting go chooses.
+    s32 step = 0;
+    if (HELD(KEY_R | KEY_L) && party_count > 1) {
+        if (!pick_hold) pick_key = HELD(KEY_R) ? KEY_R : KEY_L;
+        if (++pick_hold == 12) { pick_on = 1; pick_sel = active; sfx_play(SFX_MENU_OPEN); }
+        if (pick_on && (HIT(KEY_RIGHT) || HIT(KEY_LEFT))) {
+            pick_sel = (pick_sel + (HIT(KEY_RIGHT) ? 1 : party_count - 1)) % party_count;
+            sfx_play(SFX_MENU_MOVE);
+        }
+        if (pick_on && !scene_on) {
+            show_message(is_you(spirits[party[pick_sel]].kind) ? "YOU" : spirit_name[spirits[party[pick_sel]].kind]);
+            msg_is_prompt = 1; msg_timer = 30;
+        }
+    } else if (pick_hold) {
+        if (pick_on) step = (pick_sel - active + party_count) % party_count;
+        else step = pick_key == KEY_R ? 1 : party_count - 1;
+        pick_hold = 0; pick_on = 0;
+    }
     if (party_count > 1 && step) {
         active = (active + step) % party_count;
         sfx_play(SFX_MENU_MOVE);
@@ -3466,6 +3537,13 @@ static void draw_leafen(void) {
         s32 x = fly_at[i][0] + loop_x48[a] + (loop_x48[b] >> 1), y = fly_at[i][1] + loop_y48[a] + (loop_y48[(b + 12) % 48] >> 1);
         sprite_set(OAM_FIREFLY + i, x - cam_x, y - cam_y, SPR_LEAFEN + C_FIREFLY, 0, PAL_LEAFEN);
     }
+    if ((frame & 15) == 0)                             // the pipes' red lights blink, so they catch the eye (v0.18.2)
+        PAL_BG[SLUDGE_BANK * 16 + 12] = (frame & 32) ? RGB5(238, 60, 52) : RGB5(255, 170, 120);
+    if (cur_area == MARSH && (frame % 24) == 0) {    // sludge drips from every pipe on screen (v0.18.2)
+        for (s32 y = cam_y >> 4; y <= (cam_y + SCREEN_H) >> 4 && y < MAP_H; y++)
+            for (s32 x = cam_x >> 4; x <= (cam_x + SCREEN_W) >> 4 && x < MAP_W; x++)
+                if (maps[MARSH][y * MAP_W + x] == VAEL_PIPE) add_mote(x * 16 + (s32)(rng() % 6), y * 16 - 4, 0, 6, 18);
+    }
     if (cur_area != WEST) return;
     for (s32 k = 0; k < NUM_LEAFEN; k++) {
         if (leafen_state[k] != LS_HOME) continue;
@@ -4098,6 +4176,10 @@ static int load_game(void) {
         }
     }
     widen_root_pool();                                    // saves from before v0.17.1: the small square pool
+    for (s32 i = 0; i < MAP_W * MAP_H; i++) {             // v0.18.2: the marsh holds only bog water and sludge
+        if (maps[MARSH][i] == WATER) maps[MARSH][i] = BOG_WATER;
+        if (maps[MARSH][i] == LILY_PAD) maps[MARSH][i] = BOG_PAD;
+    }
     // rebuild what is not saved (and draw homes from saves made before homes had their own look)
     for (s32 k = 0; k < NUM_HOMES; k++) if (home_done[k]) place_home_tiles(k);
     for (s32 k = 0; k < NUM_HOMES; k++)
@@ -4667,9 +4749,11 @@ int main(void) {
     copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
     // the sludge's colors: drawn with the bog water's tiles (1-3 the water, 15 the rim, 6-11 the shore), so
     // it ripples like water, in an oily purple-gray with a sickly sheen (v0.18.1, Caleb: it looked like ground)
-    static const u16 sludge_pal[16] = { 0, RGB5(48, 36, 60), RGB5(90, 68, 104), RGB5(170, 150, 120), 0, 0,
+    static const u16 sludge_pal[16] = { 0, RGB5(48, 36, 60), RGB5(90, 68, 104), RGB5(170, 150, 120),
+                                        RGB5(176, 182, 192), RGB5(104, 110, 122),   // 4-5: a Vael pipe's metal
                                         RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(126, 190, 96),
-                                        RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56), 0, 0, 0, RGB5(20, 14, 26) };
+                                        RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56),
+                                        RGB5(238, 60, 52), RGB5(150, 80, 46), 0, RGB5(20, 14, 26) };   // 12 red light, 13 rust
     for (s32 i = 1; i < 16; i++) PAL_BG[SLUDGE_BANK * 16 + i] = sludge_pal[i];
     static const u16 bog_pal[16] = { 0, RGB5(18, 32, 30), RGB5(32, 56, 50), RGB5(84, 120, 100), 0, 0,
                                      RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(126, 190, 96),
@@ -4754,6 +4838,7 @@ int main(void) {
         draw_sprites();
         draw_combat();
         draw_leafen();
+        draw_picker();
         draw_boss_bar();
 
         update_message();
