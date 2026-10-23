@@ -1,0 +1,31 @@
+# v0.18.1: swimming in Stone Hollow's pond: the spirits follow as orbs, tiny splashes at his sides
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=10,$dev_val+20=1
+1 1
+1 0
+200 0
+0 0 !$swim_skill=1,$swim_step=7
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=232,$py=494
+40 128
+0 0 @$cur_area
+0 0 !$px=124,$py=282,$active=1
+1 128
+1 0
+3 2
+1 0
+20 0
+0 0 @$in_water,$px,$py
+60 128
+60 16
+40 64 sp0.ppm
+6 64 sp1.ppm
+0 0 @$in_water,$px,$py
+4 0 tw0.ppm
+8 0 tw1.ppm

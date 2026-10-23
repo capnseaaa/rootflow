@@ -5,6 +5,7 @@ pixel editor (keep the 16-color palette order), then rebuild.
 Run with --force to regenerate them from this script.
 """
 import os
+import math
 import random
 import sys
 from PIL import Image
@@ -79,6 +80,14 @@ META += ["mush_lamp", "leaf_swing", "acorn_bench", "flower_arch", "pebble_path",
 META += ["rock_grass"]   # v0.17.3: a rock with grass grown up round it (blooms still stop at rocks)
 # v0.18: the drowned marsh (its ground is the dead ground, tinted muddy by the marsh's palette)
 META += ["sludge", "lily_pad", "reeds", "vael_pipe"]
+# v0.18.1: the marsh's own pieces. They are loaded into video memory only in the marsh (into the Great
+# Tree's tile slots, which the marsh does not use). Bog water and its pad use BG bank 6 (own colors).
+MARSH_META = ["bog_water", "bog_water_b", "bog_pad", "moss", "mushrooms", "swamp_tree", "swamp_tree_alive", "log",
+              "swamp_top", "swamp_top_alive"] + [f"bog_edge_{k}" for k in range(1, 16)] + \
+             [f"water_edge_{k}" for k in range(1, 16)]   # v0.18.1: shores for clear water too (Caleb)
+# bog_edge_k: bog water with a ragged mossy shore on each side where land is (k bits: 1 north, 2 east,
+# 4 south, 8 west). The map holds BOG_WATER; the game picks the edge by the neighbors when it draws.
+META += MARSH_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -322,15 +331,174 @@ def lily_pad(rng):
 
 
 def reeds(rng):
-    """Dead gray reeds standing in the mud (solid; YOU cuts them)."""
+    """Dead cattails standing in the mud (solid; YOU cuts them): thin pale stems, brown heads."""
     px = dead(rng)
     for x0 in (2, 5, 8, 11, 13):
-        h = rng.randrange(7, 12)
+        h = rng.randrange(8, 13)
         lean = rng.choice((-1, 0, 1))
         for k in range(h):
             x = x0 + (lean if k > h * 0.6 else 0)
-            px[15 - k][x] = 15 if k < 2 else 3 if k % 3 else 2
-        px[15 - h][x0 + lean] = 14                  # a pale seed head
+            px[15 - k][x] = 15 if k < 1 else 3
+        top = 15 - h
+        x = x0 + lean
+        for k in range(3):                            # the cattail's brown head
+            if 0 <= top + k < 16:
+                px[top + k][x] = 12
+        if top - 1 >= 0:
+            px[top - 1][x] = 3
+    return px
+
+
+def bog_water(rng, phase):
+    """Dark bog water (BG bank 6): deep green-black with slow ripples and a few pale glints."""
+    px = blank(1)
+    for y in range(16):
+        for x in range(16):
+            if (x * 3 + y * 5 + phase * 7) % 23 == 0 or (x - y * 2 + phase * 4) % 19 == 0:
+                px[y][x] = 2
+    r = random.Random(77 + phase)
+    for _ in range(3):
+        x, y = r.randrange(1, 14), r.randrange(16)
+        px[y][x] = px[y][x + 1] = 3
+    return px
+
+
+def bog_pad(rng):
+    """A lily pad on bog water (BG bank 6: 6-8 greens, 13 pink, 14 cream, 15 outline)."""
+    px = bog_water(rng, 0)
+    for y in range(16):
+        for x in range(16):
+            d = ((x - 7.5) / 6.5) ** 2 + ((y - 8) / 5.5) ** 2
+            notch = x > 8 and y < 8 and abs((y - 8) + (x - 8)) < 1.2
+            if d < 1 and not notch:
+                px[y][x] = 15 if d > 0.78 else 8 if x + y < 13 else 7 if d < 0.5 else 6
+    px[6][5] = px[5][6] = px[6][6] = 14
+    px[5][5] = 13
+    return px
+
+
+def moss(rng):
+    """Mossy mud: the marsh's ground with soft clumps of moss (it grows like dead ground)."""
+    px = dead(rng)
+    for _ in range(4):
+        cx, cy = rng.randrange(1, 15), rng.randrange(1, 15)
+        for y in range(cy - 1, cy + 2):
+            for x in range(cx - 2, cx + 2):
+                if 0 <= x < 16 and 0 <= y < 16 and rng.random() < 0.8:
+                    px[y][x] = 6 if (x + y) % 3 else 7
+    return px
+
+
+def mushrooms(rng):
+    """Mossy mud with a few pale mushrooms."""
+    px = moss(rng)
+    for cx, cy in ((4, 10), (10, 6), (11, 12)):
+        px[cy + 1][cx] = px[cy + 2][cx] = 14
+        for x in range(cx - 1, cx + 2):
+            px[cy][x] = 13 if x == cx else 5
+        px[cy - 1][cx] = 13
+        px[cy][cx - 2] = px[cy][cx + 2] = 15
+    return px
+
+
+def swamp_tree(rng, alive):
+    """The foot of a swamp cypress (its crown is the tile above, swamp_top): a thick trunk flaring
+    into knobbly roots in the mud, moss hanging from low branches."""
+    px = moss(rng) if alive else dead(rng)
+    for y in range(16):                               # trunk, flaring at the foot
+        w = 2 if y < 9 else 3 if y < 13 else 4
+        for x in range(8 - w, 8 + w):
+            px[y][x] = 15 if x in (8 - w, 7 + w) else 12 if x < 8 else 1
+    for (x, y) in ((2, 15), (3, 14), (13, 15), (12, 14), (1, 15), (14, 15)):   # roots
+        px[y][x] = 12
+    px[5][9] = px[6][9] = 5 if not alive else 7                # a knot / a sprig
+    for x0, top, n in ((3, 0, 5), (12, 0, 6), (4, 0, 3)):      # moss hanging from the crown above
+        for k in range(n):
+            px[top + k][x0] = 7 if alive else 3
+    return px
+
+
+def swamp_top(rng, alive):
+    """A swamp cypress's crown: crooked bare branches dripping with moss (dead), or leafy with bright
+    moss (alive). Solid, like the foot below it."""
+    px = moss(rng) if alive else dead(rng)
+    for y in range(6, 16):                            # the trunk going up
+        for x in range(6, 10):
+            px[y][x] = 15 if x in (6, 9) else 12 if x < 8 else 1
+    for (y, x0, dx) in ((10, 6, -1), (8, 9, 1), (5, 6, -1), (4, 9, 1), (2, 7, -1)):   # crooked branches
+        x = x0
+        for k in range(6):
+            if 0 <= x < 16:
+                px[max(0, y - k // 2)][x] = 12
+            x += dx
+    if alive:                                         # leafy clumps
+        for cx, cy in ((3, 3), (12, 2), (8, 1), (2, 8), (13, 7)):
+            for y in range(cy - 2, cy + 2):
+                for x in range(cx - 2, cx + 3):
+                    if 0 <= x < 16 and 0 <= y < 16:
+                        px[y][x] = 8 if y < cy else 7
+    for x0, top, n in ((2, 9, 7), (4, 6, 9), (11, 5, 10), (13, 8, 8), (9, 3, 5)):   # long hanging moss
+        for k in range(n):
+            if top + k < 16:
+                px[top + k][x0] = (7 if k % 3 else 8) if alive else (3 if k % 3 else 2)
+    return px
+
+
+def water_edge(mask):
+    """Clear water (BG bank 0) with the same ragged shore as the bog: a wet muddy bank (dirt colors,
+    which suit dead and living ground alike) and a dark rim where it meets the water."""
+    px = water(random.Random(6), 0)
+    r = random.Random(200 + mask)
+    sides = [(1, lambda i, d: (i, d)), (2, lambda i, d: (15 - d, i)), (4, lambda i, d: (i, 15 - d)),
+             (8, lambda i, d: (d, i))]
+    for bit, at in sides:
+        if not mask & bit:
+            continue
+        for i in range(16):
+            depth = 3 + int(1.6 * math.sin(i * 0.9 + bit) + 1.2 * math.sin(i * 2.3 + bit * 3))
+            depth = max(1, min(6, depth))
+            for d in range(depth + 1):
+                x, y = at(i, d)
+                px[y][x] = 15 if d == depth else (4 if r.random() < 0.7 else 5)
+    return px
+
+
+def bog_edge(mask):
+    """Bog water (BG bank 6) with a ragged shore of mud and moss along each side that has land.
+    Bank 6 colors: 1-3 water, 15 dark rim, 9-11 mud (the marsh's ground), 6-8 moss."""
+    px = bog_water(random.Random(5), 0)
+    r = random.Random(100 + mask)
+    sides = [(1, lambda i, d: (i, d)), (2, lambda i, d: (15 - d, i)), (4, lambda i, d: (i, 15 - d)),
+             (8, lambda i, d: (d, i))]
+    for bit, at in sides:
+        if not mask & bit:
+            continue
+        for i in range(16):
+            depth = 3 + int(1.6 * math.sin(i * 0.9 + bit) + 1.2 * math.sin(i * 2.3 + bit * 3))
+            depth = max(1, min(6, depth))
+            for d in range(depth + 1):
+                x, y = at(i, d)
+                if d == depth:
+                    px[y][x] = 15                     # the dark wet rim
+                elif r.random() < 0.3:
+                    px[y][x] = 6 if r.random() < 0.6 else 7   # moss on the bank
+                else:
+                    px[y][x] = 10 if r.random() < 0.7 else (9 if r.random() < 0.5 else 11)
+    return px
+
+
+def log(rng):
+    """A fallen log across the mud (solid; YOU cuts it for wood)."""
+    px = moss(rng)
+    for y in range(6, 12):
+        for x in range(1, 15):
+            px[y][x] = 15 if y in (6, 11) else 5 if y == 7 else 4 if y < 10 else 12
+    for y in range(6, 12):                            # the cut ends, with rings
+        px[y][1] = px[y][14] = 15
+    for y in range(7, 11):
+        px[y][13] = 5; px[y][12] = 4
+    px[8][13] = px[9][13] = 12
+    px[5][6] = px[5][7] = px[4][7] = 7                # a sprig of moss on top
     return px
 
 
@@ -1085,6 +1253,10 @@ def make_terrain():
     tiles += [mush_lamp(rng), leaf_swing(rng), acorn_bench(rng), flower_arch(rng), pebble_path(rng), dew_pond(rng)]
     tiles += [rock(rng, on_grass=True)]
     tiles += [sludge(rng), lily_pad(rng), reeds(rng), vael_pipe(rng)]
+    tiles += [bog_water(rng, 0), bog_water(rng, 1), bog_pad(rng), moss(rng), mushrooms(rng), swamp_tree(rng, False),
+              swamp_tree(rng, True), log(rng), swamp_top(rng, False), swamp_top(rng, True)]
+    tiles += [bog_edge(k) for k in range(1, 16)]
+    tiles += [water_edge(k) for k in range(1, 16)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -2089,7 +2261,7 @@ COMBAT_PAL = [
     (138, 144, 156),  # 15 metal
 ]
 COMBAT_ORDER = ["whip_h", "whip_v", "water", "rock", "gust", "slam", "blob0", "blob1", "drone0", "drone1",
-                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint"]
+                "spark", "leaf", "spore", "mote", "ringdot", "shadow", "stars", "glint", "bubble", "splash"]
 # v0.17 the Leafen: five looks (two-leaf sprout, tall leaf, flower bud, acorn cap, dewdrop), each standing,
 # stepping, swimming and climbing; six tiny homes; the shiny pebble. All in the combat palette (OBJ bank 12).
 LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]
@@ -2097,6 +2269,10 @@ LEAFEN_POSES = ["stand", "step", "swim", "climb"]
 LEAFEN_HOMES = ["mushroom", "tent", "acornhut", "pot", "pebblehut", "dewhut"]
 LEAFEN_ORDER = [f"lf_{l}_{p}" for l in LEAFEN_LOOKS for p in LEAFEN_POSES] + [f"lh_{h}" for h in LEAFEN_HOMES] + ["shiny"]
 LEAFEN_ORDER += ["peek"]          # v0.17.3: Nub's leaves and the top of his head, poking out of the rocks
+LEAFEN_ORDER += ["firefly"]       # v0.18.1: a marsh firefly (a warm glow)
+LEAFEN_ORDER += ["swimring", "swimring2"]   # v0.18.1: the ripples round the swimming wizard (two frames)
+LEAFEN_ORDER += [f"orb_{k}" for k in range(6)]  # v0.18.1: the spirits as little glowing orbs while you swim
+LEAFEN_ORDER += ["wake_h", "wake_d", "wake_u"]  # v0.18.1: the wake behind the swimming wizard
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2218,6 +2394,13 @@ def combat_cell(name):
             px[sy][sx] = 6
             for d in (-1, 1):
                 px[sy + d][sx] = px[sy][sx + d] = 14
+    elif name == "splash":                     # a tiny splash: a few white flecks flicking up (the swimmer's wake)
+        for (x, y) in ((6, 9), (9, 9), (7, 7), (8, 8), (5, 10), (10, 10)):
+            px[y][x] = 6
+        px[8][7] = px[9][8] = 5
+    elif name == "bubble":                     # a water droplet / bubble
+        _disc(px, 7.5, 7.5, 1.8, 5, edge=4)
+        px[7][7] = 6
     elif name == "glint":                      # a green spark of life (Bark floating, the hollow healed)
         _disc(px, 7.5, 7.5, 2.4, 3, edge=2)
         px[7][7] = px[8][8] = px[7][8] = px[8][7] = 6
@@ -2238,6 +2421,39 @@ def leafen_cell(name):
         leafen(px, look, pose)
     elif name.startswith("lh_"):
         leafen_home(px, name[3:])
+    elif name.startswith("orb_"):              # a spirit as an orb: its color, a bright spot, a soft halo
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1)][int(name[4:])]
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
+                if d < 2.4:                       # small (Caleb): a 5-pixel orb with a 1-pixel halo
+                    px[y][x] = core
+                elif d < 3.3:
+                    px[y][x] = halo
+        px[6][7] = px[7][6] = light
+    elif name.startswith("swimring"):          # soft, broken ripples in water blues where he meets the water
+        wide = 7.4 if name.endswith("2") else 6.6
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) / wide) ** 2 + ((y - 11) / 2.2) ** 2
+                if 0.66 < d < 1 and (x * 5 + y * 3 + (name.endswith("2"))) % 7 not in (0, 1):   # gaps in the ring
+                    px[y][x] = 6 if y > 11 and abs(x - 7.5) < 3 else 13 if y > 10 else 14
+    elif name.startswith("wake_"):             # the V of a wake behind him as he swims (h: sideways, d/u)
+        kind = name[5:]
+        for k in range(1, 8):
+            if kind == "h":                       # moving right: the V opens to the left, behind him
+                for (x, y) in ((7 - k, 11 - k // 2), (7 - k, 11 + k // 2)):
+                    if 0 <= x < 16 and 0 <= y < 16:
+                        px[y][x] = 13 if k < 5 else 14
+            else:                                 # d: moving down, the V opens upward; u: opens downward
+                sy = -1 if kind == "d" else 1
+                for (x, y) in ((7 - k // 2, 11 + sy * k), (8 + k // 2, 11 + sy * k)):
+                    if 0 <= x < 16 and 0 <= y < 16:
+                        px[y][x] = 13 if k < 5 else 14
+    elif name == "firefly":                    # a tiny glow: a bright core and a soft halo
+        px[7][7] = px[7][8] = px[8][7] = px[8][8] = 12
+        for (x, y) in ((6, 7), (6, 8), (9, 7), (9, 8), (7, 6), (8, 6), (7, 9), (8, 9)):
+            px[y][x] = 4
     elif name == "peek":                       # a buried Leafen: two leaves and the top of a head
         for y in range(11, 16):
             for x in range(16):
@@ -2578,6 +2794,28 @@ def lily_cell(frame):
     return px
 
 
+def make_swim_hands():
+    """v0.18.1: the wizard's hands treading water (two frames, drawn with his own palette, OBJ bank 0):
+    coat sleeves and hands at the waterline, out to the sides, then in."""
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from player_palette import PAL
+    img = Image.new("P", (32, 16), 0)
+    img.putpalette([c for rgb in PAL for c in rgb])
+    for f, (lx, rx) in enumerate(((1, 12), (3, 10))):
+        for hx in (lx, rx):
+            for y in range(9, 12):                    # a sleeve, then the hand beyond it
+                for x in range(hx, hx + 3):
+                    edge = y in (9, 11) or x in (hx, hx + 2)
+                    inner = x == hx + 1 or (hx == lx and x == hx + 2) or (hx == rx and x == hx)
+                    img.putpixel((16 * f + x, y), 1 if edge and not inner else 3)
+            hand = hx - 1 if hx == lx else hx + 3
+            for y in (10, 11):
+                img.putpixel((16 * f + hand, y), 7 if y == 10 else 8)
+            img.putpixel((16 * f + hand, 9), 1)
+            img.putpixel((16 * f + hand, 12), 1)
+    return img
+
+
 def make_lily():
     img = Image.new("P", (32, 16), 0)
     img.putpalette([c for rgb in LILY_PAL for c in rgb])
@@ -2717,7 +2955,8 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily)):
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily),
+                     ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
             fn().save(path)

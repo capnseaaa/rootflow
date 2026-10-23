@@ -95,13 +95,21 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        TRUNK_GRASS,     // v0.16.3: the healed trunk's cells, drawn as grass so its foot stands on green
        MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND,   // v0.17: the Leafen's gifts
        ROCK_GRASS,      // v0.17.3: a rock with grass round it; acts as a rock in every way
-       SLUDGE, LILY_PAD, REEDS, VAEL_PIPE };   // v0.18 the drowned marsh
+       SLUDGE, LILY_PAD, REEDS, VAEL_PIPE,     // v0.18 the drowned marsh
+       // v0.18.1 the marsh's own (MARSH_META_FIRST on): in video memory only while you are in the marsh
+       BOG_WATER = MARSH_META_FIRST, BOG_WATER_B, BOG_PAD, MOSS, MUSHROOMS, SWAMP_TREE, SWAMP_TREE_ALIVE, LOG,
+       SWAMP_TOP, SWAMP_TOP_ALIVE,   // a swamp tree's crown, the tile above its foot
+       BOG_EDGE,        // + 0..14: bog water's ragged shores (never in a map; draw_meta picks them by the neighbors)
+       WATER_EDGE = BOG_EDGE + 15 };   // + 0..14: the same for clear water, outside the Great Tree's region
+static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
+static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
 static int is_trunk(u8 t) { return t == TRUNK_BLOCK || t == TRUNK_GRASS; }
 static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t == TRUNK_GRASS; }
 #define WEST 3        // the Great Tree's area
 #define HOLLOW_IN 4   // the hollow inside the Great Tree (v0.16)
 #define MARSH 5       // the drowned marsh, south-west (v0.18)
+#define MARSH_BANK_ROW 19   // v0.18.1: its way to Stone Hollow, along the river's north bank
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
 static u8 home_tile(s32 k, s32 level, int roof) { return HOME_FIRST + k * 4 + (level - 1) * 2 + (roof ? 0 : 1); }
@@ -255,12 +263,32 @@ static u8 tile_at(s32 mx, s32 my) {
 // v0.17: the nine home animation frames never sit on the map (they are copied from ROM), so they get no
 // room in video memory; metatiles after them move down nine places there. This left room for the
 // Leafen's gifts next to the Great Tree's art.
-static u32 meta_vram(u32 m) { return m > NOOK2_SPIN ? m - (NOOK2_SPIN + 1 - SPRING1_RING1) : m; }
+static u32 meta_vram(u32 m) {
+    if (m >= MARSH_META_FIRST) return TREE_TILE_BASE / 4 + (m - MARSH_META_FIRST);   // v0.18.1: the marsh's own
+    return m > NOOK2_SPIN ? m - (NOOK2_SPIN + 1 - SPRING1_RING1) : m;
+}
+enum { TS_NONE, TS_DEAD, TS_HOLLOW, TS_ALIVE, TS_EXTRA };   // TS_EXTRA: the marsh's metatiles and the shores (v0.18.1)
+static s32 tileset_now = TS_NONE;
 #define SLUDGE_BANK 5   // v0.18: sludge draws with its own colors (BG bank 5): murky purple-gray, an oily sheen
+#define BOG_BANK 6      // v0.18.1: bog water and its lily pads (BG bank 6): dark green-black water
 static void draw_meta(s32 mx, s32 my) {
     if (work_area != cur_area) return;   // off-screen area: memory only
     u8 m = world[my * MAP_W + mx];
-    u16 base = meta_vram(m) * 4 | (m == SLUDGE ? SLUDGE_BANK << 12 : 0);
+    u32 look = m == SLUDGE && cur_area == MARSH ? BOG_WATER : m;   // sludge: bog water's ripples, in sludge colors
+    int shores = tileset_now == TS_EXTRA && (m == BOG_WATER || m == WATER || (m == SLUDGE && cur_area == MARSH));
+    if (shores) {                                 // v0.18.1: a ragged shore on each side with land
+        u32 mask = 0;
+        static const signed char ex[4] = { 0, 1, 0, -1 }, ey[4] = { -1, 0, 1, 0 };
+        for (s32 k = 0; k < 4; k++) {
+            s32 nx = mx + ex[k], ny = my + ey[k];
+            if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H) continue;
+            u8 n = world[ny * MAP_W + nx];
+            if (!(is_bog(n) || n == SLUDGE || n == WATER || is_pad(n) || n == VAEL_PIPE || n == BRIDGE || n == DRY_BRIDGE ||
+                  (n >= HOME_FIRST + 4 && n < HOME_FIRST + 8))) mask |= 1 << k;   // bridges and Ripple's spring sit on water
+        }
+        if (mask) look = (m == WATER ? WATER_EDGE : BOG_EDGE) + mask - 1;
+    }
+    u16 base = meta_vram(look) * 4 | (m == SLUDGE ? SLUDGE_BANK << 12 : (is_bog(m) || m == BOG_PAD) ? BOG_BANK << 12 : 0);
     for (s32 k = 0; k < 4; k++) {
         s32 tx = mx * 2 + (k & 1);
         s32 ty = my * 2 + (k >> 1);
@@ -272,6 +300,15 @@ static void draw_meta(s32 mx, s32 my) {
 static void set_tile(s32 mx, s32 my, u8 t) {
     world[my * MAP_W + mx] = t;
     draw_meta(mx, my);
+    if (tileset_now == TS_EXTRA && work_area == cur_area) {   // watery neighbors may need a new shore
+        static const signed char nx[4] = { -1, 1, 0, 0 }, ny[4] = { 0, 0, -1, 1 };
+        for (s32 k = 0; k < 4; k++) {
+            s32 x = mx + nx[k], y = my + ny[k];
+            if (x < 0 || y < 0 || x >= MAP_W || y >= MAP_H) continue;
+            u8 n = world[y * MAP_W + x];
+            if (n == WATER || n == BOG_WATER || n == SLUDGE) draw_meta(x, y);
+        }
+    }
 }
 
 static int is_solid(u8 t) {
@@ -283,7 +320,8 @@ static int is_solid(u8 t) {
            t == STUMP || t == STUMP_GRASS || t == CHEST_GRASS || t == CHEST_OPEN_GRASS || t == WRECK_GRASS ||
            is_trunk(t) || t == CLAMP || t == DRY_POOL ||   // roots can be walked on
            t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND ||
-           t == SLUDGE || t == REEDS || t == VAEL_PIPE;   // lily pads can be walked on
+           t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
+           is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE;
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -292,14 +330,16 @@ static int is_built(u8 t) {
            t == STATUE || t == PINWHEEL || is_home(t) || (t >= MUSH_LAMP && t <= DEW_POND);
 }
 static int is_alive(u8 t) {
-    return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS || is_built(t);
+    return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS || is_built(t) ||
+           t == SWAMP_TREE_ALIVE || t == SWAMP_TOP_ALIVE;
 }
 
 static int is_restorable(u8 t) {
     return !(t == WATER || is_rock(t) || t == THORN || t == HOMESITE || t == CHEST || t == CHEST_OPEN ||
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
-             t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE);   // cleared reeds and pipes add ground
+             t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
+             is_bog(t) || t == BOG_PAD || t == LOG);
 }
 
 static void draw_area(void) {
@@ -344,7 +384,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
     { (54 >> 3) | ((44 >> 3) << 5) | ((40 >> 3) << 10), (82 >> 3) | ((68 >> 3) << 5) | ((60 >> 3) << 10),
       (110 >> 3) | ((94 >> 3) << 5) | ((82 >> 3) << 10) },   // the Great Tree: dark, ashy brown
     { 0, 0, 0 },   // the hollow: its own layer covers the map
-    { RGB5(52, 56, 40), RGB5(78, 82, 58), RGB5(108, 110, 80) },   // the marsh: murky olive mud (v0.18)
+    { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh: dark, mossy mud (v0.18.1)
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -354,17 +394,20 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(28, 82, 68), RGB5(46, 118, 94), RGB5(84, 158, 122) },
     { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
     { 0, 0, 0 },
-    { RGB5(48, 108, 70), RGB5(82, 150, 92), RGB5(140, 196, 120) },  // the marsh: a wet, cool green
+    { RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(108, 160, 84) },    // the marsh: deep swamp green
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
 // hollow inside it, or the living tree once it is healed.
-enum { TS_NONE, TS_DEAD, TS_HOLLOW, TS_ALIVE };
-static s32 tileset_now = TS_NONE;
 static u32 tree_alive;                     // the Great Tree is healed (saved)
 static void load_tileset(s32 ts) {
     if (ts == tileset_now) return;
     tileset_now = ts;
+    if (ts == TS_EXTRA) {                         // the marsh's metatiles and the shores go where the tree's would be
+        copy32(CHARBLOCK(0) + TREE_TILE_BASE * 8, terrain_tiles + MARSH_META_FIRST * 32,
+               sizeof(terrain_tiles) / 4 - MARSH_META_FIRST * 32);
+        return;
+    }
     const u32 *tiles = ts == TS_DEAD ? tiles_dead : ts == TS_HOLLOW ? tiles_hollow : tiles_alive;
     u32 words = ts == TS_DEAD ? sizeof(tiles_dead) / 4 : ts == TS_HOLLOW ? sizeof(tiles_hollow) / 4 : sizeof(tiles_alive) / 4;
     const u16 *trunk = ts == TS_DEAD ? map_dead_trunk : ts == TS_HOLLOW ? map_hollow_trunk : map_alive_trunk;
@@ -382,6 +425,10 @@ static void set_ground_palette(s32 a) {
     REG_DISPCNT &= ~DISP_TREE;
     if (a == WEST) { load_tileset(tree_alive ? TS_ALIVE : TS_DEAD); REG_DISPCNT |= DISP_TREE; }
     if (a == HOLLOW_IN) { load_tileset(TS_HOLLOW); REG_DISPCNT |= 1 << 11; }   // its room only
+    if (a != WEST && a != HOLLOW_IN) load_tileset(TS_EXTRA);   // every area without the Great Tree's own tiles
+    for (s32 i = 0; i < 3; i++)                   // v0.18.1: in the marsh the river's water turns a murky teal
+        PAL_BG[9 + i] = a == MARSH ? (i == 0 ? RGB5(36, 86, 90) : i == 1 ? RGB5(64, 128, 120) : RGB5(140, 190, 176))
+                                   : bg_pal[9 + i];
 }
 
 // ---------- text (BG0) ----------
@@ -518,6 +565,10 @@ static void oam_flush(void) {
 #define OAM_LHOME   66  // 66..81: their tiny homes (the ring dots' slots: only used inside the tree)
 #define OAM_LILY    121 // v0.18: the sixth spirit and her bubble
 #define OAM_LILY_Z  122
+#define OAM_FIREFLY 123 // 123..126: the marsh's fireflies (v0.18.1)
+#define OAM_SWIMHANDS 119 // swimming, front to back: ripples (slot 0), his hands, him, his wake
+#define OAM_SWIMRING 120  // (named for the ring's old slot: now his head and shoulders while he swims)
+#define OAM_WAKE    127
 #define SPIRIT_OAM(i) ((i) < OLD_SPIRITS ? OAM_SPIRIT + (i) : OAM_LILY)
 #define ZZZ_OAM(i) ((i) < OLD_SPIRITS ? OAM_ZZZ + (i) : OAM_LILY_Z)
 #define PAL_SHIELD  15
@@ -749,6 +800,7 @@ enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
+static u32 swim_step;                                 // v0.18.1: Ripple's swimming lesson (saved; swim_skill after)
 enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
 static u8 leafen_state[NUM_LEAFEN];
 static u32 leafen_init, has_shiny, pip_cell, shield_wait;
@@ -779,12 +831,62 @@ static u32 told_river, told_spring;
 static u32 regen_timer;
 static s32 just_called = -1;   // spirit just called back from home (see handle_action)
 
+// v0.18.1 (Caleb): Ripple teaches the wizard to swim in the marsh. Then, with Ripple chosen, B by deep
+// water jumps in (any water body of at least SWIM_MIN tiles; not little ponds). In the water you keep
+// swimming whoever is chosen (Lily can clean as you go); walking onto land climbs out. Never in sludge.
+#define SWIM_MIN 16
+static u32 swim_skill, in_water, orb_morph;   // orb_morph: frames left of the spirits changing form
+static int water_tile(u8 t) { return t == WATER || is_bog(t); }
+static int liquid(u8 t) { return water_tile(t) || t == SLUDGE || t == LILY_PAD || t == BOG_PAD; }
+// Caleb: no slipping across a two-wide river. A body of water can be swum only if it is at least three
+// wide somewhere (a 3x3 square of liquid; sludge counts for the width, but is never swum) and has at least
+// SWIM_MIN tiles. A two-wide river never has such a square, so it cannot be swum anywhere along it.
+static int wide_water(s32 mx, s32 my) {
+    for (s32 oy = -2; oy <= 0; oy++)
+        for (s32 ox = -2; ox <= 0; ox++) {
+            int all = 1;
+            for (s32 y = 0; y < 3 && all; y++)
+                for (s32 x = 0; x < 3 && all; x++) {
+                    s32 tx = mx + ox + x, ty = my + oy + y;
+                    if (tx < 0 || ty < 0 || tx >= MAP_W || ty >= MAP_H || !liquid(world[ty * MAP_W + tx])) all = 0;
+                }
+            if (all) return 1;
+        }
+    return 0;
+}
 static int on_solid(s32 x, s32 y) {
     // feet box: x+3..x+12, y+10..y+15
     s32 xs[2] = { x + 3, x + 12 }, ys[2] = { y + 10, y + 15 };
     for (int i = 0; i < 2; i++)
-        for (int j = 0; j < 2; j++)
-            if (is_solid(tile_at(xs[i] >> 4, ys[j] >> 4))) return 1;
+        for (int j = 0; j < 2; j++) {
+            s32 tx = xs[i] >> 4, ty = ys[j] >> 4;
+            u8 t = tile_at(tx, ty);
+            if (is_solid(t) && !(in_water && water_tile(t))) return 1;
+        }
+    return 0;
+}
+static int swimming(void) { return in_water && water_tile(tile_at((px + 8) >> 4, (py + 12) >> 4)); }
+// Can the water body at (mx, my) be swum? At least SWIM_MIN tiles of liquid, three wide somewhere.
+static int deep_water(s32 mx, s32 my) {
+    static u16 stack[MAP_W * MAP_H];
+    static u8 seen[MAP_W * MAP_H / 8];
+    for (u32 i = 0; i < sizeof(seen); i++) seen[i] = 0;
+    s32 n = 0, count = 0, wide = 0;
+    stack[n++] = my * MAP_W + mx; seen[stack[0] >> 3] |= 1 << (stack[0] & 7);
+    while (n) {
+        s32 c = stack[--n], x = c % MAP_W, y = c / MAP_W;
+        count++;
+        if (!wide && wide_water(x, y)) wide = 1;
+        if (wide && count >= SWIM_MIN) return 1;
+        static const signed char dx[4] = { 1, -1, 0, 0 }, dy[4] = { 0, 0, 1, -1 };
+        for (s32 k = 0; k < 4; k++) {
+            s32 nx = x + dx[k], ny = y + dy[k], id = ny * MAP_W + nx;
+            if (nx < 0 || ny < 0 || nx >= MAP_W || ny >= MAP_H || (seen[id >> 3] & (1 << (id & 7)))) continue;
+            if (!liquid(tile_at(nx, ny))) continue;
+            seen[id >> 3] |= 1 << (id & 7);
+            stack[n++] = id;
+        }
+    }
     return 0;
 }
 static int in_world(s32 x, s32 y) { return x >= 0 && y >= 0 && x <= WORLD_PX - 16 && y <= WORLD_PX - 16; }
@@ -832,7 +934,7 @@ static void reset_game(void) {
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
     spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);   // v0.18: Bark summons her once six Leafen are home
-    lily_step = 0;
+    lily_step = 0; swim_skill = swim_step = 0; in_water = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
@@ -901,7 +1003,7 @@ static void flood_dist(u8 *dist, s32 cx, s32 cy, s32 R) {
         for (s32 gx = 0; gx < g; gx++) {
             u8 t = tile_at(cx + gx - R, cy + gy - R);
             flood_open[gy * g + gx] = !(t == WATER || is_rock(t) || t == THORN || t == MENHIR || t == DRY_RIVER ||
-                                        t == SLUDGE || t == REEDS || t == VAEL_PIPE ||
+                                        t == SLUDGE || t == REEDS || t == VAEL_PIPE || is_bog(t) || t == LOG ||
                                         t == DAM || t == LOST_STONE || is_trunk(t) || t == CLAMP || t == DRY_POOL);
             dist[gy * g + gx] = 255;
         }
@@ -983,6 +1085,8 @@ static void grow_tile(s32 mx, s32 my, int edge) {
     if (mx < 0 || my < 0 || mx >= MAP_W || my >= MAP_H) return;
     u8 t = tile_at(mx, my);
     int here = work_area == cur_area;   // the player only stands in the area on screen
+    if (t == SWAMP_TREE) { set_tile(mx, my, SWAMP_TREE_ALIVE); return; }   // v0.18.1: swamp trees leaf out
+    if (t == SWAMP_TOP) { set_tile(mx, my, SWAMP_TOP_ALIVE); return; }
     if (t == DEAD_TREE || t == STUMP || t == STUMP_GRASS) {   // dead trees and stumps grow back
         if (!(here && player_on_tile(mx, my))) set_tile(mx, my, TREE);
         return;
@@ -992,7 +1096,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
         set_tile(mx, my, t == CHEST ? CHEST_GRASS : t == CHEST_OPEN ? CHEST_OPEN_GRASS : WRECK_GRASS);
         return;
     }
-    if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES) return;
+    if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES && t != MOSS && t != MUSHROOMS) return;
     if (edge && t != DIRT) { set_tile(mx, my, DIRT); return; }
     u32 r = rng() % 100;
     static const signed char nbx[4] = { 1, -1, 0, 0 }, nby[4] = { 0, 0, 1, -1 };
@@ -1043,7 +1147,7 @@ static void update_blooms(void) {
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1, -1 }, area_west[NUM_AREAS] = { 3, 0, -1, -1, -1, -1 };
+static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1, 2 }, area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1 };
 static const signed char area_south[NUM_AREAS] = { 2, -1, -1, MARSH, -1, -1 };
 static const signed char area_north[NUM_AREAS] = { -1, -1, 0, -1, -1, WEST };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
@@ -1100,12 +1204,17 @@ static void region_hint(void) {
 
 // Pressing against an open map edge leads to the next area.
 static void check_exits(void) {
-    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
-        enter_area(area_east[cur_area], 2, py);
+    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0) {
+        if (!enter_area(area_east[cur_area], 2, py) && cur_area == MARSH)
+            enter_area(2, 2, MARSH_BANK_ROW * 16 - 6);                    // out along the river bank to Stone Hollow
+    }
     else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
-             (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive)) {  // the west opens with Bark
-        if (!enter_area(area_west[cur_area], WORLD_PX - 18, py) && cur_area == 0)
-            enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);                // blocked there: in at the gate's middle
+             (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive) &&
+             (cur_area != 2 || lily_step > LILY_SCENE_LEN)) {   // the west opens with Bark; the marsh with Lily
+        if (!enter_area(area_west[cur_area], WORLD_PX - 18, py)) {
+            if (cur_area == 0) enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // blocked there: in at the gate's middle
+            else if (cur_area == 2) enter_area(MARSH, WORLD_PX - 18, MARSH_BANK_ROW * 16 - 6);   // along the river bank
+        }
     }
     else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 &&
              (cur_area != WEST || (lily_step > LILY_SCENE_LEN && ((px + 8) >> 4) >= 14 && ((px + 8) >> 4) <= 17)))
@@ -1127,6 +1236,7 @@ static void update_player(void) {
     if (home_level[KIND_BREEZE] == 2) speed += 1;                              // level 2: 2x walk, 3 run
     u8 under = tile_at((px + 8) >> 4, (py + 12) >> 4);
     if (under == PATH || under == PEBBLE_PATH) speed += 1;                     // paths are quick
+    if (swimming()) speed = HELD(KEY_B) ? 2 : 1;                               // swimming is slow
     s32 dx = 0, dy = 0;
     if (HELD(KEY_LEFT))  { dx = -speed; pdir = DIR_LEFT; }
     if (HELD(KEY_RIGHT)) { dx =  speed; pdir = DIR_RIGHT; }
@@ -1138,6 +1248,7 @@ static void update_player(void) {
     if (dx && (stuck ? in_world(px + dx, py) : !blocked_at(px + dx, py))) { px += dx; moved = 1; }
     if (dy && (stuck ? in_world(px, py + dy) : !blocked_at(px, py + dy))) { py += dy; moved = 1; }
 
+    if (in_water && !water_tile(tile_at((px + 8) >> 4, (py + 12) >> 4))) in_water = 0;   // climbed out
     if (moved) {
         if ((frame & 7) == 0) pstep++;
         if (skill_lv() >= 1 && cur_area != HOLLOW_IN && party_count && is_you(spirits[party[active]].kind)) {
@@ -1299,10 +1410,10 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             if (sludge_fed(mx, my)) { show_message("THE PIPE KEEPS POURING SLUDGE!"); queue_message("BREAK IT FIRST."); return 0; }
             static const signed char cx[5] = { 0, 1, -1, 0, 0 }, cy[5] = { 0, 0, 0, 1, -1 };
             for (s32 k = 0; k < 5; k++)
-                if (tile_at(mx + cx[k], my + cy[k]) == SLUDGE) { set_tile(mx + cx[k], my + cy[k], WATER); sparkle_at(mx + cx[k], my + cy[k]); }
+                if (tile_at(mx + cx[k], my + cy[k]) == SLUDGE) { set_tile(mx + cx[k], my + cy[k], BOG_WATER); sparkle_at(mx + cx[k], my + cy[k]); }
             sfx_play(SFX_BRIDGE);
-        } else if (t == WATER) {
-            set_tile(mx, my, LILY_PAD);
+        } else if (t == WATER || is_bog(t)) {
+            set_tile(mx, my, t == WATER ? LILY_PAD : BOG_PAD);
             sparkle_at(mx, my);
             sfx_play(SFX_BLOOM);
         } else return 0;
@@ -1342,6 +1453,13 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         else if (t == STUMP) { set_tile(mx, my, DIRT); show_message("STUMP CLEARED"); }
         else if (t == DEAD_TREE) { set_tile(mx, my, DIRT); wood++; show_message("+1 WOOD"); }
         else if (t == REEDS) { set_tile(mx, my, DEAD); restorable[work_area]++; show_message("REEDS CLEARED"); }   // v0.18
+        else if (t == LOG) { set_tile(mx, my, MOSS); restorable[work_area]++; wood++; show_message("+1 WOOD"); }
+        else if (t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) {
+            s32 foot = (t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) ? my + 1 : my;   // the whole tree comes down
+            set_tile(mx, foot, MOSS);
+            if (foot > 0 && (tile_at(mx, foot - 1) == SWAMP_TOP || tile_at(mx, foot - 1) == SWAMP_TOP_ALIVE)) set_tile(mx, foot - 1, MOSS);
+            wood++; show_message("+1 WOOD");
+        }
         else return 0;
         sparkle_at(mx, my);
         draw_life();
@@ -1543,12 +1661,13 @@ static int interact(s32 mx, s32 my) {
 // wakes at the nearest home with nothing lost; the boss there starts over.
 #define SPR_COMBAT (TILE_COMBAT / 4)
 enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_BLOB + 2, C_SPARK = C_DRONE + 2,
-       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT };
+       C_LEAF, C_SPORE, C_MOTE, C_RINGDOT, C_SHADOW, C_STARS, C_GLINT, C_BUBBLE, C_SPLASH };
 // v0.17 the Leafen's own sheet (leafen_sprite.png): 5 looks x 4 poses, 6 tiny homes, the shiny pebble.
 // They use OBJ bank 11 (the clamps' palette until the tree is healed; no clamp shows after that).
 #define SPR_LEAFEN (TILE_LEAFEN / 4)
 #define PAL_LEAFEN 11
-enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK };
+enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, C_SWIMRING, C_ORB = C_SWIMRING + 2,
+       C_WAKE = C_ORB + 6 };   // C_WAKE: sideways, moving down, moving up
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH; }
 
 static void draw_hearts_hud(void) {
@@ -1627,8 +1746,8 @@ static int open_at(s32 x, s32 y) {             // a 12x12 body at (x+2, y+2) fit
 }
 
 // v0.18: the marsh has a few of its own (light: three blobs in the mud, two drones over the sludge)
-static const u8 marsh_spawn[][3] = { { E_BLOB, 6, 17 }, { E_BLOB, 25, 21 }, { E_BLOB, 9, 29 },
-                                     { E_DRONE, 24, 14 }, { E_DRONE, 8, 10 } };
+static const u8 marsh_spawn[][3] = { { E_BLOB, 10, 15 }, { E_BLOB, 21, 16 }, { E_BLOB, 12, 29 },
+                                     { E_DRONE, 22, 11 }, { E_DRONE, 16, 21 } };
 static void spawn_enemies(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
     const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : enemy_spawn;
@@ -2249,7 +2368,7 @@ static void draw_combat(void) {
         o[1] = (shx & 0x1FF) | (2 << 14);
         o[2] = (TILE_BOSS + 10 * 16) | (1 << 10) | (PAL_SHIELD << 12);
     } else sprite_hide(OAM_SHIELD);
-    int aura = !leaf_timer && party_count && is_you(spirits[party[active]].kind);   // v0.16.6: YOU is chosen
+    int aura = !leaf_timer && party_count && is_you(spirits[party[active]].kind) && !swimming();   // v0.16.6: YOU is chosen (not while swimming)
     for (s32 k = 0; k < 6; k++) {                    // leaves swirl round the wizard (Bark's gift)
         if (aura && k < 3) {                         // three small leaves circle him while YOU is chosen
             u32 a = ((frame >> 1) + k * 16) % 48;
@@ -2628,6 +2747,22 @@ static const char *loves_msg[NUM_SPIRITS] = {
     "BARK: ...FINE. THANKS.", "LILY LOVES THE FRUIT!",
 };
 static u32 b_hold;
+// B by deep water with Ripple chosen (and the skill learned): jump in (v0.18.1).
+static int try_jump_in(void) {
+    if (!swim_skill || in_water || !party_count || spirits[party[active]].kind != KIND_RIPPLE) return 0;
+    s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0, sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+    s32 mx = (px + 8 + sx * 14) >> 4, my = (py + 12 + sy * 14) >> 4;
+    u8 t = tile_at(mx, my);
+    if (t == SLUDGE) { show_message("NOT IN THE SLUDGE! EW!"); sfx_play(SFX_FAIL); return 1; }
+    if (!water_tile(t)) return 0;
+    if (!deep_water(mx, my)) { show_message("TOO SMALL TO SWIM IN."); sfx_play(SFX_FAIL); return 1; }
+    in_water = 1;
+    px = mx * 16; py = my * 16 - 8;               // in with a splash
+    sfx_play(SFX_BRIDGE);
+    for (s32 k = 0; k < 6; k++) add_mote_c(px, py, dir16[(k * 3 + 9) & 15] >> 1, DIR16_Y((k * 3 + 9) & 15) >> 1, 14, C_SPLASH);   // splash
+    return 1;
+}
+
 static void try_gift(void) {
     s32 fx = px + 8, fy = py + 12;
     if (pdir == DIR_LEFT)  fx -= 14;
@@ -2664,7 +2799,7 @@ static void handle_action(void) {
     // A short tap of B (released within 10 frames) is a gift; holding B is running.
     if (HELD(KEY_B)) b_hold++;
     else {
-        if (b_hold && b_hold < 10 && !HELD(KEY_SELECT)) try_gift();
+        if (b_hold && b_hold < 10 && !HELD(KEY_SELECT) && !try_jump_in()) try_gift();
         b_hold = 0;
     }
     // R swaps to the next spirit, L to the previous one.
@@ -2751,7 +2886,7 @@ static void update_homes(void) {
     int changed = 0;
     s32 fx = (px + 8) >> 4, fy = (py + 12) >> 4;
     u32 regen = REGEN_FRAMES / (1 + home_level[KIND_RIPPLE]);   // spring bonus: 2x, 3x at level 2
-    if ((is_alive(tile_at(fx, fy)) || tile_at(fx, fy) == LILY_PAD) && ++regen_timer >= regen) {
+    if ((is_alive(tile_at(fx, fy)) || is_pad(tile_at(fx, fy))) && ++regen_timer >= regen) {
         regen_timer = 0;
         int got = 0;
         for (s32 p = 0; p < party_count; p++) {
@@ -2921,8 +3056,8 @@ static s32 area_song(s32 a) {
 enum { LOOK_SPROUT, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_DEW };
 enum { POSE_STAND, POSE_STEP, POSE_SWIM, POSE_CLIMB };
 static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH };
-static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 16, 27, 3 };
-static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 25, 27, 11 };
+static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7 };
+static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12 };
 static const u8 leafen_look[NUM_LEAFEN] = { LOOK_SPROUT, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT, LOOK_DEW,
                                             LOOK_DEW, LOOK_LEAF, LOOK_BUD };
 static const char *leafen_name[NUM_LEAFEN] = { "PIP", "MOSSY", "TWIG", "POSY", "NUB", "DEWDROP", "BOG", "REEDY",
@@ -2941,7 +3076,7 @@ static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you me
 static const char *leafen_thanks[NUM_LEAFEN] = {
     "PIP: A BRIDGE! YOU'RE GREAT!", "MOSSY: MMM! FRUIT! THANK YOU!", "TWIG: NO MORE THORNS! YAY!",
     "POSY: FLOWERS! SO PRETTY!", "NUB: PHEW! I CAN BREATHE!", "DEWDROP: MY SHINY! THANK YOU!",
-    "BOG: A LILY PAD! HOP, HOP!", "REEDY: FREE! I CAN WIGGLE!", "PUDDLE: AH! CLEAN! SPLASH!",
+    "BOG: THE GOO'S GONE! HOP HOP!", "REEDY: FREE! I CAN WIGGLE!", "PUDDLE: AH! CLEAN! SPLASH!",
 };
 static const char *leafen_gift[NUM_LEAFEN] = {
     "NEW BUILD: DEW POND", "NEW BUILD: ACORN BENCH", "NEW BUILD: LEAF SWING",
@@ -3028,9 +3163,9 @@ static int leafen_ready(s32 k) {
         return !is_rock(LF_AT(x, y)) && !is_rock(LF_AT(x - 1, y)) && !is_rock(LF_AT(x + 1, y)) &&
                !is_rock(LF_AT(x, y - 1)) && !is_rock(LF_AT(x, y + 1));
     case LF_DEW: return has_shiny;
-    case LF_BOG:                                            // a lily pad reaches his island
-        return LF_AT(x - 1, y) == LILY_PAD || LF_AT(x + 1, y) == LILY_PAD || LF_AT(x, y - 1) == LILY_PAD ||
-               LF_AT(x, y + 1) == LILY_PAD;
+    case LF_BOG:                                            // the goo round his isle is gone (swim to him), or a pad
+        return is_pad(LF_AT(x - 1, y)) || is_pad(LF_AT(x + 1, y)) || is_pad(LF_AT(x, y - 1)) || is_pad(LF_AT(x, y + 1)) ||
+               (LF_AT(x - 1, y) != SLUDGE && LF_AT(x + 1, y) != SLUDGE && LF_AT(x, y - 1) != SLUDGE && LF_AT(x, y + 1) != SLUDGE);
     default: {                                              // Reedy: no reeds round; Puddle: no sludge round
         u8 bad = k == LF_REEDY ? REEDS : SLUDGE;
         for (s32 dy = -1; dy <= 1; dy++)
@@ -3081,7 +3216,7 @@ static int leafen_talk(s32 fmx, s32 fmy) {
     if (!leafen_init || lf_scene) return 0;
     u8 faced = tile_at(fmx, fmy);
     int trouble = is_rock(faced) || faced == THORN || faced == WATER || faced == SLUDGE || faced == REEDS ||
-                  faced == VAEL_PIPE;
+                  faced == VAEL_PIPE || is_bog(faced);
     for (s32 k = 0; k < NUM_LEAFEN && !trouble; k++) {
         if (leafen_area[k] != cur_area || !leafen_waiting(k) || !near_leafen(k, k == LF_NUB ? 34 : 28)) continue;
         if (leafen_ready(k)) { leafen_rescue(k); return 1; }
@@ -3182,6 +3317,22 @@ static void update_leafen(void) {
             queue_message("AND VAEL HAS THE REST, NORTH.");
         }
         welcome_step = 0;
+        return;
+    }
+    // v0.18.1: the first time in the marsh with Ripple along, she teaches the wizard to swim
+    if (swim_step && swim_step <= 6) {
+        scene_on = 1;
+        if (msg_timer || msgq_len) return;
+        static const char *lines[6] = { "RIPPLE: OOH! SO MUCH WATER!", "WIZARD, HOLD ON TO ME!",
+                                        "KICK YOUR FEET... LIKE THIS!", "NEW SKILL: SWIM!",
+                                        "PICK ME, PRESS B BY THE WATER.", "BUT NEVER IN THE SLUDGE!" };
+        if (swim_step == 4) { swim_skill = 1; leaf_timer = 120; sfx_play(SFX_QUEST); }
+        show_message(lines[swim_step - 1]);
+        swim_step++;
+        return;
+    }
+    if (cur_area == MARSH && !swim_skill && !swim_step && in_party(KIND_RIPPLE) && !scene_on && !msg_timer && !msgq_len) {
+        swim_step = 1;
         return;
     }
     // v0.18: with the first six home, Bark summons Lily and points you south to the marsh
@@ -3308,6 +3459,13 @@ static void draw_leafen(void) {
     }
     if (cur_area == 0 && !has_shiny && leafen_waiting(LF_DEW) && ((frame >> 3) & 7))   // glinting
         sprite_set(OAM_SHINY, SHINY_X * 16 - cam_x, SHINY_Y * 16 - cam_y, SPR_LEAFEN + C_SHINY, 0, PAL_LEAFEN);
+    for (s32 i = 0; i < 4; i++) {                   // the marsh's fireflies: drifting loops, a slow blink
+        static const short fly_at[5][2] = { { 120, 140 }, { 300, 90 }, { 380, 260 }, { 180, 330 }, { 260, 440 } };
+        u32 tt = frame + i * 97, a = (tt >> 2) % 48, b = (tt >> 3) % 48;
+        if (cur_area != MARSH || ((tt >> 5) % 5) == 0) { sprite_hide(OAM_FIREFLY + i); continue; }
+        s32 x = fly_at[i][0] + loop_x48[a] + (loop_x48[b] >> 1), y = fly_at[i][1] + loop_y48[a] + (loop_y48[(b + 12) % 48] >> 1);
+        sprite_set(OAM_FIREFLY + i, x - cam_x, y - cam_y, SPR_LEAFEN + C_FIREFLY, 0, PAL_LEAFEN);
+    }
     if (cur_area != WEST) return;
     for (s32 k = 0; k < NUM_LEAFEN; k++) {
         if (leafen_state[k] != LS_HOME) continue;
@@ -3648,6 +3806,8 @@ static void update_camera(void) {
 }
 
 static void animate_water(void) {
+    if (cur_area == MARSH)                        // v0.18.1: the bog water ripples too
+        copy32(CHARBLOCK(0) + meta_vram(BOG_WATER) * 32, terrain_tiles + (((frame >> 5) & 1) ? BOG_WATER_B : BOG_WATER) * 32, 32);
     // Swap the water tile graphics between two frames.
     u32 src = ((frame >> 5) & 1) ? WATER_B : WATER;
     copy32(CHARBLOCK(0) + WATER * 32, terrain_tiles + src * 32, 32);
@@ -3675,16 +3835,59 @@ static void draw_sprites(void) {
     static const u8 dir_block[4] = { 0, 1, 2, 2 };   // down, up, left, right
     static const u8 walk_seq[4] = { 1, 2, 3, 2 };
     u32 f = dir_block[pdir] * 4 + (pstep ? walk_seq[pstep & 3] : 0);
-    obj_set(OAM_PLAYER, px - cam_x, py - cam_y - 16, TILE_PLAYER + f * 8, pdir == DIR_LEFT, PAL_MAIN, 1);
+    if (swimming()) {                              // only his head and shoulders above the water, ripples round him
+        // the ring takes the front slot (0) and he the ring's, so the ripples show in front of him
+        s32 bob = (frame >> 4) & 1;
+        sprite_set(OAM_PLAYER, px - cam_x, py - cam_y + 1 + bob, SPR_LEAFEN + C_SWIMRING + bob, 0, PAL_LEAFEN);
+        obj_set(OAM_SWIMRING, px - cam_x, py - cam_y - 6 + bob, TILE_PLAYER + f * 8 + 2, pdir == DIR_LEFT, PAL_MAIN, 0);
+        if (hurt_timer & 4) sprite_hide(OAM_SWIMRING);
+        u32 tread = (frame >> 3) & 3;              // treading water: hands out, in, out... (faster while moving)
+        if (pstep) tread = (frame >> 2) & 3;
+        obj_set(OAM_SWIMHANDS, px - cam_x, py - cam_y - 2 + bob, TILE_SWIM + (tread == 1 || tread == 2 ? 4 : 0), 0, PAL_MAIN, 0);
+        if (pstep) {                               // swimming along: a wake opens behind him
+            s32 wx = px - cam_x, wy = py - cam_y + 1;
+            u32 cell = pdir == DIR_DOWN ? 1 : pdir == DIR_UP ? 2 : 0;
+            if (pdir == DIR_LEFT) wx += 12; else if (pdir == DIR_RIGHT) wx -= 12;
+            else wy += pdir == DIR_DOWN ? -10 : 10;
+            sprite_set(OAM_WAKE, wx, wy, SPR_LEAFEN + C_WAKE + cell, pdir == DIR_LEFT, PAL_LEAFEN);
+        } else sprite_hide(OAM_WAKE);
+        if (pstep && (frame & 15) == 0) {          // tiny splashes at his sides as he swims (Caleb: not bubbles)
+            s32 side = (frame >> 4) & 1 ? 7 : -7;
+            add_mote_c(px + side + (pdir == DIR_LEFT ? 3 : pdir == DIR_RIGHT ? -3 : 0), py + 2, 0, -2, 10, C_SPLASH);
+        }
+    } else {
+        obj_set(OAM_PLAYER, px - cam_x, py - cam_y - 16, TILE_PLAYER + f * 8, pdir == DIR_LEFT, PAL_MAIN, 1);
+        sprite_hide(OAM_SWIMRING);
+        sprite_hide(OAM_WAKE);
+        sprite_hide(OAM_SWIMHANDS);
+    }
     if (hurt_timer & 4) sprite_hide(OAM_PLAYER);   // blinking just after a hit
 
+    // v0.18.1 (Caleb): the spirits change into orbs as you go into the water and back as you come out:
+    // a puff of sparkles at each, then a quick flicker between the two forms
+    static int was_swimming;
+    if (swimming() != was_swimming) {
+        was_swimming = swimming();
+        orb_morph = 16;
+        for (s32 p = 0; p < party_count; p++) {
+            Spirit *s = &spirits[party[p]];
+            if (is_you(s->kind)) continue;
+            for (s32 k = 0; k < 3; k++) add_mote_c(s->x + 4, s->y, dir16[(k * 5 + p) & 15] >> 2, -6 - k * 2, 14, C_SPLASH);
+        }
+    }
+    if (orb_morph) orb_morph--;
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
         if (s->area != cur_area) { sprite_hide(SPIRIT_OAM(i)); sprite_hide(ZZZ_OAM(i)); continue; }
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
-        if (i == KIND_BARK && float_on) {                // the revival: Bark floats, then shoots up
+        int orb = swimming();
+        if (orb_morph) orb = ((orb_morph >> 1) & 1) ? !orb : orb;   // changing: flicker between the two forms
+        if (s->state == SP_JOINED && in_party(i) && orb && tree_alive && !is_you(i)) {   // v0.18.1: orbs while you swim
+            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + C_ORB + i, 0, PAL_LEAFEN);
+            sprite_hide(ZZZ_OAM(i));
+        } else if (i == KIND_BARK && float_on) {         // the revival: Bark floats, then shoots up
             if (float_on == 2) sprite_hide(SPIRIT_OAM(i));
             else sprite_set(SPIRIT_OAM(i), float_x - cam_x, float_y - cam_y - 4 - float_h + (float_up ? 0 : b),
                             spirit_tile[s->kind] + anim, 0, spirit_pal[s->kind]);
@@ -3785,10 +3988,10 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &unlocked[KIND_LILY], 1 }, { &leafen_state[FIRST_LEAFEN], NUM_LEAFEN - FIRST_LEAFEN }, { &lily_step, 4 },
     { maps[MARSH], sizeof(maps[0]) }, { &restorable[MARSH], 4 }, { picked[MARSH], sizeof(picked[0]) },
     { &pump_on[MARSH], 1 }, { &pump_x[MARSH], 1 }, { &pump_y[MARSH], 1 }, { &pump_drain[MARSH], 4 },
-    { &told_full[MARSH], 1 },
+    { &told_full[MARSH], 1 }, { &swim_skill, 4 }, { &swim_step, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V17_FIELDS (NUM_SAVE_FIELDS - 15)
+#define NUM_V17_FIELDS (NUM_SAVE_FIELDS - 17)
 #define NUM_V16_FIELDS (NUM_V17_FIELDS - 4)
 #define NUM_V15_FIELDS (NUM_V17_FIELDS - 7)
 #define NUM_V14_FIELDS (NUM_V17_FIELDS - 8)
@@ -3855,7 +4058,7 @@ static int load_game(void) {
         spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);
         party[OLD_SPIRITS] = 0; fp[KIND_LILY] = quest[KIND_LILY] = unlocked[KIND_LILY] = 0;
         for (s32 k = FIRST_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
-        lily_step = 0;
+        lily_step = 0; swim_skill = swim_step = 0;
         restorable[MARSH] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
             u8 t = start_maps[MARSH * MAP_W * MAP_H + i];
@@ -4460,12 +4663,19 @@ int main(void) {
 
     copy32(CHARBLOCK(0), terrain_tiles, SPRING1_RING1 * 32);   // the map's tiles, without the animation frames
     copy32(CHARBLOCK(0) + SPRING1_RING1 * 32, terrain_tiles + (NOOK2_SPIN + 1) * 32,
-           sizeof(terrain_tiles) / 4 - (NOOK2_SPIN + 1) * 32);
+           (MARSH_META_FIRST - NOOK2_SPIN - 1) * 32);   // the marsh's own load with the marsh (load_tileset)
     copy32(CHARBLOCK(3), font_tiles, sizeof(font_tiles) / 4);   // screenblocks 24-25
-    PAL_BG[SLUDGE_BANK * 16 + 1] = RGB5(46, 40, 56);           // the sludge's colors (its art uses 1, 2, 3, 15)
-    PAL_BG[SLUDGE_BANK * 16 + 2] = RGB5(78, 66, 90);
-    PAL_BG[SLUDGE_BANK * 16 + 3] = RGB5(136, 122, 150);
-    PAL_BG[SLUDGE_BANK * 16 + 15] = RGB5(24, 20, 30);
+    // the sludge's colors: drawn with the bog water's tiles (1-3 the water, 15 the rim, 6-11 the shore), so
+    // it ripples like water, in an oily purple-gray with a sickly sheen (v0.18.1, Caleb: it looked like ground)
+    static const u16 sludge_pal[16] = { 0, RGB5(48, 36, 60), RGB5(90, 68, 104), RGB5(170, 150, 120), 0, 0,
+                                        RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(126, 190, 96),
+                                        RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56), 0, 0, 0, RGB5(20, 14, 26) };
+    for (s32 i = 1; i < 16; i++) PAL_BG[SLUDGE_BANK * 16 + i] = sludge_pal[i];
+    static const u16 bog_pal[16] = { 0, RGB5(18, 32, 30), RGB5(32, 56, 50), RGB5(84, 120, 100), 0, 0,
+                                     RGB5(38, 84, 50), RGB5(62, 120, 64), RGB5(126, 190, 96),
+                                     RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56), 0,   // 9-11: the shore's mud
+                                     RGB5(236, 150, 170), RGB5(240, 228, 190), RGB5(8, 14, 14) };
+    for (s32 i = 1; i < 16; i++) PAL_BG[BOG_BANK * 16 + i] = bog_pal[i];
     copy32(CHARBLOCK(3) + BANNER_BASE * 8, banner_tiles, sizeof(banner_tiles) / 4);
     // the Great Tree's tiles load by area (load_tileset, from set_ground_palette)
     PAL_BG[48 + 1] = (30) | (28 << 5) | (22 << 10);   // title banner: cream letters

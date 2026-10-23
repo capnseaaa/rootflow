@@ -21,6 +21,11 @@ TRUNK_GRASS = 75
 MUSH_LAMP, LEAF_SWING, ACORN_BENCH, FLOWER_ARCH, PEBBLE_PATH, DEW_POND = range(76, 82)
 ROCK_GRASS = 82
 SLUDGE, LILY_PAD, REEDS, VAEL_PIPE = range(83, 87)   # v0.18 the drowned marsh
+# v0.18.1: the marsh's own metatiles (loaded only there, into the Great Tree's tile slots)
+MARSH_META_FIRST = 87
+BOG_WATER, BOG_WATER_B, BOG_PAD, MOSS, MUSHROOMS, SWAMP_TREE, SWAMP_TREE_ALIVE, LOG = range(87, 95)
+SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tree (two tiles tall)
+# 97-111 bog shores, 112-126 clear water shores: picked by the game when it draws, never in a map
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -45,8 +50,9 @@ VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH = 0, 1, 2, 3, 4, 5
 NUM_AREAS = 6                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18)
 # v0.18 the drowned marsh, south-west: in from the Great Tree region's south edge (these columns)
 MARSH_GATE_COLS = (14, 15, 16, 17)
-MARSH_PIPES = [(9, 6), (24, 9), (12, 21)]          # Vael pipes, each on the edge of its sludge pool
-MARSH_LEAFEN = [(16, 25), (27, 27), (3, 11)]       # Bog (sludge island), Reedy (in reeds), Puddle (by sludge)
+MARSH_PIPES = [(7, 10), (23, 6), (12, 24)]         # Vael pipes on the banks, each pouring into its sludge
+MARSH_LEAFEN = [(17, 26), (26, 26), (7, 12)]       # Bog (isle in sludge), Reedy (in cattails), Puddle (by sludge)
+MARSH_BANK_ROW = 19                                # the way to Stone Hollow, along the river's north bank
 WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31 (opens when Bark joins)
 # The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
 # Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
@@ -506,54 +512,163 @@ def make_west():
 
 
 def make_marsh():
-    """The drowned marsh: muddy ground with dead reeds, three pools of Vael sludge fed by pipes, a small
-    clean pond by the way in, and three Leafen in trouble. Walkways are kept open between them."""
-    rng = random.Random(6060)
-    m = scatter(rng, crack=0.35, tree=0.03, rock=0.02)
-    for y in range(MAP_H):
-        for x in range(MAP_W):
-            if m[y][x] in (DEAD, DEAD_CRACK) and rng.random() < 0.08:
-                m[y][x] = REEDS
-    def blob(cx, cy, rx, ry, tile):
+    """The drowned marsh (v0.18.1, after Caleb's swamp references): dark bog water everywhere, winding
+    mossy banks with swamp trees, cattails, logs and mushrooms; Stone Hollow's river flowing in from the
+    east; three Vael pipes pouring sludge into the water; three Leafen in trouble."""
+    rng = random.Random(6061)
+    m = [[BOG_WATER] * MAP_W for _ in range(MAP_H)]
+    def land(x, y):
+        if 0 <= x < MAP_W and 0 <= y < MAP_H:
+            m[y][x] = DEAD
+    def isle(cx, cy, rx, ry):
         for y in range(MAP_H):
             for x in range(MAP_W):
                 d = ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2
-                if d < 1 - 0.25 * ((x * 7 + y * 13) % 5) / 5:
-                    m[y][x] = tile
-    blob(8, 9.5, 4.6, 3.2, SLUDGE)                  # pool A (Puddle's)
-    blob(24, 13, 4.8, 3.6, SLUDGE)                  # pool B
-    blob(15.5, 25, 6.5, 3.8, SLUDGE)                # pool C, round Bog's island
-    blob(21, 4, 2.4, 1.6, WATER)                    # a clean pond by the way in
-    def clear(x0, y0, x1, y1):
-        for y in range(y0, y1 + 1):
-            for x in range(x0, x1 + 1):
-                if m[y][x] not in (SLUDGE, WATER):
-                    m[y][x] = DEAD if (x + y) % 3 else DEAD_CRACK
-    clear(12, 0, 19, 3)                             # the way in from the Great Tree
-    for (x0, y0, x1, y1) in ((15, 0, 16, 31), (1, 18, 30, 19), (2, 4, 3, 30), (28, 4, 29, 30), (2, 4, 29, 5),
-                             (2, 30, 29, 30)):
-        clear(x0, y0, x1, y1)                       # walkways round and through the marsh
-    for (px_, py_) in MARSH_PIPES:
+                if d < 1 - 0.3 * rng.random():
+                    land(x, y)
+    banks = set()                                     # the walkway cells (kept free of trees and logs)
+    def path(points):                                 # a winding bank, two wide
+        for (x0, y0), (x1, y1) in zip(points, points[1:]):
+            n = max(abs(x1 - x0), abs(y1 - y0))
+            for k in range(n + 1):
+                x = round(x0 + (x1 - x0) * k / n) + (rng.random() < 0.25) * rng.choice((-1, 1))
+                y = round(y0 + (y1 - y0) * k / n)
+                for dx in (0, 1):
+                    for dy in (0, 1):
+                        land(x + dx, y + dy)
+                        banks.add((x + dx, y + dy))
+    for _ in range(16):                               # mossy islands
+        isle(rng.randrange(2, 30), rng.randrange(2, 30), rng.uniform(1.6, 3.6), rng.uniform(1.4, 3.0))
+    path([(15, 0), (15, 5), (10, 7), (5, 8), (5, 14), (9, 16), (15, 15), (22, 15), (27, 13), (28, 8), (24, 4),
+          (18, 3)])
+    path([(15, 15), (14, 21), (9, 22), (6, 27), (11, 29), (20, 29), (25, 28), (27, 23), (26, 17)])
+    path([(22, 15), (26, 17), (29, MARSH_BANK_ROW - 1), (31, MARSH_BANK_ROW - 1)])
+    for y in range(0, 4):                             # the way in from the Great Tree
+        for x in range(13, 19):
+            land(x, y)
+    for x in range(20, MAP_W):                        # Stone Hollow's river winds in from the east (rows 20-22 at
+        mid = 21 + round(1.4 * __import__("math").sin((MAP_W - 1 - x) * 0.55))   # the edge) and fades into the bog
+        if x >= MAP_W - 2:
+            mid = 21
+        for y in range(mid - 1, mid + 2):
+            m[y][x] = WATER if x > 25 else BOG_WATER
+    for x in range(26, MAP_W):
+        land(x, MARSH_BANK_ROW)
+    # sludge: each pipe stands on a bank and fouls the water next to it
+    for (px_, py_), (sx, sy, rx, ry) in zip(MARSH_PIPES, ((9.5, 10, 2.6, 2.2), (23, 8.5, 2.4, 1.8), (16, 25.5, 4, 2.4))):
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                if m[y][x] == BOG_WATER and ((x - sx) / rx) ** 2 + ((y - sy) / ry) ** 2 < 1:
+                    m[y][x] = SLUDGE
+        land(px_, py_)
         m[py_][px_] = VAEL_PIPE
-    bx, by = MARSH_LEAFEN[0]                         # Bog: on a mud island in pool C
+        for (x, y) in ((px_ + 1, py_), (px_ - 1, py_), (px_, py_ + 1), (px_, py_ - 1)):
+            if 0 <= x < MAP_W and 0 <= y < MAP_H and m[y][x] == BOG_WATER:
+                m[y][x] = SLUDGE                      # it always touches its sludge
+    bx, by = MARSH_LEAFEN[0]                          # Bog: a one-tile isle in the sludge
     for y in range(by - 1, by + 2):
         for x in range(bx - 1, bx + 2):
             m[y][x] = SLUDGE
     m[by][bx] = DEAD
-    rx, ry = MARSH_LEAFEN[1]                         # Reedy: tangled in a ring of reeds
-    for y in range(ry - 2, ry + 3):
-        for x in range(rx - 2, rx + 3):
-            if 0 <= x < MAP_W and 0 <= y < MAP_H:
-                m[y][x] = DEAD
-    for y in range(ry - 1, ry + 2):
-        for x in range(rx - 1, rx + 2):
-            if (x, y) != (rx, ry):
+    rx_, ry_ = MARSH_LEAFEN[1]                        # Reedy: on a bank, in a ring of cattails
+    for y in range(ry_ - 2, ry_ + 3):
+        for x in range(rx_ - 2, rx_ + 3):
+            land(x, y)
+    for y in range(ry_ - 1, ry_ + 2):
+        for x in range(rx_ - 1, rx_ + 2):
+            if (x, y) != (rx_, ry_):
                 m[y][x] = REEDS
-    qx, qy = MARSH_LEAFEN[2]                         # Puddle: on the mud by pool A, sludge right beside
-    m[qy][qx] = DEAD
-    m[qy][qx + 1] = SLUDGE
-    m[qy][qx - 1] = DEAD
+    qx, qy = MARSH_LEAFEN[2]                          # Puddle: on the bank, sludge right beside her
+    land(qx, qy); land(qx - 1, qy)
+    if m[qy][qx + 1] != VAEL_PIPE:
+        m[qy][qx + 1] = SLUDGE
+    # dress the banks: moss, mushrooms, swamp trees, cattails by the water, logs, a few rocks
+    keep = {(bx, by), (rx_, ry_), (qx, qy), (qx - 1, qy)}
+    keep |= {(x, y) for y in range(0, 4) for x in range(13, 19)}
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            if m[y][x] != DEAD or (x, y) in keep:
+                continue
+            wet = any(0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H and m[y + dy][x + dx] in (BOG_WATER, SLUDGE, WATER)
+                      for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            r = rng.random()
+            if r < 0.30:
+                m[y][x] = MOSS
+            elif r < 0.34:
+                m[y][x] = MUSHROOMS
+            elif r < 0.40:
+                m[y][x] = DEAD_CRACK
+            elif wet and r < 0.50 and not on_path(m, x, y):
+                m[y][x] = REEDS
+    for y in range(1, MAP_H):                         # trees (two tall) and logs only off the main banks
+        for x in range(MAP_W):
+            if m[y][x] in (DEAD, MOSS) and (x, y) not in keep and (x, y) not in banks:
+                r = rng.random()
+                if r < 0.22 and m[y - 1][x] in (DEAD, MOSS, MUSHROOMS, DEAD_CRACK) and (x, y - 1) not in keep \
+                        and (x, y - 1) not in banks:
+                    m[y][x] = SWAMP_TREE
+                    m[y - 1][x] = SWAMP_TOP
+                elif r < 0.23:
+                    m[y][x] = LOG
+    for y in range(MAP_H):                            # lily pads floating on the open bog
+        for x in range(MAP_W):
+            if m[y][x] == BOG_WATER and rng.random() < 0.06 and all(
+                    not (0 <= x + dx < MAP_W and 0 <= y + dy < MAP_H) or m[y + dy][x + dx] != SLUDGE
+                    for dx in range(-2, 3) for dy in range(-2, 3)):
+                m[y][x] = BOG_PAD
+    # everything that matters can be walked to: carve a bank to any that cannot (never through sludge)
+    pipes = set(MARSH_PIPES)
+    targets = [(qx, qy), (rx_, ry_ - 2), (MAP_W - 1, MARSH_BANK_ROW)]
+    targets += [(x, y) for (px_, py_) in MARSH_PIPES for (x, y) in ((px_, py_ - 1), (px_ - 1, py_)) if m[y][x] != SLUDGE][:3]
+    targets += [(bx, by - 3)]                         # the shore north of Bog's pool
+    for tx, ty in targets:
+        carve_to(m, tx, ty)
+    for y in range(MAP_H):                            # a carved bank may cut a tree in half: tidy those
+        for x in range(MAP_W):
+            if m[y][x] == SWAMP_TOP and (y + 1 >= MAP_H or m[y + 1][x] != SWAMP_TREE):
+                m[y][x] = MOSS
+            if m[y][x] == SWAMP_TREE and (y == 0 or m[y - 1][x] != SWAMP_TOP):
+                m[y][x] = MOSS
     return m
+
+
+
+def carve_to(m, tx, ty):
+    """Make (tx, ty) walkable and joined to the way in (15, 0): the cheapest way through bog water."""
+    from collections import deque
+    walk = {DEAD, DEAD_CRACK, MOSS, MUSHROOMS}
+    m[ty][tx] = m[ty][tx] if m[ty][tx] in walk else DEAD
+    seen = {(15, 0)}
+    q = deque([(15, 0)])
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + dx, y + dy)
+            if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in seen and m[n[1]][n[0]] in walk:
+                seen.add(n); q.append(n)
+    if (tx, ty) in seen:
+        return
+    prev = {(tx, ty): None}                           # search from the target, through anything but sludge
+    q = deque([(tx, ty)])
+    while q:
+        c = q.popleft()
+        if c in seen:
+            while c is not None:
+                if m[c[1]][c[0]] not in walk:
+                    m[c[1]][c[0]] = DEAD
+                c = prev[c]
+            return
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (c[0] + dx, c[1] + dy)
+            if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in prev and m[n[1]][n[0]] not in (SLUDGE, VAEL_PIPE, WATER):
+                prev[n] = c
+                q.append(n)
+
+
+def on_path(m, x, y):
+    """True when a tile is part of a two-wide bank (keep those clear so the marsh can be walked)."""
+    open_ = lambda xx, yy: 0 <= xx < MAP_W and 0 <= yy < MAP_H and m[yy][xx] in (DEAD, MOSS, MUSHROOMS, DEAD_CRACK)
+    return (open_(x - 1, y) and open_(x + 1, y)) or (open_(x, y - 1) and open_(x, y + 1))
 
 
 def make_hollow_in():
@@ -670,7 +785,8 @@ def main():
     boss = Image.open(os.path.join(ART, "boss_sprite.png"))
     leafen = Image.open(os.path.join(ART, "leafen_sprite.png"))
     lily = Image.open(os.path.join(ART, "lily_sprite.png"))
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily):
+    swim = Image.open(os.path.join(ART, "swim_sprite.png"))     # drawn with the player's palette (bank 0)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -678,7 +794,7 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16), ("LILY", lily, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -742,7 +858,8 @@ def main():
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
     # tree tiles follow the map's tiles in charblock 0; the 9 home animation frames are not loaded there
-    base = (terrain.size[0] // 16 - 9) * 4
+    base = (MARSH_META_FIRST - 9) * 4                 # the marsh's own metatiles load into the tree slots
+    out.append(f"#define MARSH_META_FIRST {MARSH_META_FIRST}")
     out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
     # Tile sets loaded into the same slots by area: the dead tree, the hollow, the living tree.
     for name, files in (("dead", ("tree_trunk.png", "canopy.png")), ("hollow", ("hollow.png",)),
