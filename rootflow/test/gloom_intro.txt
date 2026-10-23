@@ -1,0 +1,25 @@
+# v0.16.7: entering the hollow: the wizard walks in, the Gloomheart roars (the tree shakes), Bark speaks; then the fight
+# v0.16: the hollow, Gloomheart (a shield per spirit), the tree healed, YOU
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=7,$dev_val+20=1
+1 1
+1 0
+60 0 h0_opening.ppm
+0 0 @$cur_area,$boss_beaten,$maps+3692
+# walk up into the opening
+40 64
+30 0 h1_inside.ppm
+0 0 @$cur_area,$boss+36,$boss,$gloom_phase,$hearts_now
+150 0 in1.ppm
+150 0 in2.ppm
+150 0 in3.ppm
+150 0 in4.ppm
+150 0 in5.ppm
+150 0 in6.ppm
+150 0 in7.ppm
+0 0 @$gloom_intro,$py

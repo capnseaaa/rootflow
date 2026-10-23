@@ -16,6 +16,8 @@
 30 0 h1_inside.ppm
 0 0 @$cur_area,$boss+36,$boss,$gloom_phase,$hearts_now
 600 0 h2_gloom.ppm
+600 0 h2b_intro_done.ppm
+0 0 @$gloom_intro,$gloom_intro_seen,$boss+20
 # Ripple first: the Sprout shield ignores it
 0 0 !$active=1,$px=248,$py=216,$boss+16=0,$gloom_act=4,$boss+4=240,$boss+8=192,$boss+40=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
 1 64

@@ -12,6 +12,7 @@
 0 0 @$cur_area,$boss_beaten,$maps+3692
 40 64
 30 0 h1_inside.ppm
+0 0 !$gloom_intro=0
 30 0
 0 0 !$px=248,$py=300,$dev_god=1,$active=0
 125 0 @$gloom_act,$boss+4,$boss+8,$px,$py,$gloom_shield,$pdir

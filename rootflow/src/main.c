@@ -1429,6 +1429,9 @@ enum { G_MOVE, G_VOLLEY, G_RING, G_DIVE, G_DAZED };
 typedef struct { s32 x, y, dx, dy, life, c; } Dot;   // x, y, dx, dy in 1/16 px; c: the sprite cell (motes)
 static Dot spores[MAX_SPORES], motes[MAX_MOTES];
 static void gloom_burst(s32 x, s32 y, s32 speed, s32 life);
+// v0.16.7 (Caleb): entering the hollow is a scene first: the Gloomheart roars and shakes the tree,
+// and Bark tells you to squash it. The second time (after fainting) it is short.
+static u32 gloom_intro, gloom_intro_wait, gloom_intro_seen;
 static s32 gloom_act, gloom_step, gloom_tx, gloom_ty, gloom_ring, gloom_ring_hit, gloom_shake, gloom_told_daze;
 static const u16 shield_color[NUM_SPIRITS][2] = {   // dark, light
     { RGB5(40, 120, 40), RGB5(140, 230, 100) }, { RGB5(30, 80, 190), RGB5(130, 200, 250) },
@@ -1497,9 +1500,7 @@ static void combat_enter(void) {
         gloom_phase = 0; gloom_shield = GLOOM_SHIELD_HITS; gloom_wrong_told = 0;
         gloom_act = G_MOVE; gloom_step = 0; gloom_tx = 240; gloom_ty = 150; gloom_ring = 0; gloom_told_daze = 0;
         gloom_shield_color();
-        queue_message("THE GLOOMHEART THROBS...");
-        queue_message("BARK: THE ROT. IN MY HEART.");
-        queue_message("ALL OF YOU. ONE AT A TIME.");
+        gloom_intro = 1; gloom_intro_wait = 40;        // the fight waits for its roar and Bark (update_gloom_intro)
         return;
     }
     spawn_enemies();
@@ -2669,10 +2670,44 @@ static void check_tree(void) {
     }
 }
 
+static const char *gloom_intro_lines[] = {
+    "THE GLOOMHEART ROARS!", "BARK: HMPH. THAT. THE ROT.", "IT'S BEEN CHEWING ON MY", "INSIDES FOR AGES. UGH.",
+    "SQUISH IT, WIZARD. NOW.", "ALL OF YOU. ONE AT A TIME.",
+};
+static const char *gloom_again_lines[] = { "THE GLOOMHEART ROARS!", "BARK: AGAIN. SQUISH IT." };
+static void update_gloom_intro(void) {
+    if (!gloom_intro) return;
+    if (!boss.alive || cur_area != HOLLOW_IN) { gloom_intro = 0; return; }
+    u32 n = gloom_intro_seen ? 2 : sizeof(gloom_intro_lines) / sizeof(gloom_intro_lines[0]);
+    scene_on = 1;
+    if (gloom_intro == 1 && py > 290) {                      // first the wizard walks up into the room
+        py--; pdir = DIR_UP; pstep = 4 + ((frame >> 3) & 3);
+        hist_head = (hist_head + 1) & (HIST - 1);            // the spirits follow him in
+        hist_x[hist_head] = px; hist_y[hist_head] = py;
+        return;
+    }
+    if (gloom_intro_wait) { gloom_intro_wait--; return; }
+    if (msg_timer || msgq_len) return;
+    if (gloom_intro > n) {                                   // the fight begins
+        gloom_intro = 0; gloom_intro_seen = 1;
+        boss.state = 0; boss.timer = 0;
+        return;
+    }
+    if (gloom_intro == 1) {                                  // the roar shakes the whole tree
+        shake_timer = 90; boss.state = 1;
+        sfx_play(SFX_ROCK);
+    }
+    if (gloom_intro == 2) boss.state = 0;
+    show_message(gloom_intro_seen ? gloom_again_lines[gloom_intro - 1] : gloom_intro_lines[gloom_intro - 1]);
+    gloom_intro++;
+    gloom_intro_wait = 20;
+}
+
 static void update_bark(void) {
     if (bark_fall) bark_fall--;
     scene_on = bark_step && bark_step <= BARK_SCENE_LEN;
     update_tree_scene();
+    update_gloom_intro();
     if (!(bark_step && bark_step <= BARK_SCENE_LEN)) return;
     if (bark_wait) { bark_wait--; return; }
     if (msg_timer || msgq_len) return;                      // let the messages before it finish
@@ -2929,7 +2964,7 @@ static void update_camera(void) {
     if (cur_area == WEST && px + 8 >= 120 && px + 8 <= 392 && py < 430) wy = 430 - py > 56 ? -56 : py - 430;
     if (cur_area == HOLLOW_IN && boss.alive && boss.kind == B_GLOOM) {
         wx = clamp_abs((boss.x + 16 - (px + 8)) >> 1, SCREEN_W / 2 - 28);
-        wy = clamp_abs((boss.y + 16 - (py + 8)) >> 1, SCREEN_H / 2 - 32);
+        wy = clamp_abs((boss.y + 16 - (py + 8)) >> 1, gloom_intro ? SCREEN_H / 2 - 20 : SCREEN_H / 2 - 32);
     }
     if (cur_area != WEST && cur_area != HOLLOW_IN) cam_ox = cam_oy = 0;
     cam_ox = ease_to(cam_ox, wx);
@@ -3533,7 +3568,7 @@ static void dev_start(void) {
         if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening
         else if (j == J_GLOOM) {             // in the hollow, the Gloomheart just beaten: the revival starts
             enter_area(HOLLOW_IN, 248, 260);
-            boss.alive = 0;
+            boss.alive = 0; gloom_intro = 0;
             for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
             msg_timer = 0; msgq_len = 0; clear_row(19);
             revive_step = 1;

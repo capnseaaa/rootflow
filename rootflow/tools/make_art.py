@@ -220,29 +220,13 @@ def root(rng, kind):
 
 
 def root_tip(rng, alive):
-    """A root coming down from the top and ending: withered and gray on dead ground, or (v0.16.6,
-    Caleb: the pointy wedge on bare soil looked odd) a rounded living root end in the grass, with shoots."""
-    if alive:
-        px = grass(rng, tufts=1)
-        for y in range(16):
-            for x in range(16):
-                d = abs(x - 7.5)
-                inside = d < 5.5 if y <= 8 else (x - 7.5) ** 2 + (y - 8) ** 2 < 5.5 ** 2
-                edge = d >= 4.5 if y <= 8 else (x - 7.5) ** 2 + (y - 8) ** 2 >= 4.5 ** 2
-                if inside:                                   # lit from the left, like the roots above
-                    px[y][x] = 15 if edge else 5 if x < 6 else 4 if x < 10 else 12
-        dots(px, [(7, 2), (8, 5), (7, 8), (8, 11)], 12)              # a little grain
-        dots(px, [(2, 12), (3, 11), (13, 11), (12, 10), (12, 14)], 8)  # shoots by the root end
-        dots(px, [(2, 13), (13, 12), (11, 14)], 7)
-        return px
-    px = dead(rng)
-    for y in range(16):
-        for x in range(16):
-            w = 5.6 - max(0, y - 4) * 0.5
-            d = abs(x - 7.5)
-            if y < 14 and d < w:
-                px[y][x] = 15 if d > w - 1 else 2
-    dots(px, [(7, 13), (8, 14)], 1)
+    """Where a root of the Great Tree ends (v0.16.7, Caleb: drawn root ends did not link with the
+    roots above, so none is drawn): dead ground while it sleeps, grass with fresh shoots once awake."""
+    if not alive:
+        return dead(rng)
+    px = grass(rng, tufts=1)
+    dots(px, [(4, 9), (5, 8), (10, 6), (11, 5), (7, 12), (8, 11)], 8)   # shoots
+    dots(px, [(4, 10), (10, 7), (7, 13)], 6)
     return px
 
 
