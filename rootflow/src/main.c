@@ -2922,13 +2922,28 @@ static void leafen_rescue(s32 k) {
     lf_sx[2] = x + 18; lf_sy[2] = y + 6;
     if (k == LF_PIP) { lf_sx[1] = px - 14; lf_sy[1] = py; lf_sx[2] = px + 14; lf_sy[2] = py; }   // on land
 }
+// v0.17.2 (Caleb): the Leafen at Bark's tree chatter when you press A by one; they all share these.
+static const char *leafen_chatter[] = {
+    "HI! HI! HI!", "I FOUND A ROCK! IT'S A ROCK!", "BARK IS GRUMPY. WE LOVE HIM!",
+    "DO YOU HAVE ANY SUNSHINE?", "I WAVED AT A CLOUD TODAY!", "MY LEAF IS EXTRA SHINY TODAY!",
+    "I TRIED TO SWIM UPWARDS!", "WHAT'S A WIZARD? IS IT A HAT?", "THANK YOU FOR FINDING US!",
+    "I NAPPED IN A FLOWER! COMFY!", "DIRT TASTES LIKE... DIRT!", "WE BUILT A HOUSE! IT'S TINY!",
+    "I'M GROWING! I THINK! MAYBE!", "BARK SNORES. SO LOUD!", "WANNA SEE ME HOP? HOP! HOP!",
+    "I COUNTED TO THREE! TWICE!", "RAIN IS SKY WATER! WOW!", "I LIKE YOUR HAT! SO POINTY!",
+    "WE MISS OUR FRIENDS UP NORTH.", "A BUG SAID HI TO ME! I THINK!",
+};
+#define NUM_CHATTER (sizeof(leafen_chatter) / sizeof(leafen_chatter[0]))
+static u32 chatter_at;
+static short folk_sx[NUM_LEAFEN * 3], folk_sy[NUM_LEAFEN * 3];   // where each was last drawn (world pixels)
+static u8 folk_hop[NUM_LEAFEN * 3];                               // a little hop after you talk to it
+
 // A at a waiting Leafen: its trouble, or (when the trouble is fixed) the rescue. Returns 1 if it talked.
 // Facing a rock, thorn or water next to it, A is the spirit's power instead (to break Nub out, and so on).
 static int leafen_talk(s32 fmx, s32 fmy) {
     if (!leafen_init || lf_scene) return 0;
     u8 faced = tile_at(fmx, fmy);
-    if (faced == ROCK || faced == THORN || faced == WATER) return 0;
-    for (s32 k = 0; k < NUM_LEAFEN; k++) {
+    int trouble = faced == ROCK || faced == THORN || faced == WATER;
+    for (s32 k = 0; k < NUM_LEAFEN && !trouble; k++) {
         if (leafen_area[k] != cur_area || !leafen_waiting(k) || !near_leafen(k, k == LF_NUB ? 34 : 28)) continue;
         if (leafen_ready(k)) { leafen_rescue(k); return 1; }
         leafen_state[k] = LS_MET;
@@ -2937,6 +2952,17 @@ static int leafen_talk(s32 fmx, s32 fmy) {
         sfx_play(SFX_GIFT);
         return 1;
     }
+    if (cur_area == WEST)                                 // a Leafen of the village: a bit of chatter
+        for (s32 n = 0; n < NUM_LEAFEN * 3; n++) {
+            if (leafen_state[n / 3] != LS_HOME) continue;
+            s32 dx = px + 8 - (folk_sx[n] + 8), dy = py + 8 - (folk_sy[n] + 8);
+            if (dx * dx + dy * dy >= 24 * 24) continue;
+            chatter_at = (chatter_at + 1 + rng() % 3) % NUM_CHATTER;   // never the same line twice in a row
+            show_message(leafen_chatter[chatter_at]);
+            folk_hop[n] = 16;
+            sfx_play(SFX_GIFT);
+            return 1;
+        }
     return 0;
 }
 
@@ -3124,7 +3150,10 @@ static void draw_leafen(void) {
                 pose = moving ? ((tt >> 3) & 1) : POSE_STAND;
                 flip = tx < x;
             }
-            sprite_set(OAM_FOLK + n, x - cam_x, y - cam_y, SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose, flip,
+            folk_sx[n] = x; folk_sy[n] = y;
+            s32 hop = 0;
+            if (folk_hop[n]) { folk_hop[n]--; hop = folk_hop[n] > 8 ? 16 - folk_hop[n] : folk_hop[n]; }
+            sprite_set(OAM_FOLK + n, x - cam_x, y - cam_y - hop, SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose, flip,
                        PAL_LEAFEN);
         }
     }

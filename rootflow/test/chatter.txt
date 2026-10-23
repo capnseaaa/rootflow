@@ -1,0 +1,30 @@
+# v0.17.2: chatter: A by a Leafen of the village shows a line from the catalogue, never the same twice in a row
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$leafen_state=67372036,$leafen_state+4=1028
+# a walker of Mossy's group, by the pool swimmers, then again
+0 0 !$px=44,$py=378,$active=4
+60 0
+0 0 @$folk_sx+6,$folk_sy+6,$px,$py
+2 1
+10 0 chat0.ppm
+0 0 @$chatter_at,$msg_timer
+150 0
+2 1
+10 0 chat1.ppm
+0 0 @$chatter_at
+0 0 !$px=246,$py=448
+30 0
+1 64
+1 0
+2 1
+10 0 chat2.ppm
+0 0 @$chatter_at
