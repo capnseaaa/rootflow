@@ -526,6 +526,7 @@ static void oam_flush(void) {
 #define SPR_BREEZE (TILE_BREEZE / 4)
 #define SPR_BARK (TILE_BARK / 4)
 #define SPR_LILY (TILE_LILY / 4)
+#define SPR_BALL (TILE_BALL / 4)   // v0.18.4: each spirit as a ball, in the pouch (its own palette)
 #define PAL_MAIN 0
 #define PAL_RIPPLE 1
 #define PAL_SLEEP 2
@@ -611,7 +612,8 @@ static u32 home_t(s32 k, u32 cycle) { return (frame + k * 71) % cycle; }
 static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim);
 
 // ---------- spirits ----------
-enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME, SP_HIDDEN };   // hidden: not in the world yet (Bark)
+enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME, SP_HIDDEN, SP_POUCH };   // hidden: not in the world yet (Bark)
+// SP_POUCH (v0.18.4): joined but not carried; it rides in the spirit pouch as a tiny orb (not selectable)
 enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE, KIND_BARK, KIND_LILY };
 // housed: the spirit has a home. While it travels with you its power is weaker (fewer charges).
 typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // area: where it is
@@ -624,6 +626,7 @@ typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // are
 #define REGEN_FRAMES 300          // one charge back per 5 s while standing on living ground
 static Spirit spirits[NUM_SPIRITS];   // index == kind
 static s32 party[NUM_SPIRITS], party_count, active;   // party holds spirit indexes in join order
+static u32 pouch_on;                       // v0.18.4: Bark gave you the spirit pouch (saved)
 static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE", "BARK", "LILY" };
 static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK",
                                       "BREEZE: CLEAR THORNS", "BARK: CUT AND CLEAR", "LILY: CLEAN WATER, PADS" };
@@ -947,7 +950,7 @@ static void reset_game(void) {
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
     spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);   // v0.18: Bark summons her once six Leafen are home
-    lily_step = 0; swim_skill = swim_step = 0; in_water = 0;
+    lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
@@ -1310,6 +1313,8 @@ static void update_spirits(void) {
         s->x += (hist_x[idx] - s->x) / 4;
         s->y += (hist_y[idx] - s->y) / 4;
     }
+    for (s32 i = 0; i < NUM_SPIRITS; i++)                 // the pouch goes where you go
+        if (spirits[i].state == SP_POUCH) { spirits[i].area = cur_area; spirits[i].x = px; spirits[i].y = py; }
 }
 
 static void sparkle_at(s32 mx, s32 my) { sparkle_x = mx * 16; sparkle_y = my * 16; sparkle_life = 30; }
@@ -1700,7 +1705,7 @@ enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_
 #define SPR_LEAFEN (TILE_LEAFEN / 4)
 #define PAL_LEAFEN 11
 enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, C_SWIMRING, C_ORB = C_SWIMRING + 2,
-       C_WAKE = C_ORB + 6 };   // C_WAKE: sideways, moving down, moving up
+       C_WAKE = C_ORB + 6, C_MINI = C_WAKE + 3 };   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH; }
 
 static void draw_hearts_hud(void) {
@@ -2491,7 +2496,20 @@ static void use_ability(void) {
     if (!(told_tips & TIP_REST)) { told_tips |= TIP_REST; queue_message(REST_TIP); }
 }
 
+// v0.18.4 (Caleb): you carry four spirits; Bark's gift lets you carry a fifth (Bark himself, later YOU).
+// Any more ride in the pouch, once Bark has given it.
+// YOU (Bark's power, once the tree is healed) is the wizard himself, not a spirit: it never counts.
+static s32 party_cap(void) { return spirits[KIND_BARK].state != SP_HIDDEN || tree_alive ? 5 : 4; }
+static s32 carried(void) { return party_count - (tree_alive && in_party(KIND_BARK)); }
+static const char *pouch_msg[NUM_SPIRITS] = { "SPROUT HOPS IN THE POUCH.", "RIPPLE HOPS IN THE POUCH.",
+    "PEBBLE HOPS IN THE POUCH.", "BREEZE HOPS IN THE POUCH.", "", "LILY HOPS IN THE POUCH." };
 static void party_add(s32 i) {
+    if (carried() >= party_cap() && pouch_on && !is_you(i)) {
+        spirits[i].state = SP_POUCH;
+        spirits[i].area = cur_area;
+        queue_message(pouch_msg[i]);
+        return;
+    }
     party[party_count++] = i;
     active = party_count - 1;
     spirits[i].state = SP_JOINED;
@@ -2904,7 +2922,7 @@ static void handle_action(void) {
     for (s32 pass = 0; pass < 2; pass++)
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->state == SP_JOINED || s->state == SP_HIDDEN || s->area != cur_area) continue;
+        if (s->state == SP_JOINED || s->state == SP_HIDDEN || s->state == SP_POUCH || s->area != cur_area) continue;
         if ((s->state == SP_HOME) != (pass == 1)) continue;
         // A housed spirit is drawn inside its home (the roof for Pebble and Breeze); it also answers near the site.
         if (!near_px(s->x, s->y, 28) && !(s->state == SP_HOME && near_px(home_site_x[i] * 16, home_site_y[i] * 16, 24))) continue;
@@ -2923,6 +2941,14 @@ static void handle_action(void) {
             party_add(i);
             sfx_play(SFX_JOIN);
             show_message(spirit_joined[s->kind]);
+            s32 found = 0;                            // v0.18.4 (Caleb): a nudge once the fourth joins
+            for (s32 k = 0; k < NUM_HOMES; k++) found += spirits[k].state >= SP_JOINED && spirits[k].state != SP_HIDDEN;
+            if (i < NUM_HOMES && found == NUM_HOMES) {
+                queue_message("ALL FOUR SPIRITS FOUND!");
+                queue_message("BUILD UP THEIR HOMES,");
+                queue_message("UPGRADE THEM, AND RESTORE");
+                queue_message("THE LANDS.");
+            }
         }
         return;
     }
@@ -3023,12 +3049,15 @@ static void update_homes(void) {
 
 // Bark's arrival, once every home is level 2: a pause, a crack, Bark drops in beside the player
 // (bark_fall animates the drop in draw_sprites), a thump, and his first words. Then A greets him.
-enum { BS_SAY, BS_CRACK, BS_FALL, BS_THUMP };
+enum { BS_SAY, BS_CRACK, BS_FALL, BS_THUMP, BS_POWER };
 static const struct { u8 act; const char *msg; } bark_scene[] = {
     { BS_CRACK, "CRACK...!" }, { BS_FALL, 0 }, { BS_THUMP, "THUMP." }, { BS_SAY, "DID SOMETHING FALL?" },
     { BS_SAY, "BARK: OW. OW. MY ROOTS." }, { BS_SAY, "BARK: WHAT? STOP STARING." },
     { BS_SAY, "BARK: I'M BARK. I WAS PART" }, { BS_SAY, "OF THE GREAT TREE." },
     { BS_SAY, "VAEL CUT IT DOWN. NOW I'M..." }, { BS_SAY, "...THIS. A STUMP." },
+    { BS_SAY, "BARK: THOSE FOUR WITH YOU?" }, { BS_SAY, "I MADE THEM. LONG AGO," },
+    { BS_SAY, "BEFORE VAEL CUT ME DOWN." }, { BS_SAY, "YOU CAN ONLY CARRY FOUR." },
+    { BS_POWER, "HERE. A BIT OF MY POWER." }, { BS_SAY, "NOW YOU CAN CARRY FIVE." },
     { BS_SAY, "BARK: HMPH. FINE. I'LL HELP." }, { BS_SAY, "BUT I WANT MY TREE BACK." },
     { BS_SAY, "LET ALL FOUR REST AT HOME..." },
 };
@@ -3432,8 +3461,8 @@ static void update_leafen(void) {
         if (lily_step == 4) { leaf_timer = 150; sfx_play(SFX_QUEST); }   // leaves swirl: Bark calls her
         if (lily_step == 5) {                                    // Lily appears beside you
             Spirit *s = &spirits[KIND_LILY];
-            s->x = px + 18; s->y = py; s->state = SP_JOINED; s->area = cur_area; s->energy = 3;
-            party[party_count++] = KIND_LILY;
+            s->x = px + 18; s->y = py; s->area = cur_area; s->energy = 3;
+            party_add(KIND_LILY);                               // into the pouch if you carry five
             for (s32 k = 0; k < 8; k++) add_mote_c(px + 18, py, dir16[k * 2] >> 1, DIR16_Y(k * 2) >> 1, 24, C_GLINT);
             sfx_play(SFX_WAKE);
             draw_active();
@@ -3624,6 +3653,7 @@ static void update_bark(void) {
         bark_fall = 30;
         bark_wait = 30;
     }
+    if (act == BS_POWER) { leaf_timer = 150; sfx_play(SFX_QUEST); }   // v0.18.4: room for a fifth spirit
     if (act == BS_THUMP) { sfx_play(SFX_BUILD); sparkle_at(spirits[KIND_BARK].x >> 4, spirits[KIND_BARK].y >> 4); }
     if (m) show_message(m);
 }
@@ -3687,7 +3717,7 @@ static void revive_world(void) {
 // sparks; the shaking stops and white light fills the screen; the room is clean again (the rot veins
 // turn to green moss); Bark feels tingly, leaves swirl round him, and he shoots up. White again, and
 // the team stands outside the healed tree, where Bark gives the wizard his power ("YOU" in R/L).
-enum { RV_SAY, RV_SHAKE, RV_FLOAT, RV_WHITE, RV_CLEAN, RV_LEAFUP, RV_FADE, RV_OUT, RV_UNFADE, RV_STILL, RV_LEAVES };
+enum { RV_SAY, RV_SHAKE, RV_FLOAT, RV_WHITE, RV_CLEAN, RV_LEAFUP, RV_FADE, RV_OUT, RV_UNFADE, RV_STILL, RV_LEAVES, RV_POUCH };
 // v0.16.3 (Caleb): the white stays while Bark turns back into his tree; it fades slowly into the
 // healed tree shaking outside, the shaking stops as the light is gone, and then Bark speaks.
 static const struct { u8 act; const char *msg; } revive_scene[] = {
@@ -3704,12 +3734,16 @@ static const struct { u8 act; const char *msg; } revive_scene[] = {
     { RV_SAY, "NO CHARGES NEEDED." },
     { RV_SAY, "BARK: NOW. MY FRIENDS," }, { RV_SAY, "THE LEAFEN. TINY SPROUT FOLK." },
     { RV_SAY, "CHEERY. NOT VERY BRIGHT." }, { RV_SAY, "VAEL TOOK THEM AWAY." },
-    { RV_SAY, "A FEW GOT LOOSE. THEY HIDE" }, { RV_SAY, "IN THE VALLEY, THE STEPPE," },
-    { RV_SAY, "AND STONE HOLLOW. LOOK AROUND." }, { RV_SAY, "THEY'RE EVERYWHERE, REALLY." },
-    { RV_SAY, "THEY WANDER. SEARCH THE" }, { RV_SAY, "FAR CORNERS, TOO." }, { RV_SAY, "SOME MIGHT NEED PERSUADING." },
-    { RV_SAY, "THE REST ARE LOCKED UP IN" },
-    { RV_SAY, "VAEL'S FACTORY, FAR NORTH." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
+    { RV_SAY, "THEY'RE SCATTERED ALL OVER." }, { RV_SAY, "SOME NEARBY. SOME FAR OFF." },
+    { RV_SAY, "SOME MIGHT NEED PERSUADING." },
+    { RV_SAY, "AND MORE SPIRITS ARE OUT" }, { RV_SAY, "THERE. SOME I CAN CALL." },
+    { RV_SAY, "SOME YOU'LL HAVE TO FIND." }, { RV_SAY, "SOME LEAFEN YOU CAN'T FREE" },
+    { RV_SAY, "UNTIL YOU FIND THEIR SPIRIT." }, { RV_SAY, "SO GO FURTHER, WIZARD." },
+    { RV_SAY, "FURTHER THAN YOU'VE BEEN." }, { RV_SAY, "BRING THEM HOME. PLEASE." },
     { RV_SAY, "HMPH. DO THAT, AND I'LL" }, { RV_SAY, "TEACH YOU A THING OR TWO." },
+    { RV_SAY, "OH. AND TAKE THIS." }, { RV_POUCH, "YOU GOT THE SPIRIT POUCH!" },
+    { RV_SAY, "SPIRITS YOU DON'T CARRY RIDE" }, { RV_SAY, "IN IT AS TINY ORBS." },
+    { RV_SAY, "START, POUCH: SWAP THEM." },
 };
 #define REVIVE_LEN (sizeof(revive_scene) / sizeof(revive_scene[0]))
 #define BLD_NORMAL ((1 << 2) | (1 << 6) | (1 << 9) | (1 << 11) | (1 << 12) | (1 << 13))   // BG2 see-through
@@ -3822,6 +3856,7 @@ static void update_revive(void) {
         revive_slow = 0; scene_song = NO_SCENE_SONG; music_play(area_song(WEST));   // the healed tree's own song
     }
     if (act == RV_LEAVES) { leaf_timer = 150; sfx_play(SFX_QUEST); }
+    if (act == RV_POUCH) { pouch_on = 1; sfx_play(SFX_CHEST); }   // v0.18.4
     if (m) { show_message(m); if (revive_slow) msg_timer = 240; }   // Caleb: these went by too fast
 }
 
@@ -3967,9 +4002,18 @@ static void draw_sprites(void) {
         }
     }
     if (orb_morph) orb_morph--;
+    s32 n_pouch = 0, j_pouch = 0;
+    for (s32 i = 0; i < NUM_SPIRITS; i++) n_pouch += spirits[i].state == SP_POUCH;
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
         if (s->area != cur_area) { sprite_hide(SPIRIT_OAM(i)); sprite_hide(ZZZ_OAM(i)); continue; }
+        if (s->state == SP_POUCH) {                   // v0.18.4: tiny orbs circling his head, spread evenly
+            u32 a = ((frame >> 1) + (u32)(j_pouch++ * 48 / n_pouch)) % 48;
+            sprite_set(SPIRIT_OAM(i), px - cam_x + loop_x48[a] * 10 / 24, py - cam_y - 22 + loop_y48[a] * 4 / 16,
+                       SPR_LEAFEN + C_MINI + i, 0, PAL_LEAFEN);
+            sprite_hide(ZZZ_OAM(i));
+            continue;
+        }
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
@@ -4041,7 +4085,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x41534652u   // "RFSA" (v0.18: Lily and the marsh)
+#define SAVE_MAGIC 0x42534652u   // "RFSB" (v0.18.4: the spirit pouch)
+#define SAVE_MAGIC_V18 0x41534652u   // "RFSA": v0.18 saves still load
 #define SAVE_MAGIC_V17 0x39534652u   // "RFS9": v0.17 saves still load
 #define SAVE_MAGIC_V16 0x38534652u   // "RFS8": v0.16 saves still load (the Leafen set up on load)
 #define SAVE_MAGIC_V15 0x37534652u   // "RFS7": v0.15 saves still load
@@ -4080,9 +4125,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { maps[MARSH], sizeof(maps[0]) }, { &restorable[MARSH], 4 }, { picked[MARSH], sizeof(picked[0]) },
     { &pump_on[MARSH], 1 }, { &pump_x[MARSH], 1 }, { &pump_y[MARSH], 1 }, { &pump_drain[MARSH], 4 },
     { &told_full[MARSH], 1 }, { &swim_skill, 4 }, { &swim_step, 4 },
+    // v0.18.4: the spirit pouch
+    { &pouch_on, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V17_FIELDS (NUM_SAVE_FIELDS - 17)
+#define NUM_V18_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V17_FIELDS (NUM_V18_FIELDS - 17)
 #define NUM_V16_FIELDS (NUM_V17_FIELDS - 4)
 #define NUM_V15_FIELDS (NUM_V17_FIELDS - 7)
 #define NUM_V14_FIELDS (NUM_V17_FIELDS - 8)
@@ -4130,6 +4178,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V15) nf = NUM_V15_FIELDS;
     else if (magic == SAVE_MAGIC_V16) nf = NUM_V16_FIELDS;
     else if (magic == SAVE_MAGIC_V17) nf = NUM_V17_FIELDS;
+    else if (magic == SAVE_MAGIC_V18) nf = NUM_V18_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4145,7 +4194,11 @@ static int load_game(void) {
         for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_NONE;
         leafen_init = has_shiny = pip_cell = 0;
     }
-    if (nf < NUM_SAVE_FIELDS) {                           // before v0.18: no Lily, a fresh marsh
+    if (nf < NUM_SAVE_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
+    if (pouch_on)                                        // carrying more than you can: the last ones ride in the pouch
+        for (s32 p = party_count - 1; p >= 0 && carried() > party_cap(); p--)
+            if (!is_you(party[p])) { spirits[party[p]].state = SP_POUCH; party_remove(party[p]); }
+    if (nf < NUM_V18_FIELDS) {                            // before v0.18: no Lily, a fresh marsh
         spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);
         party[OLD_SPIRITS] = 0; fp[KIND_LILY] = quest[KIND_LILY] = unlocked[KIND_LILY] = 0;
         for (s32 k = FIRST_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
@@ -4218,8 +4271,9 @@ static int load_game(void) {
 
 // ---------- START menu (Emerald style) ----------
 // A window on the right lists the options; A opens one in a window on the left, B goes back.
-enum { M_SPIRITS, M_BAG, M_WORLD, M_SAVE, M_EXIT, NUM_MENU };
-static const char *menu_item[NUM_MENU] = { "SPIRITS", "BAG", "WORLD", "SAVE", "EXIT" };
+enum { M_SPIRITS, M_POUCH, M_BAG, M_WORLD, M_SAVE, M_EXIT, NUM_MENU };
+static const char *menu_item[NUM_MENU] = { "SPIRITS", "POUCH", "BAG", "WORLD", "SAVE", "EXIT" };
+static int menu_shown(s32 i) { return i != M_POUCH || pouch_on; }   // POUCH once Bark gives it (v0.18.4)
 static s32 menu_cursor, menu_page = -1;   // page -1: only the option list
 static const char *home_name[NUM_SPIRITS] = { "GROVE", "SPRING", "CAIRN", "NOOK" };
 
@@ -4252,11 +4306,86 @@ static const char *num_line(const char *label, u32 v, s32 of, s32 w) {
 }
 
 static void draw_menu_list(void) {
-    draw_window(19, 1, 29, 13);
-    for (s32 i = 0; i < NUM_MENU; i++) {
-        put_text_win(21, 3 + i * 2, i == menu_cursor ? ">" : " ");
-        put_text_win(22, 3 + i * 2, menu_item[i]);
+    draw_window(19, 1, 29, pouch_on ? 15 : 13);
+    for (s32 i = 0, row = 3; i < NUM_MENU; i++) {
+        if (!menu_shown(i)) continue;
+        put_text_win(21, row, i == menu_cursor ? ">" : " ");
+        put_text_win(22, row, menu_item[i]);
+        row += 2;
     }
+}
+
+// v0.18.4 the pouch page: every spirit you have, carried or in the pouch (or at home). A moves one
+// between the two; with five carried, A on a pouch spirit picks it, then A on a carried one swaps them.
+static s32 pouch_cursor, pouch_pick = -1, pouch_ncarried, pouch_drawn;
+static s32 pouch_list(s32 *out) {
+    s32 n = 0;
+    for (s32 k = 0; k < NUM_SPIRITS; k++)
+        if (spirits[k].state == SP_JOINED && !is_you(k)) out[n++] = k;   // YOU is not shown (Caleb)
+    s32 c = n;
+    for (s32 k = 0; k < NUM_SPIRITS; k++) if (spirits[k].state == SP_POUCH) out[n++] = k;
+    pouch_ncarried = c;
+    return n;
+}
+// The page's sprites, every frame it is open: the carried spirits in a row, and the pouch below with
+// the ones in it peeking out of its mouth (Caleb: icons, a real pouch, not pasted on its front). The
+// pouch is two sprites: its front rim (OAM_MOTE) over the spirits (51-55), its back (56) behind them.
+#define POUCH_X 44
+#define POUCH_Y 46
+static void draw_pouch_page(void) {
+    s32 list[NUM_SPIRITS], n = pouch_list(list), c = pouch_ncarried, m = n - c, bob = (frame >> 4) & 1;
+    s32 st = m < POUCH_STATES ? m : POUCH_STATES - 1;   // Caleb: the pouch fills out as spirits go in
+    static s32 st_loaded = 0;                          // the slot starts with the empty pouch
+    if (st != st_loaded) {
+        st_loaded = st;
+        copy32(OBJ_TILES + TILE_POUCH * 8, pouch_tiles + st * 96 * 8, 96 * 8);
+    }
+    for (s32 i = 0; i < 8; i++) sprite_hide(OAM_SPORE + i);
+    for (s32 i = 0; i < 5; i++) sprite_hide(OAM_MOTE + 1 + i);
+    sprite_hide(OAM_CURSOR);
+    for (s32 i = 0; i < n; i++) {
+        s32 k = list[i], x, y, slot;
+        if (i < c) { x = 76 - c * 12 + i * 24 + 4; y = 34; slot = OAM_SPORE + i; }
+        else {
+            s32 j = i - c, gap = m <= 4 ? 12 : 10;     // balls sitting in its mouth (Caleb's reference)
+            if (j >= 5) continue;
+            x = POUCH_X + 24 + (2 * j - (m - 1)) * gap / 2; y = POUCH_Y + pouch_mouth_y[st] - 10; slot = OAM_MOTE + 1 + j;
+        }
+        if (k == pouch_pick || i == pouch_cursor) y -= i < c ? 2 + bob : 3 + bob;   // the chosen one pops up
+        if (i < c) sprite_set(slot, x, y, spirit_tile[k] + (i == pouch_cursor ? bob : 0), 0, spirit_pal[k]);
+        else sprite_set(slot, x, y, SPR_BALL + k, 0, spirit_pal[k]);
+        oam_shadow[slot * 4 + 2] &= ~(3 << 10);                         // above the window
+        if (i == pouch_cursor) {
+            sprite_set(OAM_CURSOR, x, y, SPR_SPARKLE + 1, 0, PAL_FX);
+            oam_shadow[OAM_CURSOR * 4 + 2] &= ~(3 << 10);
+        }
+    }
+    u16 *o = &oam_shadow[OAM_MOTE * 4];                                  // the front: 64x32 (wide)
+    o[0] = ((POUCH_Y + POUCH_FRONT_Y) & 0xFF) | (1 << 14);
+    o[1] = (POUCH_X & 0x1FF) | (3 << 14);
+    o[2] = TILE_POUCH_FRONT | (PAL_LEAFEN << 12);
+    o = &oam_shadow[(OAM_MOTE + 6) * 4];                                 // the back: 64x64
+    o[0] = POUCH_Y & 0xFF;
+    o[1] = (POUCH_X & 0x1FF) | (3 << 14);
+    o[2] = TILE_POUCH | (PAL_LEAFEN << 12);
+    pouch_drawn = 1;
+}
+static void hide_pouch_page(void) {
+    if (!pouch_drawn) return;
+    pouch_drawn = 0;
+    for (s32 i = 0; i < 8; i++) sprite_hide(OAM_SPORE + i);
+    for (s32 i = 0; i < 7; i++) sprite_hide(OAM_MOTE + i);
+    sprite_hide(OAM_CURSOR);
+}
+static void pouch_take(s32 k) {                  // out of the pouch, into the party
+    Spirit *s = &spirits[k];
+    s->state = SP_JOINED; s->x = px; s->y = py; s->area = cur_area;
+    party[party_count++] = k;
+    draw_active();
+}
+static void pouch_put(s32 k) {                   // out of the party, into the pouch
+    spirits[k].state = SP_POUCH;
+    party_remove(k);
 }
 
 static s32 spirit_cursor;
@@ -4309,12 +4438,22 @@ static void draw_page(void) {
             char *p = line;
             str_cat(&p, "  ");
             if (sp->state == SP_HOME) str_cat(&p, "AT HOME");
+            else if (sp->state == SP_POUCH) str_cat(&p, "IN POUCH");
             else { p = fmt_num(p, sp->energy); *p++ = '/'; p = fmt_num(p, energy_max(sp)); }
             if (bonded == k) str_cat(&p, "  BOND");
             *p = 0;
             put_text_win(2, r, line);
             r += 1;
         }
+    } else if (menu_page == M_POUCH) {               // the icons and the pouch are sprites (draw_pouch_page)
+        put_text_win(2, r, "SPIRIT POUCH");
+        s32 list[NUM_SPIRITS], n = pouch_list(list), k = list[pouch_cursor < n ? pouch_cursor : 0];
+        char *p = line;
+        str_cat(&p, spirit_name[k]);
+        if (spirits[k].state == SP_POUCH) str_cat(&p, ": IN POUCH");
+        *p = 0;
+        put_text_win(2, 15, line);                  // below the pouch (Caleb: it ran into it)
+        put_text_win(2, 17, pouch_pick >= 0 ? "SWAP OUT WHO?" : "A: IN / OUT");
     } else if (menu_page >= 10 && menu_page < 10 + NUM_SPIRITS) {
         s32 k = menu_page - 10;
         put_text_win(2, r, spirit_name[k]);
@@ -4415,13 +4554,16 @@ static void draw_page(void) {
     }
 }
 
+static void hide_pouch_page(void);
 static void close_menu(void) {
+    hide_pouch_page();
     for (s32 r = 1; r <= 18; r++) clear_row(r);
     paused = 0;
     menu_page = -1;
 }
 
 static void open_menu(void) {
+    for (s32 k = 0; k < 6; k++) sprite_hide(OAM_LEAF + k);   // the leaf aura draws above the window (back on close)
     paused = 1;
     menu_page = -1;
     draw_menu_list();
@@ -4430,11 +4572,12 @@ static void open_menu(void) {
 
 // Called every frame while the menu is open.
 static void update_menu(void) {
+    if (menu_page == M_POUCH) draw_pouch_page(); else hide_pouch_page();
     if (HIT(KEY_START)) { close_menu(); return; }
     if (menu_page < 0) {
         s32 old = menu_cursor;
-        if (HIT(KEY_DOWN)) menu_cursor = (menu_cursor + 1) % NUM_MENU;
-        if (HIT(KEY_UP)) menu_cursor = (menu_cursor + NUM_MENU - 1) % NUM_MENU;
+        if (HIT(KEY_DOWN)) do menu_cursor = (menu_cursor + 1) % NUM_MENU; while (!menu_shown(menu_cursor));
+        if (HIT(KEY_UP)) do menu_cursor = (menu_cursor + NUM_MENU - 1) % NUM_MENU; while (!menu_shown(menu_cursor));
         if (old != menu_cursor) { draw_menu_list(); sfx_play(SFX_MENU_MOVE); }
         if (HIT(KEY_B)) { close_menu(); return; }
         if (HIT(KEY_A)) {
@@ -4445,7 +4588,30 @@ static void update_menu(void) {
         }
         return;
     }
-    if (menu_page == M_SPIRITS) {
+    if (menu_page == M_POUCH) {
+        s32 list[NUM_SPIRITS], n = pouch_list(list), old = pouch_cursor, c = pouch_ncarried;
+        if (pouch_cursor >= n) pouch_cursor = 0;
+        if (HIT(KEY_RIGHT)) pouch_cursor = (pouch_cursor + 1) % n;
+        if (HIT(KEY_LEFT)) pouch_cursor = (pouch_cursor + n - 1) % n;
+        if (HIT(KEY_DOWN) && pouch_cursor < c && n > c) pouch_cursor = c;              // into the pouch
+        else if (HIT(KEY_DOWN) && pouch_cursor >= c && pouch_cursor + 3 < n) pouch_cursor += 3;
+        if (HIT(KEY_UP) && pouch_cursor >= c + 3) pouch_cursor -= 3;
+        else if (HIT(KEY_UP) && pouch_cursor >= c) pouch_cursor = 0;                  // back to the row
+        if (old != pouch_cursor) { draw_page(); sfx_play(SFX_MENU_MOVE); }
+        if (HIT(KEY_B) && pouch_pick >= 0) { pouch_pick = -1; draw_page(); sfx_play(SFX_MENU_BACK); return; }
+        if (HIT(KEY_B)) pouch_cursor = 0;          // back to the list (below)
+        if (HIT(KEY_A)) {
+            s32 k = list[pouch_cursor], st = spirits[k].state;
+            if (st == SP_POUCH && carried() < party_cap()) pouch_take(k);
+            else if (st == SP_POUCH) { pouch_pick = pouch_pick == k ? -1 : k; draw_page(); sfx_play(SFX_MENU_OPEN); return; }
+            else if (st == SP_JOINED && !is_you(k) && pouch_pick >= 0) { pouch_put(k); pouch_take(pouch_pick); pouch_pick = -1; }
+            else if (st == SP_JOINED && !is_you(k) && carried() > 1) pouch_put(k);   // keep one spirit
+            else { sfx_play(SFX_FAIL); return; }
+            sfx_play(SFX_JOIN);
+            draw_page();
+            return;
+        }
+    } else if (menu_page == M_SPIRITS) {
         s32 old = spirit_cursor;
         if (HIT(KEY_DOWN)) spirit_cursor = (spirit_cursor + 1) % NUM_SPIRITS;
         if (HIT(KEY_UP)) spirit_cursor = (spirit_cursor + NUM_SPIRITS - 1) % NUM_SPIRITS;
@@ -4598,14 +4764,15 @@ static void dev_start(void) {
         if (j >= J_HEALED) {                 // Gloomheart beaten, the tree healed, Bark's power yours
             tree_alive = 1;
             revive_step = REVIVE_LEN + 1;
+            pouch_on = 1;
             revive_world();
         }
         if (j >= J_LILY) {                   // v0.18: the first six Leafen home, Lily joined, the marsh open
             leafen_setup();
             for (s32 k = 0; k < FIRST_LEAFEN; k++) leafen_state[k] = LS_HOME;
             Spirit *s = &spirits[KIND_LILY];
-            s->state = SP_JOINED; s->energy = 3;
-            party[party_count++] = KIND_LILY;
+            s->energy = 3;
+            party_add(KIND_LILY);
             lily_step = LILY_SCENE_LEN + 1;
         }
         if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening

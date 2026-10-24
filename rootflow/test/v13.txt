@@ -214,7 +214,7 @@
 50 0 y3_thump.ppm
 125 0 y4_did_something_fall.ppm
 0 0 @$bark_step
-1500 0 y5_bark_talks.ppm
+2400 0 y5_bark_talks.ppm
 0 0 @$bark_step
 # 3: greet Bark (it landed beside the player)
 2 1

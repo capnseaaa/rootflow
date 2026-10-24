@@ -786,7 +786,9 @@ def main():
     leafen = Image.open(os.path.join(ART, "leafen_sprite.png"))
     lily = Image.open(os.path.join(ART, "lily_sprite.png"))
     swim = Image.open(os.path.join(ART, "swim_sprite.png"))     # drawn with the player's palette (bank 0)
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim):
+    pouch = Image.open(os.path.join(ART, "pouch_sprite.png"))   # v0.18.4: the pouch's states, the Leafen's palette
+    ball = Image.open(os.path.join(ART, "ball_sprite.png"))     # v0.18.4: each spirit as a ball (its own palette)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -794,11 +796,23 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
         sprite_words += strip_cells(img, cell_h)
+    # The pouch: one slot (the back 64x64, then the front 64x32) that main.c fills with the state for
+    # how many spirits are in it (pouch_tiles: five states, each laid out like the slot).
+    def pouch_words(st):
+        w = []
+        for ty in range(12):                              # rows 0-7: the back; 8-11: the front
+            for tx in range(8):
+                w += tile_words(pouch, st * 64 + tx * 8, ty * 8)
+        return w
+    tile_defs.append(f"#define TILE_POUCH {len(sprite_words) // 8}")
+    tile_defs.append(f"#define TILE_POUCH_FRONT {len(sprite_words) // 8 + 64}")
+    sprite_words += pouch_words(0)
+    pouch_all = [w for st in range(pouch.width // 64) for w in pouch_words(st)]
     # v0.18.3: everything above is always loaded. Each region's own sprites (its bosses, enemies, spirit
     # attacks) form a set that loads at TILE_REGION when you walk in, so every region gets all the room after
     # the shared sheets. A set's sheets are 32x32 frames (4 x 4 tiles each) or 16x16 cells.
@@ -867,6 +881,9 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
+    out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
+    out.append(c_array("unsigned int", "pouch_tiles", pouch_all))
+    out.append(c_array("unsigned char", "pouch_mouth_y", [_art.pouch_mouth_y(st) for st in range(pouch.width // 64)], fmt="{}"))
     for set_name, words in region_words.items():
         out.append(c_array("unsigned int", f"region_{set_name.lower()}_tiles", words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))

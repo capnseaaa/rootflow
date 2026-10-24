@@ -2285,6 +2285,7 @@ LEAFEN_ORDER += ["firefly"]       # v0.18.1: a marsh firefly (a warm glow)
 LEAFEN_ORDER += ["swimring", "swimring2"]   # v0.18.1: the ripples round the swimming wizard (two frames)
 LEAFEN_ORDER += [f"orb_{k}" for k in range(6)]  # v0.18.1: the spirits as little glowing orbs while you swim
 LEAFEN_ORDER += ["wake_h", "wake_d", "wake_u"]  # v0.18.1: the wake behind the swimming wizard
+LEAFEN_ORDER += [f"mini_{k}" for k in range(6)]  # v0.18.4: a spirit in the pouch: a tiny orb circling his head
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2447,6 +2448,16 @@ def leafen_cell(name):
                 elif d < 3.3:
                     px[y][x] = halo
         px[6][7] = px[7][6] = light
+    elif name.startswith("mini_"):             # a pouch spirit: smaller than a swim orb (Caleb), 3 px with a soft rim
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1)][int(name[5:])]
+        for y in range(16):
+            for x in range(16):
+                d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
+                if d < 1.0:
+                    px[y][x] = core
+                elif d < 1.9:
+                    px[y][x] = halo
+        px[7][7] = light
     elif name.startswith("swimring"):          # soft, broken ripples in water blues where he meets the water
         wide = 7.4 if name.endswith("2") else 6.6
         for y in range(16):
@@ -2774,37 +2785,38 @@ LILY_PAL = [                       # v0.18 Lily, the water-lily spirit (OBJ bank
 
 
 def lily_cell(frame):
-    """Lily: a water-lily flower sitting on a round pad, with a happy face in her yellow center.
-    The petals are one shape with one outline; white on top, pink below."""
+    """Lily (v0.18.4, Caleb's pick "pad hat"): a soft pink body wearing a lily pad as a wide hat, notched
+    like a real pad, with a small lily blooming on top. Frame 1 bobs: the hat dips a pixel.
+    Outlines are drawn outside each shape so the thin petals keep their color."""
     px = _canvas()
-    lift = frame
     def ell(cx, cy, rx, ry):
         return {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
-    pad = ell(7.5, 13.4, 5.6, 2.3)                    # v0.18.2 (Caleb: a little too fat): slimmer all round
-    petals = set()
-    for cx, cy, rx, ry in ((7.5, 4.4, 1.9, 3.3), (5.0, 6.2, 1.9, 2.9), (10.0, 6.2, 1.9, 2.9),
-                           (3.8, 9.6, 2.0, 2.0), (11.2, 9.6, 2.0, 2.0)):
-        petals |= ell(cx, cy - lift, rx, ry)
-    face = ell(7.5, 9.2 - lift, 2.9, 2.7)
-    body = petals | face
-    def outline(shape, x, y):
-        return any((x + dx, y + dy) not in shape for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-    for (x, y) in pad:
-        px[y][x] = 1 if outline(pad, x, y) else 3 if y < 13 else 2
-    for (x, y) in body:
-        if outline(body, x, y):
-            px[y][x] = 1
-        elif (x, y) in face and not outline(face, x, y):
-            px[y][x] = 7
-        elif (x, y) in face:
-            px[y][x] = 6
-        else:
-            px[y][x] = 4 if y < 7 - lift else 5
-    ey = int(9 - lift)
-    px[ey][6] = px[ey][9] = 1
-    px[ey][6] = px[ey][9] = 1
-    px[ey + 1][6] = px[ey + 1][9] = 8
-    px[ey + 1][7] = px[ey + 1][8] = 6
+    def paint(shape, fill):
+        for (x, y) in shape:
+            px[y][x] = fill(x, y)
+        for (x, y) in shape:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                    px[ny][nx] = 1
+    d = frame
+    body = ell(7.5, 11.0, 4.4, 3.6)
+    paint(body, lambda x, y: 6 if y >= 13 else 5)
+    hat = ell(7.5, 6.6 + 0.4 * d, 6.4, 1.8) - {(7, 7 + d), (8, 7 + d), (7, 8 + d)}   # the pad's notch
+    for (x, y) in hat:
+        px[y][x] = 0
+    paint(hat, lambda x, y: 2 if y >= 7 + d else 3)
+    # the bloom: a white middle petal, pink side petals, a yellow heart
+    bloom = {(7, 1), (8, 1), (7, 2), (8, 2), (7, 3), (8, 3), (7, 4), (8, 4),   # middle petal
+             (4, 2), (5, 3), (5, 4), (6, 4), (6, 3),                          # side petals
+             (11, 2), (10, 3), (10, 4), (9, 4), (9, 3)}
+    bloom = {(x, y + d) for (x, y) in bloom} - hat
+    paint(bloom, lambda x, y: 4 if (7 <= x <= 8 and y <= 2 + d) or y <= 2 + d else 5)
+    px[4 + d][7] = px[4 + d][8] = 7
+    for x in (6, 9):                                   # eyes under the brim
+        px[10][x] = px[11][x] = 1
+    px[12][5] = px[12][10] = 8                         # cheeks
+    px[12][7] = px[12][8] = 1                          # a small smile
     if frame:
         for x in (2, 3, 12, 13):
             px[15][x] = 9
@@ -2830,6 +2842,177 @@ def make_swim_hands():
                 img.putpixel((16 * f + hand, y), 7 if y == 10 else 8)
             img.putpixel((16 * f + hand, 9), 1)
             img.putpixel((16 * f + hand, 12), 1)
+    return img
+
+
+# v0.18.4 the pouch, after Caleb's reference: a low, wide, floppy sack slumped on the ground, with a thick
+# rolled rim, a drawstring at its neck whose ends dangle, Bark's leaf on the front, and the spirits as
+# little balls sitting in its mouth. It fills out as spirits go in: 0-4 of them. Per state: the rim's half
+# width and half height, the body's half width at its base and its height. The bottom sits on row 62.
+POUCH_STATES = [(12, 4.0, 25, 18), (16, 4.6, 27, 19), (20, 5.0, 29, 20), (25, 5.3, 30, 21), (29, 5.5, 31, 22)]
+POUCH_FRONT_Y = 32                     # the front layer holds rows 32-63 of the pouch
+
+
+def pouch_mouth_y(state):
+    """The rim's middle row: the balls sit with their middles just above it."""
+    _, rry, _, h = POUCH_STATES[state]
+    return 62 - h - round(rry)
+
+
+def pouch_state(img, ox, state):
+    """One state of the spirit pouch at column ox of the sheet, in two layers so the balls sit in its
+    mouth: rows 0-63 the back (the sack, the rim and the dark opening, behind the balls), rows 64-95
+    the front (pouch rows 32-63: the near half of the rim and the body, over the balls)."""
+    R, rry, B, H = POUCH_STATES[state]
+    cx, base = 31.5, 62
+    top = base - H                                               # where the rim meets the body
+    ry_ = pouch_mouth_y(state)                                   # the rim's middle
+    rng = random.Random(800 + state)
+    def in_rim(x, y):
+        return ((x - cx) / (R + 0.5)) ** 2 + ((y - ry_) / (rry + 0.5)) ** 2 < 1
+    def in_hole(x, y):
+        return ((x - cx) / (R - 2.4)) ** 2 + ((y - ry_ + 0.8) / (rry - 1.7)) ** 2 < 1
+    feet = {}                                                    # the base's ragged edge: a pixel up here and there
+    for x in range(64):
+        feet[x] = base - (1 if rng.random() < 0.18 else 0)
+    def body_w(y, side):
+        t = (y - top) / H
+        if t < 0 or t > 1:
+            return 0
+        n0 = R * 0.7 + 1                                          # a neck under the rim (it overhangs)
+        tt = max(0.0, (t - 0.18) / 0.82)                          # pinched by the string for a few rows,
+        w = n0 + (B - n0) * math.sin(math.pi / 2 * tt) ** 0.7    # then it slumps out like a mound
+        if t > 0.8:
+            w += 1.5 * (t - 0.8) / 0.2                           # the cloth pools out on the ground
+        w += (0.8 if side < 0 else -0.4) * t                     # leaning a little to the left
+        w += 0.6 * math.sin(t * 9 + (0 if side < 0 else 2))      # soft lumps in its sides
+        return w
+    def in_body(x, y):
+        return y <= feet.get(x, base) and -body_w(y, -1) < x - cx < body_w(y, 1)
+    sack = {(x, y) for y in range(64) for x in range(64) if in_body(x, y) or in_rim(x, y)}
+    def edge(shape, x, y):
+        return any((x + dx, y + dy) not in shape for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+    back = {}
+    for (x, y) in sack:
+        if edge(sack, x, y):
+            c = 1
+        elif in_rim(x, y):
+            c = 11 if y < ry_ + 1 else 10                        # the rolled lip: lit on top
+        else:
+            w = body_w(y, 1)                                     # lit from the left: the right side in shade,
+            c = 10 if x - cx > w * 0.45 + 1 or y >= base - 1 else 11   # following the sack's curve
+        back[(x, y)] = c
+    for (x, y) in sack:                                          # the dark opening, a lighter inner wall at its back
+        if in_hole(x, y):
+            back[(x, y)] = 5 if y >= ry_ - rry + 1.6 else 10
+    def line(x0, y0, x1, y1, c=10):
+        n = int(max(abs(x1 - x0), abs(y1 - y0), 1))
+        for i in range(n + 1):
+            x, y = round(x0 + (x1 - x0) * i / n), round(y0 + (y1 - y0) * i / n)
+            if (x, y) in sack and not edge(sack, x, y) and not in_rim(x, y):
+                back[(x, y)] = c
+    # floppy creases: fanning down from the neck, and folds where it sits on the ground
+    line(cx - R * 0.5, top + 2, cx - B * 0.75, base - 3)
+    line(cx - R * 0.15, top + 2, cx - B * 0.3, top + H * 0.6)
+    line(cx + R * 0.35, top + 2, cx + B * 0.45, top + H * 0.55)
+    line(cx - B * 0.55, base - 2, cx - B * 0.35, base - 4)
+    line(cx + B * 0.1, base - 2, cx + B * 0.28, base - 4)
+    if state == 0:
+        line(cx - B * 0.6, top + H * 0.45, cx - B * 0.2, top + H * 0.6)   # empty: slack folds across it
+    # Bark's leaf, low on the right: pointed, tilted, a vein and a stem
+    lx, ly, a, L = cx + B * 0.52, top + H * 0.62, -0.45, 4.6
+    leaf = set()
+    for y in range(64):
+        for x in range(64):
+            u, v = (x - lx) * math.cos(a) + (y - ly) * math.sin(a), -(x - lx) * math.sin(a) + (y - ly) * math.cos(a)
+            if abs(u) < L and abs(v) < L * 0.55 * (1 - (u / L) ** 2) ** 0.8 and (x, y) in sack:
+                leaf.add((x, y))
+    for (x, y) in leaf:
+        up = -(x - lx) * math.sin(a) + (y - ly) * math.cos(a) < 0
+        back[(x, y)] = 1 if edge(leaf, x, y) else 9 if up else 8
+    for t in range(-int(L) + 1, int(L)):
+        q = (round(lx + t * math.cos(a)), round(ly + t * math.sin(a)))
+        if q in leaf and not edge(leaf, *q):
+            back[q] = 8
+    for t in range(1, 3):
+        q = (round(lx - (L + t) * math.cos(a)), round(ly - (L + t) * math.sin(a)))
+        if q in sack:
+            back[q] = 1
+    # the drawstring: round the neck just under the rim, its ends dangling down the front
+    sy = ry_ + round(rry) + 1
+    for x in range(64):
+        if (x, sy) in sack and not edge(sack, x, sy) and not in_rim(x, sy):
+            back[(x, sy)] = 12
+    kx = round(cx - R * 0.35)                                     # a knot, and two ends hanging from it
+    back[(kx, sy + 1)] = back[(kx + 1, sy + 1)] = 12
+    for (x0, y0, x1, y1) in ((kx, sy + 2, kx - 2, sy + 6), (kx + 1, sy + 2, kx + 2, sy + 7)):
+        n = int(max(abs(x1 - x0), abs(y1 - y0), 1))
+        for i in range(n + 1):
+            q = (round(x0 + (x1 - x0) * i / n), round(y0 + (y1 - y0) * i / n))
+            if q in sack and not edge(sack, *q):
+                back[q] = 12
+    rx_ = round(cx + body_w(sy + 1, 1)) - 1                      # a loop of it hanging off the right side
+    for q in ((rx_, sy + 1), (rx_ + 1, sy + 2), (rx_ + 1, sy + 3), (rx_, sy + 4)):
+        back[q] = 12
+    for (x, y), c in back.items():
+        img.putpixel((ox + x, y), c)
+    fy = 64 - POUCH_FRONT_Y                                      # the front layer: the near lip and the body
+    for (x, y), c in back.items():
+        if y >= POUCH_FRONT_Y and not in_hole(x, y) and (y >= ry_ or not in_rim(x, y)):
+            img.putpixel((ox + x, y + fy), c)
+
+
+def make_pouch():
+    """v0.18.4 the spirit pouch Bark gives you, drawn in the pause menu with the Leafen's palette: five
+    states side by side (0-4 spirits in it), each 64 wide, 96 tall (see pouch_state)."""
+    img = Image.new("P", (64 * len(POUCH_STATES), 96), 0)
+    img.putpalette([c for rgb in LEAFEN_PAL for c in rgb])
+    for st in range(len(POUCH_STATES)):
+        pouch_state(img, 64 * st, st)
+    return img
+
+
+# v0.18.4 each spirit as a little ball, for the pouch (Caleb's reference): its body colors (light, main,
+# shade, in its own palette's indices), a face, and a tiny mark so you can tell them apart.
+BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6)]   # Sprout..Lily
+def ball_cell(kind):
+    px = _canvas()
+    lt, mid, sh = BALL_COLORS[kind]
+    cx, cy, r = 7.5, 9.0, 5.4
+    ball = {(x, y) for y in range(16) for x in range(16) if (x - cx) ** 2 + (y - cy) ** 2 < r * r}
+    if kind == 1:                                        # Ripple: a drop's point on top
+        ball |= {(7, 3), (8, 3), (7, 2)}
+    for (x, y) in ball:
+        e = any((x + dx, y + dy) not in ball for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        d = (x - cx) * 0.6 + (y - cy)
+        px[y][x] = 1 if e else sh if d > 2.4 else mid
+    for (x, y) in ((5, 6), (6, 5), (5, 7)):               # a shine, top left
+        if px[y][x] not in (0, 1):
+            px[y][x] = 4 if kind == 5 else lt
+    px[9][6] = px[9][9] = px[8][6] = px[8][9] = 1          # eyes
+    px[11][7] = px[11][8] = 1                              # a small smile
+    px[10][6] = px[10][9] = px[10][6]
+    if kind == 0:                                        # Sprout: two little leaves on top
+        for (x, y) in ((6, 2), (5, 2), (9, 2), (10, 2), (7, 3), (8, 3)):
+            px[y][x] = 10 if y == 2 else 11
+    if kind == 2:                                        # Pebble: its little sprout
+        px[2][8] = px[2][9] = 6; px[3][8] = 5
+    if kind == 4:                                        # Bark: a leaf on his head
+        px[2][9] = px[2][10] = 5; px[3][8] = 5
+    if kind == 5:                                        # Lily: a tiny white bloom with a yellow heart
+        px[2][7] = px[2][8] = 4; px[3][6] = px[3][9] = 4; px[3][7] = px[3][8] = 7
+    return px
+
+
+def make_balls():
+    """One 16x16 ball per spirit, each drawn in its own spirit's palette indices (so it is drawn with
+    that spirit's colors). The file's own palette is Lily's, only for viewing."""
+    img = Image.new("P", (16 * len(BALL_COLORS), 16), 0)
+    img.putpalette([c for rgb in LILY_PAL for c in rgb])
+    for k in range(len(BALL_COLORS)):
+        for y, row in enumerate(ball_cell(k)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * k + x, y), c)
     return img
 
 
@@ -2972,7 +3155,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

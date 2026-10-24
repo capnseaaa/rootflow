@@ -1,0 +1,57 @@
+# v0.18.4 the spirit pouch: from the dev jump LILY JOINED (YOU does not count: five spirits carried)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=10
+1 1
+1 0
+200 0
+0 0 @$pouch_on,$party_count,$party+20,$spirits+148
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0
+# START, down to POUCH, A: the page (YOU is not shown)
+1 8
+1 0
+1 128
+1 0
+1 1
+1 0
+5 0 po0.ppm
+# right to Lily (the fifth icon), A: into the pouch
+1 16
+1 0
+1 16
+1 0
+1 16
+1 0
+1 16
+1 0
+1 1
+1 0
+5 0 po1.ppm
+0 0 @$party_count,$spirits+148,$pouch_cursor
+# left to Breeze, A: into the pouch too (two heads in its mouth)
+1 32
+1 0
+1 1
+1 0
+5 0 po2.ppm
+0 0 @$party_count,$spirits+92
+# leave the menu: both circle your head as tiny orbs
+1 8
+1 0
+30 0 po3.ppm
+# back in (the menu remembers POUCH and the cursor): right to Lily, A takes her out
+1 8
+1 0
+1 1
+1 0
+1 16
+1 0
+5 0 po4.ppm
+1 1
+1 0
+5 0 po5.ppm
+0 0 @$party_count,$spirits+148,$spirits+92
