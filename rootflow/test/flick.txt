@@ -33,8 +33,10 @@
 1500 0
 0 0 @$flick_step,$spirits+176,$party_count,$party+20
 20 0 fl2.ppm
+# v0.19.7: you carry four spirits already, so Flick went into the pouch (state 5); swap it for Breeze (test setup)
+0 0 !$spirits+92=5,$spirits+176=2,$party+12=6,$active=3
 # Flick lights the lantern at (14,12): stand right of it, facing left
-0 0 !$px=240,$py=186,$pdir=2,$active=5
+0 0 !$px=240,$py=186,$pdir=2,$active=3
 5 0
 1 1
 1 0

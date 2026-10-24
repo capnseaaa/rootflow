@@ -411,7 +411,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
     { 0, 0, 0 },
     { RGB5(40, 116, 78), RGB5(72, 166, 98), RGB5(150, 214, 118) },  // the marsh: a fresh bog green (v0.18.2)
-    { RGB5(70, 130, 50), RGB5(112, 176, 70), RGB5(172, 214, 110) },  // the orchard: a warm orchard green (v0.19)
+    { RGB5(74, 94, 58), RGB5(104, 124, 76), RGB5(146, 158, 104) },  // the orchard: a dull, ashy green (v0.19.7, Caleb)
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -1265,9 +1265,9 @@ static s32 stack_dark(s32 wx, s32 wy) {
 }
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
-    s32 lv = wy >= y0 + 16 ? 0 : wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // daylight past the trunk
-    if (lv) lv = MIN(lv, stack_dark(wx, wy));
-    if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
+    s32 lv = wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // past the trunk: daylight, with a smoky haze (Caleb)
+    if (lv) { s32 sd = stack_dark(wx, wy); lv = MIN(lv, sd ? sd : 1); }   // Caleb (option B): a light fog always stays
+    if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));   // your own light clears the haze too
     for (s32 i = 0; i < light_n && lv; i++) lv = MIN(lv, dark_lv(wx - light_x[i], wy - light_y[i], FIRE_R));
     return lv;
 }
@@ -1278,6 +1278,11 @@ static void dark_put(s32 cx, s32 cy) {
 }
 static void dark_enter(s32 a) {
     dark_on = a == ORCHARD;
+    if (dark_on && !(flick_flags & 1) && spirits[KIND_FLICK].state == SP_ASLEEP)   // v0.19.7: the trunk was cut
+        for (s32 x = 0; x < MAP_W; x++)                                          // before the ember existed
+            if (maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_LOG && maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_TREE) {
+                flick_flags |= 1; break;                 // (v0.19.0 saves): you have it anyway
+            }
     REG_BLDALPHA = dark_on ? 16 | (2 << 8) : 12 | (4 << 8);   // the dark lets an eighth through; branches 12/4
     if (!dark_on) return;
     light_n = 0;                                    // the lit ones on this map
@@ -2719,10 +2724,10 @@ static void use_ability(void) {
     if (!(told_tips & TIP_REST)) { told_tips |= TIP_REST; queue_message(REST_TIP); }
 }
 
-// v0.18.4 (Caleb): you carry four spirits; Bark's gift lets you carry a fifth (Bark himself, later YOU).
-// Any more ride in the pouch, once Bark has given it.
-// YOU (Bark's power, once the tree is healed) is the wizard himself, not a spirit: it never counts.
-static s32 party_cap(void) { return spirits[KIND_BARK].state != SP_HIDDEN || tree_alive ? 5 : 4; }
+// v0.18.4 (Caleb): you carry four spirits; Bark's gift lets you carry a fifth (Bark himself). Once the tree is
+// healed his power (YOU) holds that fifth place, so it is four spirits again (v0.19.7, Caleb: the limit was
+// not kept). Any more ride in the pouch, once Bark has given it. YOU is not a spirit: it never counts.
+static s32 party_cap(void) { return spirits[KIND_BARK].state != SP_HIDDEN && !tree_alive ? 5 : 4; }
 static s32 carried(void) { return party_count - (tree_alive && in_party(KIND_BARK)); }
 static const char *pouch_msg[NUM_SPIRITS] = { "SPROUT HOPS IN THE POUCH.", "RIPPLE HOPS IN THE POUCH.",
     "PEBBLE HOPS IN THE POUCH.", "BREEZE HOPS IN THE POUCH.", "", "LILY HOPS IN THE POUCH.",
@@ -2731,7 +2736,7 @@ static void party_add(s32 i) {
     if (carried() >= party_cap() && pouch_on && !is_you(i)) {
         spirits[i].state = SP_POUCH;
         spirits[i].area = cur_area;
-        queue_message(pouch_msg[i]);
+        if (!scene_on) queue_message(pouch_msg[i]);      // a scene says it in its own lines
         return;
     }
     party[party_count++] = i;
@@ -2981,6 +2986,7 @@ static int home_protects(s32 a, s32 x, s32 y) {
 static int is_grassy(u8 t) { return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS; }
 
 static int spawn_pump(s32 a) {
+    if ((a == WEST || a == HOLLOW_IN) && tree_alive) return 0;   // v0.19.7 (Caleb): the healed Great Tree is left in peace
     use_area(a);
     for (s32 tries = 0; tries < 80; tries++) {
         s32 x = 1 + rng() % (MAP_W - 2), y = 1 + rng() % (MAP_H - 2);
@@ -3710,7 +3716,10 @@ static void update_leafen(void) {
             sfx_play(SFX_WAKE);
         }
         if (flick_step == 6) { s->energy = 3; party_add(KIND_FLICK); sfx_play(SFX_JOIN); dark_enter(cur_area); }
-        show_message(lines[flick_step - 1]);
+        if (flick_step == 6 && spirits[KIND_FLICK].state == SP_POUCH) {   // you carry four already
+            show_message("FLICK HOPS IN YOUR POUCH!");
+            queue_message("START, POUCH: SWAP FLICK IN.");
+        } else show_message(lines[flick_step - 1]);
         flick_step++;
         return;
     }
@@ -3768,7 +3777,10 @@ static void update_leafen(void) {
             sfx_play(SFX_WAKE);
             draw_active();
         }
-        show_message(lines[lily_step - 1]);
+        if (lily_step == 8 && spirits[KIND_LILY].state == SP_POUCH) {   // you carry four already
+            show_message("LILY HOPS IN YOUR POUCH!");
+            queue_message("START, POUCH: SWAP HER IN.");
+        } else show_message(lines[lily_step - 1]);
         lily_step++;
         return;
     }
@@ -4530,6 +4542,10 @@ static int load_game(void) {
         for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_NONE;
         leafen_init = has_shiny = pip_cell = 0;
     }
+    if (tree_alive && pump_on[WEST]) {                   // v0.19.7: no Vael pump in the healed Great Tree's region
+        maps[WEST][pump_y[WEST] * MAP_W + pump_x[WEST]] = GRASS;
+        pump_on[WEST] = 0; pump_drain[WEST] = 0;
+    }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
     if (nf < NUM_SAVE_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
         for (s32 k = FIRST_ORCH_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
@@ -5225,8 +5241,9 @@ static void dev_start(void) {
             leafen_setup();
             for (s32 k = 0; k < FIRST_LEAFEN; k++) leafen_state[k] = LS_HOME;
             Spirit *s = &spirits[KIND_LILY];
-            s->energy = 3;
-            party_add(KIND_LILY);
+            s->energy = 3; s->state = SP_JOINED;
+            party[party_count++] = KIND_LILY;    // dev: carried even past the limit (tests pick her by her slot)
+            active = party_count - 1;
             lily_step = LILY_SCENE_LEN + 1;
         }
         if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening
