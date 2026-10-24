@@ -418,7 +418,9 @@ static void load_tileset(s32 ts) {
     for (u32 i = 0; i < 4096; i++) SCREENBLOCK(CANOPY_SB)[i] = top ? top[i] : 0;
     for (u32 i = 0; i < 16; i++) PAL_BG[TREE_BANK * 16 + i] = pal[i];
 }
+static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
 static void set_ground_palette(s32 a) {
+    load_region_sprites(a);
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[1 + i] : ground_pal[a][i];
     for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[6 + i] : grass_pal[a][i];
     // the tree's layers show only in the Great Tree's area and its hollow
@@ -572,6 +574,17 @@ static void oam_flush(void) {
 #define SPIRIT_OAM(i) ((i) < OLD_SPIRITS ? OAM_SPIRIT + (i) : OAM_LILY)
 #define ZZZ_OAM(i) ((i) < OLD_SPIRITS ? OAM_ZZZ + (i) : OAM_LILY_Z)
 #define PAL_SHIELD  15
+// v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
+// spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
+enum { RS_NONE, RS_TREE };
+static s32 region_set_now = -1;
+static void load_region_sprites(s32 a) {
+    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : RS_NONE;
+    if (rs == region_set_now || rs == RS_NONE) return;
+    region_set_now = rs;
+    copy32(OBJ_TILES + TILE_REGION * 8, region_tree_tiles, sizeof(region_tree_tiles) / 4);
+    for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_boss[i];
+}
 
 // ---------- game state ----------
 static s32 px, py, pdir, pstep;         // player top-left of the 16x16 feet cell (pixels), facing, walk step

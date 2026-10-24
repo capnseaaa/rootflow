@@ -799,12 +799,26 @@ def main():
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
         sprite_words += strip_cells(img, cell_h)
-    for name, img in (("CLAMP", clamp), ("BOSS", boss)):   # 32x32 frames: 4 x 4 tiles each
-        tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
-        for i in range(img.width // 32):
-            for ty in range(4):
-                for tx in range(4):
-                    sprite_words += tile_words(img, i * 32 + tx * 8, ty * 8)
+    # v0.18.3: everything above is always loaded. Each region's own sprites (its bosses, enemies, spirit
+    # attacks) form a set that loads at TILE_REGION when you walk in, so every region gets all the room after
+    # the shared sheets. A set's sheets are 32x32 frames (4 x 4 tiles each) or 16x16 cells.
+    region_base = len(sprite_words) // 8
+    tile_defs.append(f"#define TILE_REGION {region_base}")
+    region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)])]   # the Great Tree and its hollow
+    region_words = {}
+    for set_name, set_sheets in region_sets:
+        words = []
+        for name, img, cell in set_sheets:
+            tile_defs.append(f"#define TILE_{name} {region_base + len(words) // 8}")
+            if cell == 16:
+                words += strip_cells(img, 16)
+                continue
+            for i in range(img.width // 32):
+                for ty in range(4):
+                    for tx in range(4):
+                        words += tile_words(img, i * 32 + tx * 8, ty * 8)
+        assert region_base + len(words) // 8 <= 1024, f"region set {set_name} needs {len(words) // 8} tiles, room for {1024 - region_base}"
+        region_words[set_name] = words
     pal_ripple = palette_of(ripple)
     pal_pebble = palette_of(pebble)
     pal_breeze = palette_of(breeze)
@@ -853,6 +867,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
+    for set_name, words in region_words.items():
+        out.append(c_array("unsigned int", f"region_{set_name.lower()}_tiles", words))
     out.append(c_array("unsigned int", "font_tiles", font_words()))
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
