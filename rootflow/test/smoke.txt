@@ -1,0 +1,46 @@
+# v0.19 smoke creatures: one in the dark comes for you once it sees your light, and hurts; a lit lantern drives it
+# off; Flick's embers burn it away (two hits). Setup: TREE HEALED, through the trunk, Flick put in the party.
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=248,$py=4
+30 64
+0 0 !$px=240,$py=458,$active=4
+20 64
+1 1
+1 0
+# one smoke left, 50 px left of you on the lane at row 17 (all others gone): close enough to see your light
+0 0 !$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$px=240,$py=272,$enemies=2,$enemies+4=190,$enemies+8=272,$enemies+12=3,$enemies+32=0,$enemies+36=1,$hurt_timer=0
+1 0
+0 0 @$enemies+4,$enemies+8,$hearts_now
+90 0 sm0.ppm
+0 0 @$enemies+4,$enemies+8,$hearts_now
+# Flick joins (test setup); lights the lantern at (10,14) with the smoke just beside it: it backs out of the light
+0 0 !$spirits+176=2,$party+20=6,$party_count=6,$active=5,$hurt_timer=0,$hearts_now=5
+0 0 !$px=176,$py=218,$pdir=2,$enemies+4=136,$enemies+8=236,$enemies+12=3,$enemies+36=1
+1 0
+1 1
+1 0
+0 0 @$maps+6602,$light_n,$enemies+4,$enemies+8
+60 0 sm1.ppm
+0 0 @$enemies+4,$enemies+8,$hearts_now
+# Flick's embers: the smoke right of you in the dark, two shots
+0 0 !$px=240,$py=330,$pdir=3,$enemies+4=290,$enemies+8=330,$enemies+12=3,$enemies+36=1,$enemies+28=0,$hurt_timer=200
+1 0
+1 1
+1 0
+30 0
+0 0 @$enemies+12,$enemies+36
+0 0 !$enemies+4=290,$enemies+8=330
+1 1
+1 0
+30 0
+0 0 @$enemies+12,$enemies+36

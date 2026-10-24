@@ -3315,6 +3315,56 @@ def make_flick():
     return img
 
 
+ORCH_PAL = [                       # v0.19 the orchard's own sprites (its region set; OBJ bank 13 while you are there)
+    (255, 0, 255),    # 0 clear
+    (22, 18, 26),     # 1 outline
+    (58, 54, 64),     # 2 smoke dark
+    (92, 86, 98),     # 3 smoke mid
+    (132, 126, 138),  # 4 smoke light
+    (255, 120, 40),   # 5 ember eye
+    (255, 232, 150),  # 6 eye glint
+] + [(0, 0, 0)] * 9
+
+
+def smoke_cell(frame):
+    """v0.19 a smoke creature: a ragged puff of smoke with two ember eyes, trailing wisps that sway
+    (frame 0/1). Outlines drawn outside the shape so the wisps keep their color."""
+    px = _canvas()
+    blobs = [(4.8, 5.2, 2.8, 2.6), (10.4, 4.6, 2.9, 2.7), (7.6, 3.4, 2.6, 2.3), (7.5, 7.8, 5.6, 3.0),
+             (2.6, 8.6, 2.0, 1.8), (12.6, 8.2, 2.0, 1.9)]   # a lumpy cloud of puffs
+    shape = set()
+    for (cx, cy, rx, ry) in blobs:
+        shape |= {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
+    for (x0, n, ph) in ((4, 5, 0), (7, 4, 1), (11, 5, 2)):   # wavy wisps trailing down, swaying with the frame
+        for k in range(n):
+            x = x0 + ((k + ph + frame * 2) % 4 in (1, 2))
+            if 0 <= x < 16 and 10 + k < 16:
+                shape.add((x, 10 + k))
+    for (x, y) in shape:
+        d = ((x - 6) / 6) ** 2 + ((y - 5) / 5) ** 2
+        px[y][x] = 4 if d < 0.3 else 3 if d < 0.9 and y < 11 else 2
+    for (x, y) in shape:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                px[ny][nx] = 1
+    for ex in (5, 9):                                   # ember eyes, slanted, a glint each
+        px[7][ex] = px[7][ex + 1] = 5
+        px[8][ex + (1 if ex == 5 else 0)] = 5
+        px[7][ex + (0 if ex == 5 else 1)] = 6
+    return px
+
+
+def make_orch():
+    img = Image.new("P", (32, 16), 0)
+    img.putpalette([c for rgb in ORCH_PAL for c in rgb])
+    for f in range(2):
+        for y, row in enumerate(smoke_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
+    return img
+
+
 def make_lily():
     img = Image.new("P", (32, 16), 0)
     img.putpalette([c for rgb in LILY_PAL for c in rgb])
@@ -3454,7 +3504,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

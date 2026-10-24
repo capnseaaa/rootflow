@@ -940,7 +940,8 @@ def main():
     pouch = Image.open(os.path.join(ART, "pouch_sprite.png"))   # v0.18.4: the pouch's states, the Leafen's palette
     ball = Image.open(os.path.join(ART, "ball_sprite.png"))     # v0.18.4: each spirit as a ball (its own palette)
     flick = Image.open(os.path.join(ART, "flick_sprite.png"))   # v0.19: Flick (awake x2, cold, ember, shivering)
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick):
+    orch = Image.open(os.path.join(ART, "orch_sprite.png"))     # v0.19: the orchard's region set (smoke creatures)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -970,7 +971,8 @@ def main():
     # the shared sheets. A set's sheets are 32x32 frames (4 x 4 tiles each) or 16x16 cells.
     region_base = len(sprite_words) // 8
     tile_defs.append(f"#define TILE_REGION {region_base}")
-    region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)])]   # the Great Tree and its hollow
+    region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)]),   # the Great Tree and its hollow
+                   ("ORCH", [("SMOKE", orch, 16)])]                           # v0.19 the burnt orchard
     region_words = {}
     for set_name, set_sheets in region_sets:
         words = []
@@ -1034,6 +1036,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_flick", palette_of(flick), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_orch", palette_of(orch), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
     out.append(c_array("unsigned int", "pouch_tiles", pouch_all))

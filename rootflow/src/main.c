@@ -607,16 +607,21 @@ static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(O
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
-enum { RS_NONE, RS_TREE };
+enum { RS_NONE, RS_TREE, RS_ORCH };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
     if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_FLICK * 16 + i] = obj_pal_flick[i];
-    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : RS_NONE;
+    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
-    copy32(OBJ_TILES + TILE_REGION * 8, region_tree_tiles, sizeof(region_tree_tiles) / 4);
-    for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_boss[i];
+    if (rs == RS_TREE) {
+        copy32(OBJ_TILES + TILE_REGION * 8, region_tree_tiles, sizeof(region_tree_tiles) / 4);
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_boss[i];
+    } else {                                           // v0.19 the orchard: its smoke creatures
+        copy32(OBJ_TILES + TILE_REGION * 8, region_orch_tiles, sizeof(region_orch_tiles) / 4);
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_orch[i];
+    }
 }
 
 // ---------- game state ----------
@@ -1212,6 +1217,15 @@ static void update_blooms(void) {
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 static s32 dark_on, light_n, light_x[24], light_y[24];
 static s32 dark_r(void) { return in_party(KIND_FLICK) ? DARK_R_FLICK : DARK_R; }
+// Is (x, y) in a lantern's or campfire's light (its index), or the daylight past the trunk (-2), or dark (-1)?
+static s32 fire_lit(s32 x, s32 y) {
+    if (y >= ORCHARD_WALL_ROW * 16 - 4) return -2;
+    for (s32 i = 0; i < light_n; i++) {
+        s32 ddx = x - light_x[i], ddy = y - light_y[i];
+        if (ddx * ddx + ddy * ddy < (FIRE_R - 4) * (FIRE_R - 4)) return i;
+    }
+    return -1;
+}
 static s32 dark_lv(s32 dx, s32 dy, s32 r) {        // 0 lit, 1 a quarter dark, 2 half, 3 dark
     s32 d2 = dx * dx + dy * dy;
     return d2 < (r - 10) * (r - 10) ? 0 : d2 < (r - 5) * (r - 5) ? 1 : d2 < r * r ? 2 : 3;
@@ -1810,7 +1824,8 @@ enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_
 #define PAL_LEAFEN 11
 enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, C_SWIMRING, C_ORB = C_SWIMRING + 2,
        C_WAKE = C_ORB + 6, C_MINI = C_WAKE + 3 };   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
-static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH; }
+static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH ||
+                                         cur_area == ORCHARD; }
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS; i++)
@@ -1818,7 +1833,7 @@ static void draw_hearts_hud(void) {
 }
 
 // Enemies: blobs creep after you, drones dart at you through the air.
-enum { E_BLOB, E_DRONE };
+enum { E_BLOB, E_DRONE, E_SMOKE };   // E_SMOKE (v0.19): the orchard's smoke creatures
 typedef struct { s32 type, x, y, hp, timer, dx, dy, flash, knock, alive; } Enemy;
 #define MAX_ENEMIES 8
 static Enemy enemies[MAX_ENEMIES];
@@ -1890,15 +1905,19 @@ static int open_at(s32 x, s32 y) {             // a 12x12 body at (x+2, y+2) fit
 // v0.18: the marsh has a few of its own (light: three blobs in the mud, two drones over the sludge)
 static const u8 marsh_spawn[][3] = { { E_BLOB, 10, 15 }, { E_BLOB, 21, 16 }, { E_BLOB, 12, 29 },
                                      { E_DRONE, 22, 11 } };   // v0.18.2: one drone
+// v0.19 smoke creatures drifting in the orchard's dark, away from the lanes, the nest and the way in
+static const u8 orchard_spawn[][3] = { { E_SMOKE, 8, 19 }, { E_SMOKE, 22, 14 }, { E_SMOKE, 26, 24 },
+                                       { E_SMOKE, 12, 6 }, { E_SMOKE, 21, 4 }, { E_SMOKE, 6, 24 } };
 static void spawn_enemies(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
-    const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : enemy_spawn;
-    u32 count = cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) : NUM_SPAWNS;
+    const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : cur_area == ORCHARD ? orchard_spawn : enemy_spawn;
+    u32 count = cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) :
+                cur_area == ORCHARD ? sizeof(orchard_spawn) / sizeof(orchard_spawn[0]) : NUM_SPAWNS;
     for (u32 i = 0; i < count && i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
         e->type = sp[i][0];
         e->x = sp[i][1] * 16; e->y = sp[i][2] * 16;
-        e->hp = e->type == E_BLOB ? 3 : 2;
+        e->hp = e->type == E_DRONE ? 2 : 3;
         e->timer = i * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
         e->alive = 1;
     }
@@ -2053,7 +2072,7 @@ static void update_attack(void) {
         Enemy *e = &enemies[i];
         if (!e->alive || (atk.hit & (1 << i)) || !boxes_meet(atk.x, atk.y, atk.w, atk.h, e->x + 2, e->y + 2, 12, 12)) continue;
         atk.hit |= 1 << i;
-        e->hp -= atk.dmg;
+        e->hp -= atk.dmg * (e->type == E_SMOKE && atk.kind == KIND_FLICK ? 2 : 1);   // embers burn smoke away
         e->flash = 8;
         s32 kx = atk.kind == KIND_BARK ? (e->x > px ? 1 : -1) : fx, ky = atk.kind == KIND_BARK ? (e->y > py ? 1 : -1) : fy;
         e->dx = kx; e->dy = ky; e->knock = atk.push / 2;
@@ -2147,10 +2166,27 @@ static void update_enemies(void) {
         if (!e->alive) continue;
         if (e->flash) e->flash--;
         e->timer++;
-        if (e->knock) { e->knock--; move_enemy(e, e->dx * 2, e->dy * 2, e->type == E_DRONE); continue; }
+        if (e->knock) { e->knock--; move_enemy(e, e->dx * 2, e->dy * 2, e->type != E_BLOB); continue; }
         s32 dx = pcx - (e->x + 8), dy = pcy - (e->y + 8);
         s32 near = dx * dx + dy * dy < 100 * 100;
-        if (e->type == E_BLOB) {                             // creeps after you, slowly
+        if (e->type == E_SMOKE) {                            // v0.19: drifts in the dark; comes for you once it sees
+            s32 cx = e->x + 8, cy = e->y + 8, mx = 0, my = 0, lit = fire_lit(cx, cy);   // your light; shuns fire
+            s32 see = dark_r() + 40;
+            if (lit != -1) {                                 // caught in a lantern's or fire's light: away from it
+                mx = lit >= 0 ? sgn(cx - light_x[lit]) : 0; my = lit >= 0 ? sgn(cy - light_y[lit]) : -1;
+                if (!mx && !my) my = -1;
+            } else if (dx * dx + dy * dy < see * see) {      // it sees you: after you, a little slower than a walk
+                if (e->timer & 3) { mx = sgn(dx); my = sgn(dy); }
+            } else {                                         // wandering slowly
+                if ((e->timer & 127) == 0) { e->dx = (s32)(rng() % 3) - 1; e->dy = (s32)(rng() % 3) - 1; }
+                if (e->timer & 1) { mx = e->dx; my = e->dy; }
+            }
+            if (lit == -1) {                                 // never into the light
+                if (mx && fire_lit(cx + mx * 8, cy) != -1) mx = 0;
+                if (my && fire_lit(cx, cy + my * 8) != -1) my = 0;
+            }
+            move_enemy(e, mx, my, 1);
+        } else if (e->type == E_BLOB) {                      // creeps after you, slowly
             if (e->timer & 1) continue;
             if (near) move_enemy(e, sgn(dx), sgn(dy), 0);
             else {
@@ -2472,6 +2508,11 @@ static void draw_combat(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
         if (!e->alive || !in_combat_area()) { sprite_hide(OAM_ENEMY + i); continue; }
+        if (e->type == E_SMOKE) {                        // the orchard's own sprite (its region set, bank PAL_BOSS)
+            sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, TILE_SMOKE / 4 + ((e->timer >> 4) & 1), e->dx < 0,
+                       e->flash ? PAL_FLASH : PAL_BOSS);
+            continue;
+        }
         u32 cell = (e->type == E_BLOB ? C_BLOB : C_DRONE) + ((e->timer >> 4) & 1);
         sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, SPR_COMBAT + cell, e->dx < 0, e->flash ? PAL_FLASH : PAL_COMBAT);
     }
@@ -2569,8 +2610,11 @@ static void use_ability(void) {
     if (pdir == DIR_RIGHT) fx += 14;
     if (pdir == DIR_UP)    fy -= 14;
     if (pdir == DIR_DOWN)  fy += 14;
-    // An enemy in front: the active spirit attacks instead (free, with a short cooldown).
-    if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead()) {
+    // An enemy in front: the active spirit attacks instead (free, with a short cooldown). Not Flick facing a
+    // cold lantern or campfire (v0.19): lighting it is what drives the smoke off.
+    u8 ahead = tile_at(fx >> 4, fy >> 4);
+    int light_first = party_count && spirits[party[active]].kind == KIND_FLICK && (ahead == LANTERN_COLD || ahead == CAMPFIRE_COLD);
+    if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead() && !light_first) {
         if (!atk_cooldown) start_attack(spirits[party[active]].kind);
         return;
     }
