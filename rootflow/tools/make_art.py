@@ -88,6 +88,13 @@ MARSH_META = ["bog_water", "bog_water_b", "bog_pad", "moss", "mushrooms", "swamp
 # bog_edge_k: bog water with a ragged mossy shore on each side where land is (k bits: 1 north, 2 east,
 # 4 south, 8 west). The map holds BOG_WATER; the game picks the edge by the neighbors when it draws.
 META += MARSH_META
+# v0.19 the burnt orchard (north-west): its own pieces, loaded like the marsh's (TS_EXTRA). Its ground is the
+# dead ground, tinted ashy by its palette. The smoke stack uses the sludge's bank (metal, rust, red light).
+# darkness is never on the map: its four 8x8 quarters (full, half, a quarter, none) draw the dark (BG2).
+ORCHARD_META = ["burnt_tree", "burnt_fruit_tree", "burnt_log", "lantern_cold", "lantern_lit", "campfire_cold",
+                "campfire_lit", "log_seat", "smoke_stack", "burnt_fence", "darkness",
+                "ash_lane", "charred_brush"]   # Caleb: darker grey lanes; more dead growth on the ground
+META += ORCHARD_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -526,6 +533,199 @@ def vael_pipe(rng):
             if 0 <= x < 16:
                 px[y][x] = 1 if (x + y) % 3 else 2
     px[12][6] = px[14][9] = 3
+    return px
+
+
+def burnt_tree(rng):
+    """v0.19 a tree burnt black: a charred trunk with snapped, jagged branches and a few embers in its cracks
+    (solid; YOU fells it for wood)."""
+    px = dead(rng)
+    for y in range(1, 15):                            # the trunk, thicker at the foot
+        w = 1 if y < 8 else 2
+        for x in range(8 - w, 8 + w):
+            px[y][x] = 15 if x in (8 - w, 7 + w) else 1
+    for (y, x0, dx, n) in ((4, 6, -1, 4), (7, 9, 1, 4), (2, 8, 1, 3), (9, 5, -1, 3), (5, 9, 1, 2)):
+        x = x0
+        for k in range(n):
+            px[y - k // 2][x] = 15
+            x += dx
+    px[14][4] = px[14][11] = px[15][5] = px[15][10] = 15   # roots
+    px[10][7] = px[12][8] = 13                         # embers
+    px[6][7] = 12
+    return px
+
+
+def burnt_fruit_tree(rng):
+    """v0.19 an orchard tree burnt bare: a short, stout charred trunk under a round, scorched crown with holes
+    burnt through it, and a last shrivelled fruit (solid; it grows back when the orchard heals)."""
+    px = dead(rng)
+    for y in range(9, 15):
+        for x in (7, 8):
+            px[y][x] = 15 if x == 8 else 1
+    px[14][6] = px[14][9] = 15
+    crown = {(x, y) for y in range(1, 11) for x in range(1, 15) if ((x - 7.5) / 6.4) ** 2 + ((y - 5.5) / 4.6) ** 2 < 1}
+    holes = {(4, 4), (5, 4), (10, 3), (11, 6), (11, 7), (6, 8), (3, 7), (9, 6)}
+    crown -= holes
+    for (x, y) in crown:
+        e = any((x + dx, y + dy) not in crown for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        px[y][x] = 15 if e else 1 if (x + 2 * y) % 5 else 15
+    for (x, y) in ((5, 2), (6, 2), (4, 3), (8, 2)):
+        if (x, y) in crown:
+            px[y][x] = 2                               # a dull grey sheen on top
+    px[6][10] = 12; px[7][10] = 5                     # a shrivelled fruit
+    return px
+
+
+def burnt_log(rng):
+    """v0.19 a burnt tree fallen across the way (the orchard's wall, solid; only YOU can clear it): a thick
+    charred trunk lying edge to edge, so a row of them makes one long log, cracked, with embers."""
+    px = dead(rng)
+    for y in range(4, 14):
+        for x in range(16):
+            px[y][x] = 15 if y in (4, 13) else 1 if y < 7 else 15 if (x * 3 + y) % 11 == 0 else 1
+    for x in range(16):
+        px[5][x] = 2 if x % 4 else 1                 # a dull grey sheen on top
+        if x % 5 == 2:
+            for y in range(7, 12):
+                px[y][x] = 15                         # cracks across the bark
+    px[9][6] = px[10][12] = px[8][2] = 13              # embers in the cracks
+    px[3][9] = px[2][10] = 15                          # a snapped branch sticking up
+    return px
+
+
+def orchard_lantern(rng, lit):
+    """v0.19 an old stone lantern on the orchard lanes: cold and dark, or lit by Flick (warm glow)."""
+    px = dead(rng)
+    for y in range(3, 15):
+        for x in range(5, 11):
+            w = 2 if y < 5 else (3 if y < 11 else 2)
+            if abs(x - 7.5) <= w:
+                px[y][x] = 3
+                if abs(x - 7.5) > w - 1 or y in (3, 14):
+                    px[y][x] = 15
+    px[2][7] = px[2][8] = 15
+    for y in range(6, 10):
+        for x in (7, 8):
+            px[y][x] = (14 if y in (7, 8) else 13) if lit else 15
+    if lit:
+        px[5][7] = px[10][8] = 13
+    return px
+
+
+def campfire(rng, lit):
+    """v0.19 a campfire: a ring of stones round crossed logs. Cold: charred logs in grey ash and one spark.
+    Lit (by Flick): a flame rising from them, orange round a cream heart."""
+    px = dead(rng)
+    for y in range(7, 14):
+        for x in range(2, 14):
+            if ((x - 7.5) / 5.0) ** 2 + ((y - 10.2) / 2.8) ** 2 < 1:
+                px[y][x] = 1                          # ash
+    for t in range(-4, 4):                            # two crossed logs
+        px[10 + (t > 0) - (t < -2)][7 + t] = 12
+        px[10 - (t > 0) + (t < -2)][8 + t] = 4
+    for k in range(9):                                # the stone ring: little stones lit from the top left
+        a = 2 * math.pi * k / 9 + 0.3
+        x, y = round(6.9 + 6.0 * math.cos(a)), round(9.8 + 3.6 * math.sin(a))
+        for dx, dy, c in ((0, 0, 14), (1, 0, 3), (0, 1, 3), (1, 1, 15)):
+            if 0 <= x + dx < 16 and 0 <= y + dy < 16:
+                px[y + dy][x + dx] = c
+    if lit:
+        for y in range(1, 10):                        # a teardrop flame, narrow at the tip
+            t = (y - 1) / 8.0
+            w = 3.0 * math.sin(math.pi * 0.5 * t) ** 0.8
+            c = 7.5 + (0.6 if y < 4 else 0)
+            for x in range(16):
+                if abs(x - c) < w:
+                    px[y][x] = 14 if abs(x - c) < w - 1.6 and y > 4 else 13
+        px[0][8] = 13
+    else:
+        px[9][6] = 13                                  # one last spark
+    return px
+
+
+def log_seat(rng):
+    """v0.19 a log to sit on by a campfire (solid)."""
+    px = dead(rng)
+    for y in range(7, 13):
+        for x in range(2, 14):
+            px[y][x] = 15 if y in (7, 12) or x in (2, 13) else 5 if y == 8 else 4 if y < 11 else 12
+    for y in range(8, 12):
+        px[y][12] = 5
+    px[9][12] = px[10][12] = 12
+    return px
+
+
+def smoke_stack(rng):
+    """v0.19 a Vael smoke stack (Pebble smashes it): a tall rusty chimney with a red light, puffing smoke.
+    Drawn with the sludge's bank (BG bank 5): 4/5 metal, 13 rust, 12 red light, 15 outline, 9-11 the ground
+    (the orchard sets them ashy)."""
+    px = blank(10)
+    for _ in range(20):
+        px[rng.randrange(16)][rng.randrange(16)] = rng.choice((9, 11))
+    for y in range(4, 16):
+        for x in range(4, 12):
+            edge = x in (4, 11)
+            px[y][x] = 15 if edge else 4 if x < 6 else 5 if x < 9 else 13
+    for x in range(3, 13):                            # a lip at the top and a riveted band
+        px[4][x] = 15; px[5][x] = 13 if x % 2 else 4
+        px[11][x] = 15 if x in (3, 12) else 13
+    for x in range(5, 11):
+        px[4][x] = 1                                   # the dark opening
+    px[8][9] = px[9][9] = 12                           # the red light
+    for (x, y) in ((6, 2), (7, 1), (8, 2), (9, 1), (10, 2), (8, 3), (6, 3), (5, 1), (11, 1), (7, 0), (9, 0)):
+        px[y][x] = 11 if (x + y) % 2 else 3            # smoke puffing out
+    return px
+
+
+def burnt_fence(rng):
+    """v0.19 a charred fence along the orchard lanes (solid): two posts and broken rails."""
+    px = dead(rng)
+    for x in (3, 12):
+        for y in range(4, 15):
+            px[y][x] = 15 if y == 4 else 1
+        px[14][x - 1] = 15
+    for x in range(1, 15):
+        if x not in (7, 8):                           # the top rail is broken in the middle
+            px[6][x] = 15 if x in (3, 12) else 1
+        px[10][x] = 15 if x in (3, 12) else 12 if x % 3 else 1
+    px[7][6] = 15; px[5][9] = 15                       # its snapped ends
+    return px
+
+
+def ash_lane(rng):
+    """v0.19 an old orchard lane, packed dark grey ash (walkable; it stays a lane). Caleb: darker than dirt."""
+    px = blank(1)
+    for _ in range(46):
+        px[rng.randrange(16)][rng.randrange(16)] = rng.choice((15, 2, 2))
+    for _ in range(3):                                # a few pale pebbles pressed into it
+        x, y = rng.randrange(1, 15), rng.randrange(1, 15)
+        px[y][x] = 3; px[y][x + 1] = 15
+    return px
+
+
+def charred_brush(rng):
+    """v0.19 burnt brush on the ash (walkable, it can bloom): black twiggy tufts and a dull grey stem or two."""
+    px = dead(rng)
+    for (bx, by) in ((3, 11), (10, 6), (12, 13), (6, 4)):
+        for k in range(-2, 3):                        # a tuft: twigs fanning up from one spot
+            x, y = bx + k, by - (2 - abs(k))
+            for t in range(3 - abs(k) // 2):
+                if 0 <= x < 16 and 0 <= y - t < 16:
+                    px[y - t][x] = 15 if t else 1
+        px[by][bx] = 15
+    px[10][7] = 13                                    # a last ember
+    return px
+
+
+def darkness():
+    """v0.19 the dark (never on the map; BG2 draws its quarters): full, half (a checker), a quarter, none.
+    Color 1 only (the orchard sets it smoky black in the Great Tree's bank)."""
+    px = [[0] * 16 for _ in range(16)]
+    for y in range(8):
+        for x in range(8):
+            px[y][x] = 1                               # full
+            px[y][8 + x] = 1 if (x + y) % 2 == 0 else 0   # half
+            px[8 + y][x] = 1 if (x % 2 == 0 and y % 2 == 0) or (x % 2 == 1 and y % 2 == 1 and (x + y) % 4 == 0) else 0
     return px
 
 
@@ -1269,6 +1469,9 @@ def make_terrain():
               swamp_tree(rng, True), log(rng), swamp_top(rng, False), swamp_top(rng, True)]
     tiles += [bog_edge(k) for k in range(1, 16)]
     tiles += [water_edge(k) for k in range(1, 16)]
+    tiles += [burnt_tree(rng), burnt_fruit_tree(rng), burnt_log(rng), orchard_lantern(rng, False),
+              orchard_lantern(rng, True), campfire(rng, False), campfire(rng, True), log_seat(rng), smoke_stack(rng),
+              burnt_fence(rng), darkness(), ash_lane(rng), charred_brush(rng)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])

@@ -1,0 +1,31 @@
+# v0.19 the burnt orchard: from TREE HEALED, north out of the Great Tree region into its pocket; YOU clears the
+# fallen trunk; past it, the dark
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=248,$py=4,$enemies+36=0,$enemies+76=0
+30 64
+0 0 @$cur_area,$px,$py,$dark_on
+20 0 or0.ppm
+# walk up to the trunk (it stops you), YOU active, A
+0 0 !$px=240,$py=458,$active=4
+40 64
+0 0 @$py,$maps+6576
+1 1
+1 0
+20 0 or1.ppm
+0 0 @$maps+6576,$wood
+# through the gap and on north, into the dark
+60 64
+0 0 @$py
+20 0 or2.ppm
+60 64
+20 0 or3.ppm
+0 0 @$cur_area,$px,$py

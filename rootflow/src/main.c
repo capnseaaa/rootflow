@@ -100,7 +100,11 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        BOG_WATER = MARSH_META_FIRST, BOG_WATER_B, BOG_PAD, MOSS, MUSHROOMS, SWAMP_TREE, SWAMP_TREE_ALIVE, LOG,
        SWAMP_TOP, SWAMP_TOP_ALIVE,   // a swamp tree's crown, the tile above its foot
        BOG_EDGE,        // + 0..14: bog water's ragged shores (never in a map; draw_meta picks them by the neighbors)
-       WATER_EDGE = BOG_EDGE + 15 };   // + 0..14: the same for clear water, outside the Great Tree's region
+       WATER_EDGE = BOG_EDGE + 15,     // + 0..14: the same for clear water, outside the Great Tree's region
+       // v0.19 the burnt orchard's own (loaded like the marsh's); DARKNESS is never on a map: BG2 draws the dark
+       BURNT_TREE = WATER_EDGE + 15, BURNT_FRUIT_TREE, BURNT_LOG, LANTERN_COLD, LANTERN_LIT, CAMPFIRE_COLD,
+       CAMPFIRE_LIT, LOG_SEAT, SMOKE_STACK, BURNT_FENCE, DARKNESS,
+       ASH_LANE, CHARRED_BRUSH };   // dark ash lanes (walkable, they stay lanes); burnt brush (walkable, it blooms)
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -109,6 +113,9 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define WEST 3        // the Great Tree's area
 #define HOLLOW_IN 4   // the hollow inside the Great Tree (v0.16)
 #define MARSH 5       // the drowned marsh, south-west (v0.18)
+#define ORCHARD 6     // the burnt orchard, north-west (v0.19)
+#define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
+static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid, none restorable
 #define MARSH_BANK_ROW 19   // v0.18.1: its way to Stone Hollow, along the river's north bank
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
@@ -288,7 +295,7 @@ static void draw_meta(s32 mx, s32 my) {
         }
         if (mask) look = (m == WATER ? WATER_EDGE : BOG_EDGE) + mask - 1;
     }
-    u16 base = meta_vram(look) * 4 | ((m == SLUDGE || m == VAEL_PIPE) ? SLUDGE_BANK << 12 : (is_bog(m) || m == BOG_PAD) ? BOG_BANK << 12 : 0);
+    u16 base = meta_vram(look) * 4 | ((m == SLUDGE || m == VAEL_PIPE || m == SMOKE_STACK) ? SLUDGE_BANK << 12 : (is_bog(m) || m == BOG_PAD) ? BOG_BANK << 12 : 0);
     for (s32 k = 0; k < 4; k++) {
         s32 tx = mx * 2 + (k & 1);
         s32 ty = my * 2 + (k >> 1);
@@ -321,7 +328,8 @@ static int is_solid(u8 t) {
            is_trunk(t) || t == CLAMP || t == DRY_POOL ||   // roots can be walked on
            t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND ||
            t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
-           is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE;
+           is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE ||
+           is_orchard_piece(t);
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -339,7 +347,7 @@ static int is_restorable(u8 t) {
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
-             is_bog(t) || t == BOG_PAD || t == LOG);
+             is_bog(t) || t == BOG_PAD || t == LOG || is_orchard_piece(t) || t == ASH_LANE);
 }
 
 static void draw_area(void) {
@@ -385,6 +393,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
       (110 >> 3) | ((94 >> 3) << 5) | ((82 >> 3) << 10) },   // the Great Tree: dark, ashy brown
     { 0, 0, 0 },   // the hollow: its own layer covers the map
     { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh: dark, mossy mud (v0.18.1)
+    { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) },  // the orchard: grey ash (v0.19)
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -395,6 +404,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(40, 112, 44), RGB5(70, 160, 64), RGB5(128, 200, 92) },   // the Great Tree: deep, lush
     { 0, 0, 0 },
     { RGB5(40, 116, 78), RGB5(72, 166, 98), RGB5(150, 214, 118) },  // the marsh: a fresh bog green (v0.18.2)
+    { RGB5(70, 130, 50), RGB5(112, 176, 70), RGB5(172, 214, 110) },  // the orchard: a warm orchard green (v0.19)
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -419,6 +429,7 @@ static void load_tileset(s32 ts) {
     for (u32 i = 0; i < 16; i++) PAL_BG[TREE_BANK * 16 + i] = pal[i];
 }
 static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
+static void dark_enter(s32 a);   // v0.19 the orchard's dark (below)
 static void set_ground_palette(s32 a) {
     load_region_sprites(a);
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[1 + i] : ground_pal[a][i];
@@ -431,6 +442,10 @@ static void set_ground_palette(s32 a) {
     for (s32 i = 0; i < 3; i++)                   // v0.18.1: in the marsh the river's water turns a murky teal
         PAL_BG[9 + i] = a == MARSH ? (i == 0 ? RGB5(36, 86, 90) : i == 1 ? RGB5(64, 128, 120) : RGB5(140, 190, 176))
                                    : bg_pal[9 + i];
+    static const u16 mud[2][3] = { { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh's
+                                   { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) } };  // the orchard's
+    for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == ORCHARD][i];   // under pipes and stacks
+    dark_enter(a);
 }
 
 // ---------- text (BG0) ----------
@@ -1162,12 +1177,58 @@ static void update_blooms(void) {
     if (changed) { draw_life(); check_wake(); }
 }
 
+// ---------- v0.19 the dark (the burnt orchard) ----------
+// The Great Tree's branch layer (BG2) is free outside its region: in the orchard it holds the dark, one 8x8
+// cell each, blended over the map and the sprites (BLDCNT/BLDALPHA as for the branches: black lets a quarter
+// of the light through). The darkness metatile's quarters: full, half, a quarter, none. Light comes from you
+// (a small circle, Caleb), the open ground south of the fallen trunk, and lit lanterns and campfires.
+#define DARK_R 26          // your own light (pixels)
+#define FIRE_R 44          // a lit lantern's or campfire's
+#define MIN(a, b) ((a) < (b) ? (a) : (b))
+static s32 dark_on, light_n, light_x[24], light_y[24];
+static s32 dark_lv(s32 dx, s32 dy, s32 r) {        // 0 lit, 1 a quarter dark, 2 half, 3 dark
+    s32 d2 = dx * dx + dy * dy;
+    return d2 < (r - 10) * (r - 10) ? 0 : d2 < (r - 5) * (r - 5) ? 1 : d2 < r * r ? 2 : 3;
+}
+static s32 dark_cell(s32 cx, s32 cy) {
+    s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
+    s32 lv = wy >= y0 + 16 ? 0 : wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // daylight past the trunk
+    if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), DARK_R));
+    for (s32 i = 0; i < light_n && lv; i++) lv = MIN(lv, dark_lv(wx - light_x[i], wy - light_y[i], FIRE_R));
+    return lv;
+}
+static void dark_put(s32 cx, s32 cy) {
+    if (cx < 0 || cy < 0 || cx >= 64 || cy >= 64) return;
+    SCREENBLOCK(CANOPY_SB)[((cx >> 5) + ((cy >> 5) << 1)) * 1024 + (cy & 31) * 32 + (cx & 31)] =
+        (meta_vram(DARKNESS) * 4 + 3 - dark_cell(cx, cy)) | (TREE_BANK << 12);
+}
+static void dark_enter(s32 a) {
+    dark_on = a == ORCHARD;
+    REG_BLDALPHA = dark_on ? 16 | (2 << 8) : 12 | (4 << 8);   // the dark lets an eighth through; branches 12/4
+    if (!dark_on) return;
+    light_n = 0;                                    // the lit ones on this map
+    for (s32 i = 0; i < MAP_W * MAP_H && light_n < 24; i++)
+        if (maps[ORCHARD][i] == LANTERN_LIT || maps[ORCHARD][i] == CAMPFIRE_LIT) {
+            light_x[light_n] = (i % MAP_W) * 16 + 8; light_y[light_n++] = (i / MAP_W) * 16 + 6;
+        }
+    PAL_BG[TREE_BANK * 16 + 1] = RGB5(6, 6, 12);   // a smoky black
+    for (s32 cy = 0; cy < 64; cy++)
+        for (s32 cx = 0; cx < 64; cx++) dark_put(cx, cy);
+    REG_DISPCNT |= 1 << 10;
+}
+static void dark_update(void) {                    // each frame: the cells round you (you move a few pixels at most)
+    if (!dark_on) return;
+    s32 cx = (px + 8) >> 3, cy = (py + 4) >> 3, n = (DARK_R + 12) >> 3;
+    for (s32 y = cy - n; y <= cy + n; y++)
+        for (s32 x = cx - n; x <= cx + n; x++) dark_put(x, y);
+}
+
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1, 2 }, area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, -1, -1, MARSH, -1, -1 };
-static const signed char area_north[NUM_AREAS] = { -1, -1, 0, -1, -1, WEST };
+static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1, 2, -1 }, area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, -1, -1, MARSH, -1, -1, WEST };
+static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
-                                            "INSIDE THE GREAT TREE", "THE DROWNED MARSH" };
+                                            "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD" };
 // Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
 // A scene may set its own (scene_song; -1 = silence).
 #define NO_SCENE_SONG (-2)
@@ -1492,6 +1553,10 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         else if (t == DEAD_TREE) { set_tile(mx, my, DIRT); wood++; show_message("+1 WOOD"); }
         else if (t == REEDS) { set_tile(mx, my, DEAD); restorable[work_area]++; show_message("REEDS CLEARED"); }   // v0.18
         else if (t == LOG) { set_tile(mx, my, MOSS); restorable[work_area]++; wood++; show_message("+1 WOOD"); }
+        else if (t == BURNT_LOG && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
+        else if (t == BURNT_LOG || t == BURNT_TREE) {   // v0.19: the orchard's fallen trunk (YOU) and burnt trees
+            set_tile(mx, my, DEAD); restorable[work_area]++; wood++; show_message("+1 WOOD");
+        }
         else if (t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) {
             s32 foot = (t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) ? my + 1 : my;   // the whole tree comes down
             set_tile(mx, foot, MOSS);
@@ -3157,7 +3222,7 @@ static void update_gloom_intro(void) {
 // once healed; the fight is gloomfight.
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
-                                           SONG_WITHERED };   // the marsh: withered for now (its own song: ask Caleb)
+                                           SONG_WITHERED, SONG_WITHERED };   // the marsh, the orchard: for now (music later)
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
         return tree_alive ? SONG_HEARTWOOD : boss_beaten == (1 << NUM_BOSSES) - 1 ? SONG_UNEASY :
@@ -3876,7 +3941,7 @@ static void update_music(void) {
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "",
-                                            "THE MARSH IS FULLY ALIVE!" };
+                                            "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!" };
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -4085,7 +4150,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x42534652u   // "RFSB" (v0.18.4: the spirit pouch)
+#define SAVE_MAGIC 0x43534652u   // "RFSC" (v0.19: the burnt orchard)
+#define SAVE_MAGIC_V184 0x42534652u   // "RFSB": v0.18.4 saves still load
 #define SAVE_MAGIC_V18 0x41534652u   // "RFSA": v0.18 saves still load
 #define SAVE_MAGIC_V17 0x39534652u   // "RFS9": v0.17 saves still load
 #define SAVE_MAGIC_V16 0x38534652u   // "RFS8": v0.16 saves still load (the Leafen set up on load)
@@ -4127,9 +4193,14 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &told_full[MARSH], 1 }, { &swim_skill, 4 }, { &swim_step, 4 },
     // v0.18.4: the spirit pouch
     { &pouch_on, 4 },
+    // v0.19: the burnt orchard
+    { maps[ORCHARD], sizeof(maps[0]) }, { &restorable[ORCHARD], 4 }, { picked[ORCHARD], sizeof(picked[0]) },
+    { &pump_on[ORCHARD], 1 }, { &pump_x[ORCHARD], 1 }, { &pump_y[ORCHARD], 1 }, { &pump_drain[ORCHARD], 4 },
+    { &told_full[ORCHARD], 1 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V18_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V184_FIELDS (NUM_SAVE_FIELDS - 8)
+#define NUM_V18_FIELDS (NUM_V184_FIELDS - 1)
 #define NUM_V17_FIELDS (NUM_V18_FIELDS - 17)
 #define NUM_V16_FIELDS (NUM_V17_FIELDS - 4)
 #define NUM_V15_FIELDS (NUM_V17_FIELDS - 7)
@@ -4179,6 +4250,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V16) nf = NUM_V16_FIELDS;
     else if (magic == SAVE_MAGIC_V17) nf = NUM_V17_FIELDS;
     else if (magic == SAVE_MAGIC_V18) nf = NUM_V18_FIELDS;
+    else if (magic == SAVE_MAGIC_V184) nf = NUM_V184_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4194,7 +4266,17 @@ static int load_game(void) {
         for (s32 k = 0; k < NUM_LEAFEN; k++) leafen_state[k] = LS_NONE;
         leafen_init = has_shiny = pip_cell = 0;
     }
-    if (nf < NUM_SAVE_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
+    if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19: a fresh orchard
+        restorable[ORCHARD] = 0;
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 t = start_maps[ORCHARD * MAP_W * MAP_H + i];
+            maps[ORCHARD][i] = t;
+            if (is_restorable(t)) restorable[ORCHARD]++;
+            if (i < MAP_W * MAP_H / 8) picked[ORCHARD][i] = 0;
+        }
+        pump_on[ORCHARD] = 0; pump_drain[ORCHARD] = 0; told_full[ORCHARD] = 0;
+    }
     if (pouch_on)                                        // carrying more than you can: the last ones ride in the pouch
         for (s32 p = party_count - 1; p >= 0 && carried() > party_cap(); p--)
             if (!is_you(party[p])) { spirits[party[p]].state = SP_POUCH; party_remove(party[p]); }
@@ -5015,6 +5097,7 @@ int main(void) {
         if (!scene_on) { update_attack(); update_enemies(); update_boss(); }
         if (hurt_timer) hurt_timer--;
         update_camera();
+        dark_update();
         draw_sprites();
         draw_combat();
         draw_leafen();

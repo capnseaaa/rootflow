@@ -26,6 +26,9 @@ MARSH_META_FIRST = 87
 BOG_WATER, BOG_WATER_B, BOG_PAD, MOSS, MUSHROOMS, SWAMP_TREE, SWAMP_TREE_ALIVE, LOG = range(87, 95)
 SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tree (two tiles tall)
 # 97-111 bog shores, 112-126 clear water shores: picked by the game when it draws, never in a map
+# v0.19 the burnt orchard's own (loaded like the marsh's); DARKNESS is never in a map (BG2 draws the dark)
+(BURNT_TREE, BURNT_FRUIT_TREE, BURNT_LOG, LANTERN_COLD, LANTERN_LIT, CAMPFIRE_COLD, CAMPFIRE_LIT, LOG_SEAT,
+ SMOKE_STACK, BURNT_FENCE, DARKNESS, ASH_LANE, CHARRED_BRUSH) = range(127, 140)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -46,8 +49,18 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
-VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH = 0, 1, 2, 3, 4, 5
-NUM_AREAS = 6                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18)
+VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD = 0, 1, 2, 3, 4, 5, 6
+NUM_AREAS = 7                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+                                   # 6: the burnt orchard (v0.19), north of the Great Tree
+# v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
+# walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
+ORCHARD_POCKET = (11, 28, 20, 31)                  # the pocket you arrive in (x0, y0, x1, y1)
+ORCHARD_WALL_ROW = 27
+ORCHARD_LANTERNS = [(14, 23), (16, 18), (14, 12), (16, 6), (10, 14), (5, 16), (21, 10), (26, 8)]
+ORCHARD_FIRES = [(19, 24), (7, 4)]                 # cold campfires, a log seat on each side
+ORCHARD_STACKS = [(25, 20), (6, 10), (24, 3)]      # Vael smoke stacks (Pebble smashes them)
+ORCHARD_NEST = (4, 2)                              # Flick's burnt nest (v0.19 step 2), in a clearing
+ORCHARD_LEAFEN = [(27, 15), (9, 21)]               # the two Leafen (step 5): spots kept clear
 # v0.18 the drowned marsh, south-west: in from the Great Tree region's south edge (these columns)
 MARSH_GATE_COLS = (14, 15, 16, 17)
 MARSH_PIPES = [(7, 10), (23, 6), (12, 24)]         # Vael pipes on the banks, each pouring into its sludge
@@ -671,6 +684,144 @@ def on_path(m, x, y):
     return (open_(x - 1, y) and open_(x + 1, y)) or (open_(x, y - 1) and open_(x, y + 1))
 
 
+def make_orchard():
+    """The burnt orchard (v0.19): ash ground in rows of burnt fruit trees, old lanes with cold lanterns and
+    charred fences, burnt woods all round, two cold campfires, three Vael smoke stacks, and a small pocket at
+    the south edge (the way in) walled off by a fallen burnt trunk."""
+    rng = random.Random(7070)
+    m = [[DEAD_CRACK if rng.random() < 0.25 else DEAD for _ in range(MAP_W)] for _ in range(MAP_H)]
+    lanes = set()
+    import math
+    def lane(x0, y0, x1, y1):                         # old lanes, packed dark ash (Caleb: darker, greyish),
+        n = max(abs(x1 - x0), abs(y1 - y0), 1)        # wandering a tile to either side (not ruler straight)
+        phase, last = rng.uniform(0, 6.3), None
+        for k in range(n + 1):
+            x, y = round(x0 + (x1 - x0) * k / n), round(y0 + (y1 - y0) * k / n)
+            wob = round(0.9 * math.sin(k * 0.45 + phase)) if 2 <= k <= n - 2 else 0
+            if x0 == x1:
+                x += wob
+            else:
+                y += wob
+            if last and last[0] != x and last[1] != y:  # keep it joined where it steps aside
+                m[last[1]][x] = ASH_LANE; lanes.add((x, last[1]))
+            m[y][x] = ASH_LANE
+            lanes.add((x, y))
+            last = (x, y)
+    lane(15, 26, 15, 3)                               # the main lane north from the wall, and its branches
+    lane(15, 15, 4, 15); lane(4, 15, 4, 4)
+    lane(15, 9, 27, 9); lane(27, 9, 27, 16)
+    lane(15, 21, 25, 21)
+    lane(15, 3, 8, 3)
+    keep = set(lanes)
+    def clear(x, y, r=1):
+        for yy in range(y - r, y + r + 1):
+            for xx in range(x - r, x + r + 1):
+                if 0 <= xx < MAP_W and 0 <= yy < MAP_H:
+                    keep.add((xx, yy))
+    for (x, y) in ORCHARD_LANTERNS + ORCHARD_FIRES + ORCHARD_LEAFEN:
+        clear(x, y)
+    for (x, y) in ORCHARD_STACKS:
+        clear(x, y)
+    clear(*ORCHARD_NEST, r=1)
+    x0, y0, x1, y1 = ORCHARD_POCKET
+    for y in range(y0 - 1, MAP_H):
+        for x in range(x0 - 3, x1 + 4):
+            keep.add((x, y))
+    # the orchard rows (Caleb: more of them): a burnt fruit tree every other tile along rows two apart, a few gone
+    # to stumps or fallen dead trees; charred brush over much of the ground between
+    for y in range(1, ORCHARD_WALL_ROW - 1):
+        for x in range(1, MAP_W - 1):
+            if (x, y) in keep:
+                continue
+            r_ = rng.random()
+            if x % 2 == 1 and y % 3 == 1:
+                m[y][x] = BURNT_FRUIT_TREE if r_ < 0.78 else STUMP if r_ < 0.88 else DEAD_TREE if r_ < 0.94 else m[y][x]
+            elif r_ < 0.30:
+                m[y][x] = CHARRED_BRUSH
+    # charred fences along parts of the lanes
+    for (x, y) in sorted(lanes):
+        for (dx, dy) in ((0, 1), (1, 0)):
+            fx, fy = x + dx, y + dy
+            if (fx, fy) not in keep and 0 < fx < MAP_W - 1 and 0 < fy < ORCHARD_WALL_ROW - 1 and rng.random() < 0.18:
+                m[fy][fx] = BURNT_FENCE
+    # burnt woods all round the edge (two or three deep), and loose burnt trees
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            edge = min(x, y, MAP_W - 1 - x, MAP_H - 1 - y)
+            if (x, y) in keep and not (y >= y0 - 1 and (x < x0 or x > x1)):
+                continue
+            if edge == 0 or (edge == 1 and rng.random() < 0.8) or (edge == 2 and rng.random() < 0.35):
+                m[y][x] = BURNT_TREE
+            elif m[y][x] in (DEAD, DEAD_CRACK, CHARRED_BRUSH) and (x, y) not in keep and rng.random() < 0.09:
+                m[y][x] = BURNT_TREE
+    # the pocket: open ground, closed in by burnt woods on both sides and the fallen trunk to the north
+    for y in range(y0, MAP_H):
+        for x in range(x0, x1 + 1):
+            m[y][x] = DEAD if (x + y) % 4 else DEAD_CRACK
+        for x in list(range(x0 - 3, x0)) + list(range(x1 + 1, x1 + 4)):
+            m[y][x] = BURNT_TREE
+    for y in range(ORCHARD_WALL_ROW, MAP_H):           # beside the pocket, below the trunk: solid woods (no way round)
+        for x in range(MAP_W):
+            if not (x0 <= x <= x1 and y >= y0):
+                m[y][x] = BURNT_TREE
+    for x in range(x0 - 3, x1 + 4):
+        m[ORCHARD_WALL_ROW][x] = BURNT_LOG
+    for x in range(x0 - 3, x1 + 4):
+        if m[ORCHARD_WALL_ROW - 1][x] in (DEAD, DEAD_CRACK) and abs(x - 15.5) > 2:
+            m[ORCHARD_WALL_ROW - 1][x] = BURNT_TREE    # thick woods just past it, but the lane goes on
+    # the pieces
+    for (x, y) in ORCHARD_LANTERNS:
+        m[y][x] = LANTERN_COLD
+    for (x, y) in ORCHARD_FIRES:
+        m[y][x] = CAMPFIRE_COLD
+        m[y][x - 1] = m[y][x + 1] = LOG_SEAT
+    for (x, y) in ORCHARD_STACKS:
+        m[y][x] = SMOKE_STACK
+    nx, ny = ORCHARD_NEST
+    for y in range(ny - 1, ny + 2):
+        for x in range(nx - 1, nx + 2):
+            m[y][x] = DEAD
+    for (x, y) in ORCHARD_LEAFEN:
+        m[y][x] = DEAD
+    # everything that matters can be reached from the pocket (the trunk counts as open: YOU clears it)
+    from collections import deque
+    walk = {DEAD, DEAD_CRACK, ASH_LANE, CHARRED_BRUSH, BURNT_LOG}
+    start = (15, MAP_H - 1)
+    def reach():
+        seen = {start}; q = deque([start])
+        while q:
+            x, y = q.popleft()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in seen and m[n[1]][n[0]] in walk:
+                    seen.add(n); q.append(n)
+        return seen
+    targets = [(x, y + 1) for (x, y) in ORCHARD_LANTERNS] + [(x, y + 1) for (x, y) in ORCHARD_FIRES]
+    targets += [(x, y + 1) for (x, y) in ORCHARD_STACKS] + [ORCHARD_NEST] + ORCHARD_LEAFEN
+    for (tx, ty) in targets:
+        seen = reach()
+        if (tx, ty) in seen:
+            continue
+        if m[ty][tx] not in walk:
+            m[ty][tx] = DEAD
+        prev = {(tx, ty): None}; q = deque([(tx, ty)])
+        while q:
+            c = q.popleft()
+            if c in seen:
+                while c is not None:
+                    if m[c[1]][c[0]] not in walk:
+                        m[c[1]][c[0]] = DEAD
+                    c = prev[c]
+                break
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (c[0] + dx, c[1] + dy)
+                if 0 < n[0] < MAP_W - 1 and 0 < n[1] < MAP_H - 1 and n not in prev and \
+                        m[n[1]][n[0]] not in (LANTERN_COLD, CAMPFIRE_COLD, LOG_SEAT, SMOKE_STACK, BURNT_LOG) and \
+                        not (n[1] >= ORCHARD_WALL_ROW):
+                    prev[n] = c; q.append(n)
+    return m
+
+
 def make_hollow_in():
     """The hollow inside the Great Tree: floor (walkable, never grows) inside the chamber and its
     corridor, solid elsewhere. The room itself is drawn by art/hollow.png on the trunk's layer."""
@@ -727,7 +878,7 @@ TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 def make_maps():
-    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh()]
+    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard()]
     return [v for m in maps for row in m for v in row]
 
 
@@ -746,8 +897,8 @@ PEEK_SHIFTS = [(0, 8), (0, 4), (0, 0), (-2, 0), (2, 0)]
 
 
 def sprout_peek(terrain, sprout):
-    n = terrain.size[0] // 16
-    base = (n - 16 + 3) * 16                    # HOME_FIRST + grove (0) * 4 + level 2 base (3)
+    base = (40 + 3) * 16                         # HOME_FIRST (40) + grove (0) * 4 + level 2 base (3); v0.19: it used
+                                                 # the sheet's width, which pointed elsewhere once tiles came after
     hole = {(x, y) for y in range(16) for x in range(16)
             if 3 <= x <= 12 and 1 <= y <= 14 and terrain.getpixel((base + x, y)) == 15}
     img = Image.new("P", (16 * len(PEEK_SHIFTS), 16), 0)
