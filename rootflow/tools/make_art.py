@@ -2489,6 +2489,7 @@ LEAFEN_ORDER += ["swimring", "swimring2"]   # v0.18.1: the ripples round the swi
 LEAFEN_ORDER += [f"orb_{k}" for k in range(6)]  # v0.18.1: the spirits as little glowing orbs while you swim
 LEAFEN_ORDER += ["wake_h", "wake_d", "wake_u"]  # v0.18.1: the wake behind the swimming wizard
 LEAFEN_ORDER += [f"mini_{k}" for k in range(6)]  # v0.18.4: a spirit in the pouch: a tiny orb circling his head
+LEAFEN_ORDER += ["orb_6", "mini_6"]   # v0.19 Flick's (after the others: main.c maps them)
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2642,7 +2643,7 @@ def leafen_cell(name):
     elif name.startswith("lh_"):
         leafen_home(px, name[3:])
     elif name.startswith("orb_"):              # a spirit as an orb: its color, a bright spot, a soft halo
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1)][int(name[4:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11)][int(name[4:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -2652,7 +2653,7 @@ def leafen_cell(name):
                     px[y][x] = halo
         px[6][7] = px[7][6] = light
     elif name.startswith("mini_"):             # a pouch spirit: smaller than a swim orb (Caleb), 3 px with a soft rim
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1)][int(name[5:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11)][int(name[5:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -3177,7 +3178,7 @@ def make_pouch():
 
 # v0.18.4 each spirit as a little ball, for the pouch (Caleb's reference): its body colors (light, main,
 # shade, in its own palette's indices), a face, and a tiny mark so you can tell them apart.
-BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6)]   # Sprout..Lily
+BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6), (6, 7, 8)]   # Sprout..Flick
 def ball_cell(kind):
     px = _canvas()
     lt, mid, sh = BALL_COLORS[kind]
@@ -3191,7 +3192,7 @@ def ball_cell(kind):
         px[y][x] = 1 if e else sh if d > 2.4 else mid
     for (x, y) in ((5, 6), (6, 5), (5, 7)):               # a shine, top left
         if px[y][x] not in (0, 1):
-            px[y][x] = 4 if kind == 5 else lt
+            px[y][x] = 4 if kind == 5 else 6 if kind == 6 else lt
     px[9][6] = px[9][9] = px[8][6] = px[8][9] = 1          # eyes
     px[11][7] = px[11][8] = 1                              # a small smile
     px[10][6] = px[10][9] = px[10][6]
@@ -3202,6 +3203,8 @@ def ball_cell(kind):
         px[2][8] = px[2][9] = 6; px[3][8] = 5
     if kind == 4:                                        # Bark: a leaf on his head
         px[2][9] = px[2][10] = 5; px[3][8] = 5
+    if kind == 6:                                        # Flick: a little flame crest
+        px[2][7] = 5; px[3][6] = px[3][7] = px[3][8] = 3; px[2][8] = 4
     if kind == 5:                                        # Lily: a tiny white bloom with a yellow heart
         px[2][7] = px[2][8] = 4; px[3][6] = px[3][9] = 4; px[3][7] = px[3][8] = 7
     return px
@@ -3216,6 +3219,99 @@ def make_balls():
         for y, row in enumerate(ball_cell(k)):
             for x, c in enumerate(row):
                 img.putpixel((16 * k + x, y), c)
+    return img
+
+
+FLICK_PAL = [                      # v0.19 Flick, the ash chick (OBJ bank 6: Breeze's sleeping colors, free once all
+    (255, 0, 255),    # 0 clear          the spirits are awake, which they are before you can reach Flick)
+    (40, 28, 30),     # 1 outline
+    (176, 52, 36),    # 2 deep red
+    (232, 108, 44),   # 3 orange
+    (250, 168, 60),   # 4 light orange
+    (252, 226, 110),  # 5 yellow
+    (255, 250, 214),  # 6 white-hot
+    (240, 226, 196),  # 7 ash light
+    (196, 176, 150),  # 8 ash shade
+    (150, 146, 150),  # 9 ash grey
+    (92, 86, 94),     # 10 charcoal
+    (58, 52, 60),     # 11 charcoal dark
+    (246, 140, 150),  # 12 cheek
+] + [(0, 0, 0)] * 3
+
+
+def _fl_shapes():
+    def ell(cx, cy, rx, ry):
+        return {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
+    def tip(cx, top, base_y, half, lean):
+        s = set()
+        for y in range(int(top), int(base_y) + 1):
+            t = (y - top) / max(1, base_y - top)
+            w, c = half * t ** 0.8, cx + lean * (1 - t)
+            s |= {(x, y) for x in range(16) if abs(x - c) <= w}
+        return s
+    return ell, tip
+
+
+def flick_cell(frame):
+    """Flick (Caleb's pick, the ash chick): a fluffy ball of pale ash with a flame crest and a beak.
+    0, 1: awake (the crest flickers, its wings flap); 2: cold, curled up in a burnt twig nest, eyes shut,
+    its crest a dull ember; 3: its ember shot (a little fireball). Outlines drawn outside each shape."""
+    ell, tip = _fl_shapes()
+    px = _canvas()
+    def paint(shape, fill):
+        for (x, y) in shape:
+            px[y][x] = fill(x, y)
+        for (x, y) in shape:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                    px[ny][nx] = 1
+    if frame == 3:
+        ball = ell(7.5, 8.5, 3.2, 3.2) | tip(7.5, 3, 7, 1.6, 0)
+        paint(ball, lambda x, y: 6 if (x - 7.5) ** 2 + (y - 8.5) ** 2 < 2.2 else 5 if (x - 7.5) ** 2 + (y - 8.5) ** 2 < 5 else 3)
+        return px
+    if frame in (2, 4):                                # cold (Caleb's pick: the first look); 4: shivering
+        dx = 1 if frame == 4 else 0
+        nest = ell(7.5, 12.6, 6.6, 2.6)
+        paint(nest, lambda x, y: 10 if (x + y) % 3 else 11)
+        for x in range(2, 14, 3):                      # twigs sticking out of the nest
+            px[11][x] = 11; px[10][x + 1] = 1
+        body = ell(7.5 + dx, 9.6, 4.4, 3.2) - nest
+        paint(body, lambda x, y: 9 if y >= 10 else 8)
+        crest = tip(7.5 + dx, 4, 6, 1.2, 0) - body
+        paint(crest, lambda x, y: 2 if y <= 5 else 10)
+        px[9][5 + dx] = px[9][6 + dx] = 1; px[9][9 + dx] = px[9][10 + dx] = 1   # eyes shut
+        px[11][7 + dx] = px[11][8 + dx] = 9
+        return px
+    f = frame
+    body = ell(7.5, 10.4, 4.8, 3.8)
+    crest = tip(7.5, 2 + f, 7, 1.6, -1 + 2 * f) | tip(5.4, 4 - f, 7, 1.1, -1.2) | tip(9.8, 4, 7, 1.1, 1.2)
+    crest -= body
+    wings = {(2, 10 - f), (2, 11 - f), (13, 10 - f), (13, 11 - f), (3, 11), (12, 11)}
+    def fill(x, y):
+        if (x, y) in crest:
+            return 5 if y <= 3 + f else 4 if y <= 5 else 3
+        if (x, y) in wings:
+            return 8
+        return 8 if y >= 12 else 7
+    paint(body | crest | wings, fill)
+    for x in range(4, 12):                             # fluff tufts on the belly
+        if px[13][x] == 8 and x % 2:
+            px[13][x] = 9
+    px[9][6] = px[9][9] = px[10][6] = px[10][9] = 1   # eyes
+    px[11][5] = px[11][10] = 12                        # cheeks
+    px[11][7] = px[11][8] = 4                          # the beak
+    px[12][7] = px[12][8] = 3
+    return px
+
+
+def make_flick():
+    img = Image.new("P", (80, 16), 0)                  # 0, 1 awake; 2 cold; 3 the ember shot; 4 cold, shivering
+    img.putpalette([c for rgb in FLICK_PAL for c in rgb])
+    for f in range(5):
+        for y, row in enumerate(flick_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
     return img
 
 
@@ -3358,7 +3454,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

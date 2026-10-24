@@ -939,7 +939,8 @@ def main():
     swim = Image.open(os.path.join(ART, "swim_sprite.png"))     # drawn with the player's palette (bank 0)
     pouch = Image.open(os.path.join(ART, "pouch_sprite.png"))   # v0.18.4: the pouch's states, the Leafen's palette
     ball = Image.open(os.path.join(ART, "ball_sprite.png"))     # v0.18.4: each spirit as a ball (its own palette)
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball):
+    flick = Image.open(os.path.join(ART, "flick_sprite.png"))   # v0.19: Flick (awake x2, cold, ember, shivering)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -947,7 +948,7 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -1000,6 +1001,7 @@ def main():
     out.append("#define POCKET_X0 {}\n#define POCKET_Y0 {}\n#define POCKET_X1 {}\n#define POCKET_Y1 {}".format(*POCKET))
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
+    out.append(f"#define ORCHARD_NEST_X {ORCHARD_NEST[0]}\n#define ORCHARD_NEST_Y {ORCHARD_NEST[1]}")
     out.append(c_array("unsigned char", "home_site_area", [a for a, _, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_x", [x for _, x, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_y", [y for _, _, y in HOME_SITES], fmt="{}"))
@@ -1031,6 +1033,7 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_boss", palette_of(boss), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_leafen", palette_of(leafen), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_flick", palette_of(flick), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
     out.append(c_array("unsigned int", "pouch_tiles", pouch_all))

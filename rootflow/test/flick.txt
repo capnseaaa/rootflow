@@ -1,0 +1,40 @@
+# v0.19 Flick: the ember from the fallen trunk, the cold nest, the wake-up scene, lighting a lantern
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=248,$py=4,$enemies+36=0,$enemies+76=0
+30 64
+# YOU cuts the trunk: +1 wood, the warm ember
+0 0 !$px=240,$py=458,$active=4
+20 64
+1 1
+1 0
+200 0
+0 0 @$flick_flags,$wood
+# the nest (4,2): first in the dark, from the lane (the chirp); then beside it
+0 0 !$px=240,$py=330
+30 64
+100 0
+0 0 @$flick_flags
+0 0 !$px=82,$py=30,$pdir=2
+10 0 fl0.ppm
+1 1
+1 0
+5 0 fl1.ppm
+1500 0
+0 0 @$flick_step,$spirits+176,$party_count,$party+20
+20 0 fl2.ppm
+# Flick lights the lantern at (14,12): stand right of it, facing left
+0 0 !$px=240,$py=186,$pdir=2,$active=5
+5 0
+1 1
+1 0
+30 0 fl3.ppm
+0 0 @$maps+6542

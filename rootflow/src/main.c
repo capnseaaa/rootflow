@@ -430,8 +430,10 @@ static void load_tileset(s32 ts) {
 }
 static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
 static void dark_enter(s32 a);   // v0.19 the orchard's dark (below)
+static void pool_clear(void);    // v0.19 the shared sprite slots (below)
 static void set_ground_palette(s32 a) {
-    load_region_sprites(a);
+    load_region_sprites(a);   // and, once the tree is healed, Flick's colors
+    pool_clear();                                      // a new region: its own things take the shared slots
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[1 + i] : ground_pal[a][i];
     for (s32 i = 0; i < 3; i++) PAL_BG[6 + i] = a == 0 || a == HOLLOW_IN ? bg_pal[6 + i] : grass_pal[a][i];
     // the tree's layers show only in the Great Tree's area and its hollow
@@ -516,6 +518,7 @@ static void draw_life(void) {
 static u16 oam_shadow[128 * 4];
 // tile8 is in 8x8 tiles. tall = 16x32 (vertical shape, size 2), else 16x16 (square, size 1).
 static void obj_set(s32 id, s32 x, s32 y, u32 tile8, u32 hflip, u32 pal, int tall) {
+    if (id >= 128) return;                              // OAM_NONE
     u16 *o = &oam_shadow[id * 4];
     if (x < -16 || x > SCREEN_W || y < (tall ? -32 : -16) || y > SCREEN_H) { o[0] = 0x0200; return; }
     o[0] = (y & 0xFF) | (tall ? 2 << 14 : 0);
@@ -526,7 +529,7 @@ static void obj_set(s32 id, s32 x, s32 y, u32 tile8, u32 hflip, u32 pal, int tal
 static void sprite_set(s32 id, s32 x, s32 y, u32 tile, u32 hflip, u32 pal) {
     obj_set(id, x, y, tile * 4, hflip, pal, 0);
 }
-static void sprite_hide(s32 id) { oam_shadow[id * 4] = 0x0200; }
+static void sprite_hide(s32 id) { if (id < 128) oam_shadow[id * 4] = 0x0200; }
 static void oam_flush(void) {
     for (u32 i = 0; i < 128 * 4; i++) OAM[i] = oam_shadow[i];
 }
@@ -542,6 +545,7 @@ static void oam_flush(void) {
 #define SPR_BARK (TILE_BARK / 4)
 #define SPR_LILY (TILE_LILY / 4)
 #define SPR_BALL (TILE_BALL / 4)   // v0.18.4: each spirit as a ball, in the pouch (its own palette)
+#define SPR_FLICK (TILE_FLICK / 4)   // v0.19: awake x2, cold, its ember shot, cold and shivering
 #define PAL_MAIN 0
 #define PAL_RIPPLE 1
 #define PAL_SLEEP 2
@@ -553,48 +557,61 @@ static void oam_flush(void) {
 #define PAL_FX 8
 #define PAL_BARK 9
 #define PAL_LILY 10       // v0.18: Bark never sleeps, so his gray copy's bank went to Lily
+// v0.19 Flick: Breeze's sleeping colors' bank, which nothing needs once every spirit is awake (they are,
+// before the orchard can be reached). Loaded in set_ground_palette once the tree is healed. The other two
+// sleeping banks (PAL_SLEEP, PAL_STONE_SLEEP) are free the same way, for the corner spirits still to come.
+#define PAL_FLICK PAL_BREEZE_SLEEP
 #define PAL_CLAMP 11
 #define PAL_COMBAT 12
 #define PAL_BOSS 13
 #define PAL_FLASH 14   // all white: something just got hit
 
-// OAM slots
+// OAM slots (v0.19: reorganized, Caleb: room for what comes next). A lower slot draws on top.
+// Fixed slots for what can show anywhere; then one shared block for what belongs to one region only:
+// those systems draw (and hide their slots) only in their own region, and the block is cleared on every
+// change of region (set_ground_palette), so they never fight over a slot.
 #define OAM_PLAYER  0
-#define OAM_SPIRIT  1   // 1..5 (Lily, the sixth, uses OAM_LILY)
-#define OAM_ZZZ     6   // 6..6+NUM_SPIRITS-1
-#define OAM_SPARKLE 11
-#define OAM_GLOW    12
-#define OAM_CURSOR  13
-#define OAM_CLAMP   14  // 14..14+NUM_CLAMPS-1 (7): Vael clamps on the Great Tree's roots
-#define OAM_ENEMY   21  // 21..28: blobs and drones
-#define OAM_ATTACK  29  // 29..32: the active spirit's attack (Bark's slam uses all four)
-#define OAM_BOSS    33
-#define OAM_HIT     34
-#define OAM_SHIELD  35  // Gloomheart's shield ring
-#define OAM_LEAF    36  // 36..41: leaves swirling round the wizard as Bark gives his power
-#define OAM_SPORE   42  // 42..49: Gloomheart's spores
-#define OAM_MOTE    50  // 50..65: rot motes (warnings, dust, shards)
-#define OAM_RING    66  // 66..81: the dots of its rot ring
-#define OAM_SHADOW  82  // where it will land
-#define OAM_STARS   83  // dazed
-#define OAM_LEAFEN  84  // 84..89: Leafen waiting in this area, or the three of a rescue
-#define OAM_SHINY   90  // Dewdrop's shiny pebble
-#define OAM_FOLK    91  // 91..117: the Leafen living round Bark's tree
-#define OAM_LHOME   66  // 66..81: their tiny homes (the ring dots' slots: only used inside the tree)
-#define OAM_LILY    121 // v0.18: the sixth spirit and her bubble
-#define OAM_LILY_Z  122
-#define OAM_FIREFLY 123 // 123..126: the marsh's fireflies (v0.18.1)
-#define OAM_SWIMHANDS 119 // swimming, front to back: ripples (slot 0), his hands, him, his wake
-#define OAM_SWIMRING 120  // (named for the ring's old slot: now his head and shoulders while he swims)
+#define OAM_SPIRIT  1   // 1..9: one per spirit, by kind (room for nine)
+#define OAM_ZZZ     10  // 10..14: sleep bubbles for the four that sleep, and Flick's spark while cold (zzz_slot)
+#define OAM_SPARKLE 15
+#define OAM_GLOW    16
+#define OAM_CURSOR  17
+#define OAM_ATTACK  18  // 18..21: the active spirit's attack (Bark's slam uses all four)
+#define OAM_BOSS    22
+#define OAM_HIT     23
+#define OAM_SHIELD  24  // Gloomheart's shield ring
+#define OAM_LEAF    25  // 25..30: leaves swirling round the wizard as Bark gives his power
+#define OAM_SPORE   31  // 31..38: Gloomheart's spores (the picker and the pouch page reuse them)
+#define OAM_MOTE    39  // 39..54: rot motes (warnings, dust, shards); the pouch page reuses 39..45
+#define OAM_SHADOW  55  // where it will land
+#define OAM_STARS   56  // dazed
+#define OAM_LEAFEN  57  // 57..62: Leafen waiting in this area, or the three of a rescue
+#define OAM_SHINY   63  // Dewdrop's shiny pebble
+#define OAM_POOL    64  // 64..124: the shared block, by region:
+#define OAM_ENEMY   (OAM_POOL + 0)   //   +0..7: blobs and drones (combat areas)
+#define OAM_CLAMP   (OAM_POOL + 8)   //   +8..14: Vael clamps on the Great Tree's roots (its region, before the heal)
+#define OAM_RING    (OAM_POOL + 8)   //   +8..23: the Gloomheart's rot ring (inside the tree)
+#define OAM_FIREFLY (OAM_POOL + 8)   //   +8..11: the marsh's fireflies
+#define OAM_LHOME   (OAM_POOL + 8)   //   +8..27: the Leafen's tiny homes (the Great Tree's region, healed)
+#define OAM_FOLK    (OAM_POOL + 28)  //   +28..60: the Leafen living round Bark's tree (33: three each for 11)
+#define POOL_SIZE   61
+#define OAM_SWIMHANDS 125 // swimming, front to back: ripples (slot 0), his hands, him, his wake
+#define OAM_SWIMRING 126  // (named for the ring's old slot: now his head and shoulders while he swims)
 #define OAM_WAKE    127
-#define SPIRIT_OAM(i) ((i) < OLD_SPIRITS ? OAM_SPIRIT + (i) : OAM_LILY)
-#define ZZZ_OAM(i) ((i) < OLD_SPIRITS ? OAM_ZZZ + (i) : OAM_LILY_Z)
+#define OAM_NONE    128   // no slot: sprite_set and sprite_hide ignore it
+#define SPIRIT_OAM(i) (OAM_SPIRIT + (i))
+static const u8 zzz_slot[9] = { OAM_ZZZ, OAM_ZZZ + 1, OAM_ZZZ + 2, OAM_ZZZ + 3, OAM_NONE, OAM_NONE, OAM_ZZZ + 4,
+                                OAM_NONE, OAM_NONE };
+#define ZZZ_OAM(i) (zzz_slot[i])
+static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(OAM_POOL + i) * 4] = 0x0200; }
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
 enum { RS_NONE, RS_TREE };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
+    if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_FLICK * 16 + i] = obj_pal_flick[i];
     s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
@@ -629,10 +646,10 @@ static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim);
 // ---------- spirits ----------
 enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME, SP_HIDDEN, SP_POUCH };   // hidden: not in the world yet (Bark)
 // SP_POUCH (v0.18.4): joined but not carried; it rides in the spirit pouch as a tiny orb (not selectable)
-enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE, KIND_BARK, KIND_LILY };
+enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE, KIND_BARK, KIND_LILY, KIND_FLICK };
 // housed: the spirit has a home. While it travels with you its power is weaker (fewer charges).
 typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // area: where it is
-#define NUM_SPIRITS 6   // v0.18: Lily, summoned by Bark
+#define NUM_SPIRITS 7   // v0.18: Lily, summoned by Bark; v0.19: Flick, found in the burnt orchard
 #define OLD_SPIRITS 5   // saves before v0.18 hold five
 #define NUM_SHIELDS 5   // the Gloomheart's shields: Sprout, Ripple, Pebble, Breeze, Bark
 #define NUM_HOMES 4   // Sprout, Ripple, Pebble, Breeze have homes; Bark has none yet
@@ -642,14 +659,15 @@ typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // are
 static Spirit spirits[NUM_SPIRITS];   // index == kind
 static s32 party[NUM_SPIRITS], party_count, active;   // party holds spirit indexes in join order
 static u32 pouch_on;                       // v0.18.4: Bark gave you the spirit pouch (saved)
-static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE", "BARK", "LILY" };
+static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE", "BARK", "LILY", "FLICK" };
 static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK",
-                                      "BREEZE: CLEAR THORNS", "BARK: CUT AND CLEAR", "LILY: CLEAN WATER, PADS" };
+                                      "BREEZE: CLEAR THORNS", "BARK: CUT AND CLEAR", "LILY: CLEAN WATER, PADS",
+                                      "FLICK: LIGHT LANTERNS, FIRES" };
 static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! R: SWAP",
                                        "PEBBLE JOINED! R: SWAP", "BREEZE JOINED! R: SWAP",
-                                       "BARK JOINED... HMPH.", "LILY JOINED! WHEE!" };
+                                       "BARK JOINED... HMPH.", "LILY JOINED! WHEE!", "FLICK JOINED! CHEEP!" };
 static const char *spirit_tired[] = { "SPROUT IS TIRED", "RIPPLE IS TIRED", "PEBBLE IS TIRED",
-                                      "BREEZE IS TIRED", "BARK: NO. I'M TIRED.", "LILY IS SLEEPY..." };
+                                      "BREEZE IS TIRED", "BARK: NO. I'M TIRED.", "LILY IS SLEEPY...", "FLICK IS SLEEPY..." };
 static const char *home_built[] = { "SPROUT'S GROVE IS BUILT!", "RIPPLE'S SPRING IS BUILT!",
                                     "PEBBLE'S CAIRN IS BUILT!", "BREEZE'S NOOK IS BUILT!" };
 static const char *home_prompt[] = { "A: BUILD SPROUT'S GROVE", "A: BUILD RIPPLE'S SPRING",
@@ -698,9 +716,10 @@ static u32 told_tips;
 #define TIP_ALL     4
 static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
-static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE, SPR_BARK, SPR_LILY };
-static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE, PAL_BARK, PAL_LILY };
-static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP, PAL_BARK, PAL_LILY };
+static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE, SPR_BARK, SPR_LILY, SPR_FLICK };
+static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE, PAL_BARK, PAL_LILY, PAL_FLICK };
+static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP, PAL_BARK, PAL_LILY,
+                                       PAL_FLICK };   // Flick, cold in its nest, has its own cold frame
 static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim) {
     s32 id = SPIRIT_OAM(i), lv = home_level[i];
     switch (i) {
@@ -831,6 +850,8 @@ enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
+static u32 flick_step, flick_flags;   // v0.19 Flick's wake-up scene; flags: 1 the warm ember, 2 the chirp told
+#define FLICK_SCENE_LEN 8
 static u32 swim_step;                                 // v0.18.1: Ripple's swimming lesson (saved; swim_skill after)
 enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
 static u8 leafen_state[NUM_LEAFEN];
@@ -943,7 +964,7 @@ static void draw_active(void) {
     put_text(30 - len - 4, 0, " ");
     put_text(30 - len - 3, 0, n);
     put_text(27, 0, " ");
-    put_text(28, 0, is_you(s->kind) ? " " : num);       // the wizard needs no charges
+    put_text(28, 0, is_you(s->kind) || s->kind == KIND_FLICK ? " " : num);   // the wizard and Flick need no charges
     put_text(29, 0, " ");
 }
 
@@ -965,6 +986,9 @@ static void reset_game(void) {
     spirit_init(KIND_BREEZE, BREEZE_SPOT_X, BREEZE_SPOT_Y, SP_ASLEEP);
     spirit_init(KIND_BARK, 0, 0, SP_HIDDEN);   // falls in once all four homes are level 2 (bark_step)
     spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);   // v0.18: Bark summons her once six Leafen are home
+    spirit_init(KIND_FLICK, ORCHARD_NEST_X, ORCHARD_NEST_Y, SP_ASLEEP);   // v0.19: cold in its nest in the orchard
+    spirits[KIND_FLICK].area = ORCHARD;
+    flick_step = flick_flags = 0;
     lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
@@ -1143,7 +1167,7 @@ static void grow_tile(s32 mx, s32 my, int edge) {
 static void check_wake(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->state != SP_ASLEEP || s->area != work_area) continue;
+        if (s->state != SP_ASLEEP || s->area != work_area || i == KIND_FLICK) continue;   // Flick needs the ember
         s32 mx = (s->x + 8) >> 4, my = (s->y + 8) >> 4;
         for (s32 y = my - 1; y <= my + 1; y++)
             for (s32 x = mx - 1; x <= mx + 1; x++)
@@ -1183,9 +1207,11 @@ static void update_blooms(void) {
 // of the light through). The darkness metatile's quarters: full, half, a quarter, none. Light comes from you
 // (a small circle, Caleb), the open ground south of the fallen trunk, and lit lanterns and campfires.
 #define DARK_R 26          // your own light (pixels)
+#define DARK_R_FLICK 31    // a little bigger with Flick carried (Caleb: slightly)
 #define FIRE_R 44          // a lit lantern's or campfire's
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 static s32 dark_on, light_n, light_x[24], light_y[24];
+static s32 dark_r(void) { return in_party(KIND_FLICK) ? DARK_R_FLICK : DARK_R; }
 static s32 dark_lv(s32 dx, s32 dy, s32 r) {        // 0 lit, 1 a quarter dark, 2 half, 3 dark
     s32 d2 = dx * dx + dy * dy;
     return d2 < (r - 10) * (r - 10) ? 0 : d2 < (r - 5) * (r - 5) ? 1 : d2 < r * r ? 2 : 3;
@@ -1193,7 +1219,7 @@ static s32 dark_lv(s32 dx, s32 dy, s32 r) {        // 0 lit, 1 a quarter dark, 2
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
     s32 lv = wy >= y0 + 16 ? 0 : wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // daylight past the trunk
-    if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), DARK_R));
+    if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
     for (s32 i = 0; i < light_n && lv; i++) lv = MIN(lv, dark_lv(wx - light_x[i], wy - light_y[i], FIRE_R));
     return lv;
 }
@@ -1218,7 +1244,7 @@ static void dark_enter(s32 a) {
 }
 static void dark_update(void) {                    // each frame: the cells round you (you move a few pixels at most)
     if (!dark_on) return;
-    s32 cx = (px + 8) >> 3, cy = (py + 4) >> 3, n = (DARK_R + 12) >> 3;
+    s32 cx = (px + 8) >> 3, cy = (py + 4) >> 3, n = (DARK_R_FLICK + 12) >> 3;
     for (s32 y = cy - n; y <= cy + n; y++)
         for (s32 x = cx - n; x <= cx + n; x++) dark_put(x, y);
 }
@@ -1391,11 +1417,11 @@ static const char *quest_reward[NUM_SPIRITS] = {
 };
 static const char *grew_msg[NUM_SPIRITS] = {
     "SPROUT GREW STRONGER!", "RIPPLE GREW STRONGER!", "PEBBLE GREW STRONGER!", "BREEZE GREW STRONGER!",
-    "BARK GREW STRONGER!",
+    "BARK GREW STRONGER!", "LILY GREW STRONGER!", "FLICK GREW STRONGER!",   // v0.19: Lily's was missing
 };
 static const char *trust_msg[NUM_SPIRITS] = {
     "SPROUT TRUSTS YOU FULLY!", "RIPPLE TRUSTS YOU FULLY!", "PEBBLE TRUSTS YOU FULLY!", "BREEZE TRUSTS YOU FULLY!",
-    "BARK TRUSTS YOU FULLY!",
+    "BARK TRUSTS YOU FULLY!", "LILY TRUSTS YOU FULLY!", "FLICK TRUSTS YOU FULLY!",
 };
 
 static void add_fp(s32 k, s32 n) {
@@ -1516,6 +1542,14 @@ static int use_power(s32 kind, s32 mx, s32 my) {
             sparkle_at(mx, my);
             sfx_play(SFX_BLOOM);
         } else return 0;
+    } else if (kind == KIND_FLICK) {
+        // v0.19 Flick lights the old lanterns and campfires: they stay lit, and light the dark round them
+        if (t == LANTERN_COLD) { set_tile(mx, my, LANTERN_LIT); show_message("THE LANTERN GLOWS!"); }
+        else if (t == CAMPFIRE_COLD) { set_tile(mx, my, CAMPFIRE_LIT); show_message("THE CAMPFIRE CRACKLES!"); }
+        else return 0;
+        sparkle_at(mx, my);
+        sfx_play(SFX_WAKE);
+        if (cur_area == ORCHARD) dark_enter(ORCHARD);   // the new light (all of the dark is redrawn)
     } else if (kind == KIND_STONE && t == VAEL_PIPE) {
         set_tile(mx, my, DEAD);                // a Vael pipe cracks: its sludge stops coming
         restorable[work_area]++;
@@ -1556,6 +1590,11 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         else if (t == BURNT_LOG && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
         else if (t == BURNT_LOG || t == BURNT_TREE) {   // v0.19: the orchard's fallen trunk (YOU) and burnt trees
             set_tile(mx, my, DEAD); restorable[work_area]++; wood++; show_message("+1 WOOD");
+            if (t == BURNT_LOG && !(flick_flags & 1)) {   // deep in the trunk, still glowing: it will warm Flick
+                flick_flags |= 1;
+                queue_message("A WARM EMBER FALLS OUT!");
+                queue_message("YOU TUCK IT IN YOUR POCKET.");
+            }
         }
         else if (t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) {
             s32 foot = (t == SWAMP_TOP || t == SWAMP_TOP_ALIVE) ? my + 1 : my;   // the whole tree comes down
@@ -1937,7 +1976,7 @@ static void hurt(s32 n, s32 fromx, s32 fromy) {
     if (hearts_now == 0) faint();
 }
 
-static int can_fight(s32 kind) { return kind == KIND_BARK || kind == KIND_LILY || home_level[kind] >= 2; }
+static int can_fight(s32 kind) { return kind == KIND_BARK || kind == KIND_LILY || kind == KIND_FLICK || home_level[kind] >= 2; }
 
 // Is something to hit within reach, in the direction the wizard faces?
 static int enemy_ahead(void) {
@@ -1974,6 +2013,8 @@ static void start_attack(s32 kind) {
         sfx_play(SFX_GUST); break;
     case KIND_LILY: atk.life = 20; atk.w = atk.h = 12; atk.dmg = 1; atk.push = 6; atk.dx = fx * 3; atk.dy = fy * 3;
         chime(1319, 6); break;                            // v0.18.2: a spinning lily blossom
+    case KIND_FLICK: atk.life = 22; atk.w = atk.h = 10; atk.dmg = 1; atk.push = 6; atk.dx = fx * 3; atk.dy = fy * 3;
+        chime(988, 5); break;                             // v0.19: an ember shot
     default: atk.life = 14; atk.x = px - 16; atk.y = py - 16; atk.w = atk.h = 48; atk.dmg = 2; atk.push = 14;
         sfx_play(SFX_BUILD); break;                       // Bark slams the ground all around
     }
@@ -2407,7 +2448,7 @@ static void draw_gloom_fx(void) {
     }
     s32 r = gloom_ring < 0 ? -gloom_ring : gloom_ring;
     int ring = on && boss.alive && gloom_ring;
-    for (s32 k = 0; k < RING_DOTS; k++) {
+    for (s32 k = 0; k < RING_DOTS && cur_area == HOLLOW_IN; k++) {   // its slots are shared (OAM_POOL)
         if (!ring) { sprite_hide(OAM_RING + k); continue; }
         s32 x = boss.x + 16 + (dir16[k] * r >> 5) - 8, y = boss.y + 16 + (DIR16_Y(k) * r >> 5) - 8;
         sprite_set(OAM_RING + k, x - cam_x, y - cam_y, SPR_COMBAT + (gloom_ring < 0 && (frame & 8) ? C_MOTE : C_RINGDOT), 0, PAL_COMBAT);
@@ -2446,6 +2487,7 @@ static void draw_combat(void) {
         case KIND_STONE: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_ROCK, 0, PAL_COMBAT); break;
         case KIND_BREEZE: sprite_set(OAM_ATTACK, x, y, SPR_COMBAT + C_GUST, (frame >> 2) & 1, PAL_COMBAT); break;
         case KIND_LILY: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_PETAL, (frame >> 2) & 1, PAL_COMBAT); break;
+        case KIND_FLICK: sprite_set(OAM_ATTACK, x - 3, y - 3, SPR_FLICK + 3, (frame >> 2) & 1, PAL_FLICK); break;
         default:                                         // four quarters of the ring, flipped into place
             for (s32 k = 0; k < 4; k++) {
                 u16 *o = &oam_shadow[(OAM_ATTACK + k) * 4];
@@ -2544,7 +2586,8 @@ static void use_ability(void) {
         else sfx_play(SFX_FAIL);
         return;
     }
-    if (s->energy == 0 && !(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) {
+    int free_use = (bonded == KIND_SPROUT && s->kind == KIND_SPROUT) || s->kind == KIND_FLICK;   // Flick: no charges
+    if (s->energy == 0 && !free_use) {
         sfx_play(SFX_FAIL);
         show_message(spirit_tired[s->kind]);
         if (msgq_len == 0) queue_message(REST_TIP);
@@ -2555,7 +2598,7 @@ static void use_ability(void) {
         if (tile_at(fx >> 4, fy >> 4) == VAEL_PIPE && !msg_timer) show_message("A VAEL PIPE! PEBBLE CAN SMASH IT.");
         return;
     }
-    if (!(bonded == KIND_SPROUT && s->kind == KIND_SPROUT)) s->energy--;   // a bonded Sprout blooms for free
+    if (!free_use) s->energy--;                              // a bonded Sprout blooms for free
     add_fp(s->kind, 2);
     draw_active();
     if (!(told_tips & TIP_REST)) { told_tips |= TIP_REST; queue_message(REST_TIP); }
@@ -2567,7 +2610,8 @@ static void use_ability(void) {
 static s32 party_cap(void) { return spirits[KIND_BARK].state != SP_HIDDEN || tree_alive ? 5 : 4; }
 static s32 carried(void) { return party_count - (tree_alive && in_party(KIND_BARK)); }
 static const char *pouch_msg[NUM_SPIRITS] = { "SPROUT HOPS IN THE POUCH.", "RIPPLE HOPS IN THE POUCH.",
-    "PEBBLE HOPS IN THE POUCH.", "BREEZE HOPS IN THE POUCH.", "", "LILY HOPS IN THE POUCH." };
+    "PEBBLE HOPS IN THE POUCH.", "BREEZE HOPS IN THE POUCH.", "", "LILY HOPS IN THE POUCH.",
+    "FLICK HOPS IN THE POUCH." };
 static void party_add(s32 i) {
     if (carried() >= party_cap() && pouch_on && !is_you(i)) {
         spirits[i].state = SP_POUCH;
@@ -2889,11 +2933,11 @@ static void update_pumps(void) {
 }
 
 // ---------- gifts: tap B while facing a spirit ----------
-static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2, 1, 1 };    // 0 stone, 1 fruit, 2 seeds
+static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2, 1, 1, 1 };    // 0 stone, 1 fruit, 2 seeds
 static const char *favorite_name[3] = { "STONE", "FRUIT", "SEEDS" };
 static const char *loves_msg[NUM_SPIRITS] = {
     "SPROUT LOVES THE SEEDS!", "RIPPLE LOVES THE FRUIT!", "PEBBLE LOVES THE STONE!", "BREEZE LOVES THE SEEDS!",
-    "BARK: ...FINE. THANKS.", "LILY LOVES THE FRUIT!",
+    "BARK: ...FINE. THANKS.", "LILY LOVES THE FRUIT!", "FLICK LOVES THE FRUIT!",
 };
 static u32 b_hold;
 // B by deep water with Ripple chosen (and the skill learned): jump in (v0.18.1).
@@ -2991,6 +3035,15 @@ static void handle_action(void) {
         if ((s->state == SP_HOME) != (pass == 1)) continue;
         // A housed spirit is drawn inside its home (the roof for Pebble and Breeze); it also answers near the site.
         if (!near_px(s->x, s->y, 28) && !(s->state == SP_HOME && near_px(home_site_x[i] * 16, home_site_y[i] * 16, 24))) continue;
+        if (s->state == SP_ASLEEP && i == KIND_FLICK) {   // v0.19: cold in its nest; the ember warms it
+            prompt("A: LOOK AT THE LITTLE BIRD");
+            if (HIT(KEY_A)) {
+                if (flick_flags & 1) { flick_step = 1; return; }
+                show_message("A TINY BIRD OF ASH, CURLED UP.");
+                queue_message("IT'S SO COLD... IT NEEDS WARMTH.");
+            }
+            return;
+        }
         if (s->state == SP_ASLEEP) {
             // Only a hint; A still uses your spirit so you can bloom beside it.
             if (msg_timer == 0) show_message("IT SLEEPS. BLOOM NEAR IT");
@@ -3513,6 +3566,35 @@ static void update_leafen(void) {
         swim_step = 1;
         return;
     }
+    // v0.19 Flick wakes: you hold out the warm ember from the fallen trunk
+    if (flick_step && flick_step <= FLICK_SCENE_LEN) {
+        scene_on = 1;
+        if (msg_timer || msgq_len) return;
+        static const char *lines[FLICK_SCENE_LEN] = {
+            "YOU HOLD OUT THE WARM EMBER...", "THE LITTLE BIRD STIRS...", "FLICK: CHEEP! WARM! SO WARM!",
+            "FLICK: I'M FLICK! I WAS COLD.", "I LOVE LIGHT! LANTERNS! FIRES!", "FLICK JOINED! CHEEP!",
+            "PICK FLICK, PRESS A BY A", "LANTERN OR A CAMPFIRE.",
+        };
+        Spirit *s = &spirits[KIND_FLICK];
+        if (flick_step == 2) {                                   // it glows back to life
+            s->state = SP_AWAKE;
+            for (s32 k = 0; k < 8; k++) add_mote_c(s->x + 4, s->y, dir16[k * 2] >> 1, DIR16_Y(k * 2) >> 1, 24, C_GLINT);
+            sfx_play(SFX_WAKE);
+        }
+        if (flick_step == 6) { s->energy = 3; party_add(KIND_FLICK); sfx_play(SFX_JOIN); dark_enter(cur_area); }
+        show_message(lines[flick_step - 1]);
+        flick_step++;
+        return;
+    }
+    // v0.19: past the fallen trunk, a chirp somewhere in the smoke (once), and now and then while Flick is cold
+    if (cur_area == ORCHARD && spirits[KIND_FLICK].state == SP_ASLEEP && py < ORCHARD_WALL_ROW * 16 - 8) {
+        if (!(flick_flags & 2) && !scene_on && !msg_timer && !msgq_len) {
+            flick_flags |= 2;
+            show_message("...CHEEP? A TINY CHIRP,");
+            queue_message("SOMEWHERE IN THE SMOKE.");
+        }
+        if (frame % 150 == 0) { chime(2093, 3); chime(2637, 3); }
+    }
     // v0.18: with the first six home, Bark summons Lily and points you south to the marsh
     if (lily_step && lily_step <= LILY_SCENE_LEN) {
         scene_on = 1;
@@ -3606,9 +3688,10 @@ static u8 folk_look(s32 k, s32 i) { return i == 0 ? leafen_look[k] : (u8)((leafe
 static void draw_leafen(void) {
     for (s32 i = 0; i < 6; i++) sprite_hide(OAM_LEAFEN + i);
     sprite_hide(OAM_SHINY);
-    for (s32 i = 0; i < NUM_LEAFEN * 3; i++) sprite_hide(OAM_FOLK + i);
-    if (cur_area == WEST)                           // these slots are the Gloomheart's ring dots inside the tree
+    if (cur_area == WEST && tree_alive) {           // the village's slots are shared (OAM_POOL)
+        for (s32 i = 0; i < NUM_LEAFEN * 3; i++) sprite_hide(OAM_FOLK + i);
         for (s32 i = 0; i < FIRST_LEAFEN * 2 + NUM_LEAFEN - FIRST_LEAFEN; i++) sprite_hide(OAM_LHOME + i);   // 15 homes
+    }
     if (!tree_alive || !leafen_init) return;
     for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_LEAFEN * 16 + i] = obj_pal_leafen[i];   // the clamps' bank is free now
     s32 slot = 0;
@@ -3637,7 +3720,7 @@ static void draw_leafen(void) {
     }
     if (cur_area == 0 && !has_shiny && leafen_waiting(LF_DEW) && ((frame >> 3) & 7))   // glinting
         sprite_set(OAM_SHINY, SHINY_X * 16 - cam_x, SHINY_Y * 16 - cam_y, SPR_LEAFEN + C_SHINY, 0, PAL_LEAFEN);
-    for (s32 i = 0; i < 4; i++) {                   // the marsh's fireflies: drifting loops, a slow blink
+    for (s32 i = 0; i < 4 && cur_area == MARSH; i++) {   // the marsh's fireflies: drifting loops, a slow blink
         static const short fly_at[5][2] = { { 120, 140 }, { 300, 90 }, { 380, 260 }, { 180, 330 }, { 260, 440 } };
         u32 tt = frame + i * 97, a = (tt >> 2) % 48, b = (tt >> 3) % 48;
         if (cur_area != MARSH || ((tt >> 5) % 5) == 0) { sprite_hide(OAM_FIREFLY + i); continue; }
@@ -4075,7 +4158,7 @@ static void draw_sprites(void) {
         if (s->state == SP_POUCH) {                   // v0.18.4: tiny orbs circling his head, spread evenly
             u32 a = ((frame >> 1) + (u32)(j_pouch++ * 48 / n_pouch)) % 48;
             sprite_set(SPIRIT_OAM(i), px - cam_x + loop_x48[a] * 10 / 24, py - cam_y - 22 + loop_y48[a] * 4 / 16,
-                       SPR_LEAFEN + C_MINI + i, 0, PAL_LEAFEN);
+                       SPR_LEAFEN + (i < 6 ? C_MINI + i : C_MINI + 7), 0, PAL_LEAFEN);   // Flick's after the rest
             sprite_hide(ZZZ_OAM(i));
             continue;
         }
@@ -4085,7 +4168,7 @@ static void draw_sprites(void) {
         int orb = swimming();
         if (orb_morph) orb = ((orb_morph >> 1) & 1) ? !orb : orb;   // changing: flicker between the two forms
         if (s->state == SP_JOINED && in_party(i) && orb && tree_alive && !is_you(i)) {   // v0.18.1: orbs while you swim
-            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + C_ORB + i, 0, PAL_LEAFEN);
+            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + (i < 6 ? C_ORB + i : C_MINI + 6), 0, PAL_LEAFEN);
             sprite_hide(ZZZ_OAM(i));
         } else if (i == KIND_BARK && float_on) {         // the revival: Bark floats, then shoots up
             if (float_on == 2) sprite_hide(SPIRIT_OAM(i));
@@ -4098,6 +4181,13 @@ static void draw_sprites(void) {
         } else if (s->state == SP_HOME) {
             draw_home_spirit(i, sx, s->y - cam_y, b, anim);
             sprite_hide(ZZZ_OAM(i));
+        } else if (s->state == SP_ASLEEP && i == KIND_FLICK) {   // v0.19: cold in its nest, shivering now and then,
+            u32 t = frame % 90;                                    // and a little spark that shows through the dark
+            sprite_set(SPIRIT_OAM(i), sx, sy + 2, SPR_FLICK + (t < 16 && (frame & 2) ? 4 : 2), 0, PAL_FLICK);
+            if (t >= 30 && t < 60) {
+                sprite_set(ZZZ_OAM(i), sx + 4, sy - 4 - (s32)(t - 30) / 3, SPR_SPARKLE, 0, PAL_FX);
+                oam_shadow[ZZZ_OAM(i) * 4 + 2] &= ~(3 << 10);   // above the dark
+            } else sprite_hide(ZZZ_OAM(i));
         } else if (s->state == SP_ASLEEP) {
             // gray, still, with a sleep bubble that drifts up
             sprite_set(SPIRIT_OAM(i), sx, sy + 2, spirit_tile[s->kind], 0, spirit_sleep_pal[s->kind]);
@@ -4110,7 +4200,7 @@ static void draw_sprites(void) {
     }
 
     // Vael clamps on the Great Tree's roots: shown while their cell is still a CLAMP.
-    for (s32 i = 0; i < NUM_CLAMPS; i++) {
+    for (s32 i = 0; i < NUM_CLAMPS && cur_area == WEST && !tree_alive; i++) {   // shared slots (OAM_POOL)
         u8 t = maps[WEST][(clamp_px_y[i] >> 4) * MAP_W + (clamp_px_x[i] >> 4)];
         s32 x = clamp_px_x[i] - 16 - cam_x, y = clamp_px_y[i] - 16 - cam_y;
         if (cur_area == WEST && t == CLAMP && x > -32 && x < SCREEN_W && y > -32 && y < SCREEN_H) {
@@ -4150,7 +4240,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x43534652u   // "RFSC" (v0.19: the burnt orchard)
+#define SAVE_MAGIC 0x44534652u   // "RFSD" (v0.19: Flick)
+#define SAVE_MAGIC_V190 0x43534652u   // "RFSC": v0.19.0 saves still load
 #define SAVE_MAGIC_V184 0x42534652u   // "RFSB": v0.18.4 saves still load
 #define SAVE_MAGIC_V18 0x41534652u   // "RFSA": v0.18 saves still load
 #define SAVE_MAGIC_V17 0x39534652u   // "RFS9": v0.17 saves still load
@@ -4197,9 +4288,13 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { maps[ORCHARD], sizeof(maps[0]) }, { &restorable[ORCHARD], 4 }, { picked[ORCHARD], sizeof(picked[0]) },
     { &pump_on[ORCHARD], 1 }, { &pump_x[ORCHARD], 1 }, { &pump_y[ORCHARD], 1 }, { &pump_drain[ORCHARD], 4 },
     { &told_full[ORCHARD], 1 },
+    // v0.19 (step 2): Flick
+    { &spirits[KIND_FLICK], sizeof(Spirit) }, { &party[6], 4 }, { &fp[KIND_FLICK], 1 }, { &quest[KIND_FLICK], 1 },
+    { &unlocked[KIND_FLICK], 1 }, { &flick_step, 4 }, { &flick_flags, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V184_FIELDS (NUM_SAVE_FIELDS - 8)
+#define NUM_V190_FIELDS (NUM_SAVE_FIELDS - 7)
+#define NUM_V184_FIELDS (NUM_V190_FIELDS - 8)
 #define NUM_V18_FIELDS (NUM_V184_FIELDS - 1)
 #define NUM_V17_FIELDS (NUM_V18_FIELDS - 17)
 #define NUM_V16_FIELDS (NUM_V17_FIELDS - 4)
@@ -4251,6 +4346,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V17) nf = NUM_V17_FIELDS;
     else if (magic == SAVE_MAGIC_V18) nf = NUM_V18_FIELDS;
     else if (magic == SAVE_MAGIC_V184) nf = NUM_V184_FIELDS;
+    else if (magic == SAVE_MAGIC_V190) nf = NUM_V190_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4267,7 +4363,13 @@ static int load_game(void) {
         leafen_init = has_shiny = pip_cell = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19: a fresh orchard
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19 step 2: Flick cold in its nest
+        spirit_init(KIND_FLICK, ORCHARD_NEST_X, ORCHARD_NEST_Y, SP_ASLEEP);
+        spirits[KIND_FLICK].area = ORCHARD;
+        party[6] = 0; fp[KIND_FLICK] = quest[KIND_FLICK] = unlocked[KIND_FLICK] = 0;
+        flick_step = flick_flags = 0;
+    }
+    if (nf < NUM_V190_FIELDS) {                          // before v0.19: a fresh orchard
         restorable[ORCHARD] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
             u8 t = start_maps[ORCHARD * MAP_W * MAP_H + i];
@@ -4470,7 +4572,19 @@ static void pouch_put(s32 k) {                   // out of the party, into the p
     party_remove(k);
 }
 
-static s32 spirit_cursor;
+static s32 spirit_cursor;   // a kind
+// v0.19.1 (Caleb): the SPIRITS page lists only the spirits you have: not ones you have not met yet ("???"),
+// and not Bark once he is his tree again (his power is YOU, which is not a spirit you pick here).
+static int spirit_listed(s32 k) {
+    s32 st = spirits[k].state;
+    return (st == SP_JOINED || st == SP_HOME || st == SP_POUCH) && !is_you(k);
+}
+static void spirit_cursor_step(s32 d) {          // to the next listed spirit (d = 1 or -1), or the first if none
+    for (s32 n = 0; n < NUM_SPIRITS; n++) {
+        spirit_cursor = (spirit_cursor + d + NUM_SPIRITS) % NUM_SPIRITS;
+        if (spirit_listed(spirit_cursor)) return;
+    }
+}
 static const char *quest_short[NUM_SPIRITS][2] = {
     { "PLANT 3 FLOWER", "BEDS BY MY GROVE" }, { "PULL THE VAEL", "LEVER, STEPPE" },
     { "FIND MY LOST", "STONE, VALLEY" }, { "CLEAR 30 THORNS", "WITH MY GUSTS" },
@@ -4510,10 +4624,11 @@ static void draw_page(void) {
     if (menu_page == M_SPIRITS) {
         put_text_win(2, r++, "SPIRITS");
         r++;
-        for (s32 k = 0; k < NUM_SPIRITS; k++) {   // two rows each (v0.18: six spirits fit in rows 4-15)
+        if (!spirit_listed(spirit_cursor)) spirit_cursor_step(1);
+        for (s32 k = 0; k < NUM_SPIRITS; k++) {   // two rows each (seven fit in rows 4-17)
             Spirit *sp = &spirits[k];
+            if (!spirit_listed(k)) continue;
             put_text_win(1, r, k == spirit_cursor ? ">" : " ");
-            if (sp->state == SP_ASLEEP || sp->state == SP_HIDDEN) { put_text_win(2, r, "???"); r += 2; continue; }
             put_text_win(2, r, spirit_name[k]);
             draw_hearts(11, r, k);
             r++;
@@ -4521,7 +4636,7 @@ static void draw_page(void) {
             str_cat(&p, "  ");
             if (sp->state == SP_HOME) str_cat(&p, "AT HOME");
             else if (sp->state == SP_POUCH) str_cat(&p, "IN POUCH");
-            else { p = fmt_num(p, sp->energy); *p++ = '/'; p = fmt_num(p, energy_max(sp)); }
+            else if (k != KIND_FLICK) { p = fmt_num(p, sp->energy); *p++ = '/'; p = fmt_num(p, energy_max(sp)); }   // Flick: no charges
             if (bonded == k) str_cat(&p, "  BOND");
             *p = 0;
             put_text_win(2, r, line);
@@ -4695,10 +4810,10 @@ static void update_menu(void) {
         }
     } else if (menu_page == M_SPIRITS) {
         s32 old = spirit_cursor;
-        if (HIT(KEY_DOWN)) spirit_cursor = (spirit_cursor + 1) % NUM_SPIRITS;
-        if (HIT(KEY_UP)) spirit_cursor = (spirit_cursor + NUM_SPIRITS - 1) % NUM_SPIRITS;
+        if (HIT(KEY_DOWN)) spirit_cursor_step(1);
+        if (HIT(KEY_UP)) spirit_cursor_step(-1);
         if (old != spirit_cursor) { draw_page(); sfx_play(SFX_MENU_MOVE); }
-        if (HIT(KEY_A) && spirits[spirit_cursor].state != SP_ASLEEP && spirits[spirit_cursor].state != SP_HIDDEN) {
+        if (HIT(KEY_A) && spirit_listed(spirit_cursor)) {
             menu_page = 10 + spirit_cursor; draw_page(); sfx_play(SFX_MENU_OPEN); return;
         }
     } else if (menu_page >= 10 && menu_page < 10 + NUM_SPIRITS) {
