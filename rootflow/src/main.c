@@ -3739,11 +3739,12 @@ static void update_leafen(void) {
         }
         if ((flick_flags & 2) && ++hint_t >= 25 * 60 && !scene_on && !msg_timer && !msgq_len) {
             hint_t = 0;
-            static const char *from[8] = { "IS IT COMING FROM THE NORTH?", "IS IT FROM THE NORTH-EAST?",
-                "IS IT COMING FROM THE EAST?", "IS IT FROM THE SOUTH-EAST?", "IS IT COMING FROM THE SOUTH?",
-                "IS IT FROM THE SOUTH-WEST?", "IS IT COMING FROM THE WEST?", "IS IT FROM THE NORTH-WEST?" };
-            s32 ns = ay > 2 * ax ? 0 : ax > 2 * ay ? 2 : 1;   // 0 straight north/south, 2 east/west, 1 between
-            s32 k = ns == 0 ? (dy < 0 ? 0 : 4) : ns == 2 ? (dx > 0 ? 2 : 6) : dy < 0 ? (dx > 0 ? 1 : 7) : (dx > 0 ? 3 : 5);
+            // which way it seems to come from, by the way you face (Caleb: "ahead", not compass points)
+            static const char *from[4] = { "IS IT COMING FROM AHEAD?", "IS IT COMING FROM BEHIND?",
+                                           "IS IT OFF TO THE LEFT?", "IS IT OFF TO THE RIGHT?" };
+            s32 fx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0, fy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
+            s32 along = dx * fx + dy * fy, side = -dx * fy + dy * fx;   // side > 0: to your right
+            s32 k = (along < 0 ? -along : along) >= (side < 0 ? -side : side) ? (along >= 0 ? 0 : 1) : (side > 0 ? 3 : 2);
             static u32 close_n;
             show_message(d >= 5 ? from[k] : (close_n++ & 1) ? "BRRRRR..." : "IT'S RIGHT AROUND HERE...");
         }
