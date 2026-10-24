@@ -1,0 +1,22 @@
+# v0.19.5 Flick's chirp: past the trunk "...CHEEP?" / "WHAT'S THAT?", then which way it seems to come from;
+# by the nest "IT'S RIGHT AROUND HERE..."
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=248,$py=4
+30 64
+0 0 !$px=240,$py=458,$active=4
+20 64
+1 1
+1 0
+400 0
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$px=240,$py=330
+5 0

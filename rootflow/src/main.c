@@ -196,6 +196,11 @@ static void chime(u32 hz, u32 vol) {
     REG_SND1CNT = (vol << 12) | (2 << 8) | (2 << 6);      // decaying envelope, 50% duty
     REG_SND1FREQ = (u16)((2048 - 131072 / hz) | 0x8000);  // restart
 }
+// v0.19.5 a weak little chirp (Flick, cold): the thinnest tone (12.5%), quiet, fading fast
+static void weak_chirp(u32 hz, u32 vol) {
+    REG_SND1CNT = (vol << 12) | (1 << 8) | (0 << 6);
+    REG_SND1FREQ = (u16)((2048 - 131072 / hz) | 0x8000);
+}
 static const u16 scale[] = { 523, 587, 659, 784, 880, 1047, 1175, 1319 };
 
 // ---------- music: melody on channel 2, bass on channel 3, harmony on channel 1 ----------
@@ -864,7 +869,8 @@ enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
-static u32 flick_step, flick_flags;   // v0.19 Flick's wake-up scene; flags: 1 the warm ember, 2 the chirp told
+static u32 flick_step, flick_flags;   // v0.19 Flick's wake-up scene; flags: 1 the warm ember, 2 the chirp told,
+                                      // 4 its first shiver heard
 #define FLICK_SCENE_LEN 8
 static u32 swim_step;                                 // v0.18.1: Ripple's swimming lesson (saved; swim_skill after)
 enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
@@ -3149,7 +3155,8 @@ static void handle_action(void) {
             if (HIT(KEY_A)) {
                 if (flick_flags & 1) { flick_step = 1; return; }
                 show_message("A TINY BIRD OF ASH, CURLED UP.");
-                queue_message("IT'S SO COLD... IT NEEDS WARMTH.");
+                queue_message("BRRRRR... SO COLD...");
+                queue_message("IT NEEDS SOMETHING WARM.");
             }
             return;
         }
@@ -3707,14 +3714,39 @@ static void update_leafen(void) {
         flick_step++;
         return;
     }
-    // v0.19: past the fallen trunk, a chirp somewhere in the smoke (once), and now and then while Flick is cold
+    // v0.19: past the fallen trunk, Flick's chirp leads you to its nest (Caleb: by how near you are). The nearer,
+    // the more often, the louder and the higher it chirps; now and then you wonder which way it comes from.
     if (cur_area == ORCHARD && spirits[KIND_FLICK].state == SP_ASLEEP && py < ORCHARD_WALL_ROW * 16 - 8) {
+        static u32 chirp_t, chirp2, chirp_vol, hint_t;
+        s32 dx = ORCHARD_NEST_X * 16 + 8 - (px + 8), dy = ORCHARD_NEST_Y * 16 + 8 - (py + 8);
+        s32 ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy, d = (ax + ay) >> 4;   // about how many tiles away
         if (!(flick_flags & 2) && !scene_on && !msg_timer && !msgq_len) {
             flick_flags |= 2;
-            show_message("...CHEEP? A TINY CHIRP,");
-            queue_message("SOMEWHERE IN THE SMOKE.");
+            show_message("...CHEEP?");
+            queue_message("WHAT'S THAT?");
+            hint_t = 25 * 60 - 360;                    // which way it seems to come from, a little later
         }
-        if (frame % 150 == 0) { chime(2093, 3); chime(2637, 3); }
+        if (++chirp_t >= (u32)(40 + d * 6)) {          // a weak two-note chirp, falling (Caleb: it sounds weak)
+            chirp_t = 0;
+            chirp_vol = d < 6 ? 7 : d < 14 ? 5 : d < 24 ? 3 : 2;
+            weak_chirp(2349, chirp_vol);
+            chirp2 = 7;
+        }
+        if (chirp2 && --chirp2 == 0) weak_chirp(1976, chirp_vol > 1 ? chirp_vol - 1 : 1);
+        if (d < 4 && !(flick_flags & 4) && !scene_on && !msg_timer && !msgq_len) {   // close: it shivers
+            flick_flags |= 4;
+            show_message("BRRRRR...");
+        }
+        if ((flick_flags & 2) && ++hint_t >= 25 * 60 && !scene_on && !msg_timer && !msgq_len) {
+            hint_t = 0;
+            static const char *from[8] = { "IS IT COMING FROM THE NORTH?", "IS IT FROM THE NORTH-EAST?",
+                "IS IT COMING FROM THE EAST?", "IS IT FROM THE SOUTH-EAST?", "IS IT COMING FROM THE SOUTH?",
+                "IS IT FROM THE SOUTH-WEST?", "IS IT COMING FROM THE WEST?", "IS IT FROM THE NORTH-WEST?" };
+            s32 ns = ay > 2 * ax ? 0 : ax > 2 * ay ? 2 : 1;   // 0 straight north/south, 2 east/west, 1 between
+            s32 k = ns == 0 ? (dy < 0 ? 0 : 4) : ns == 2 ? (dx > 0 ? 2 : 6) : dy < 0 ? (dx > 0 ? 1 : 7) : (dx > 0 ? 3 : 5);
+            static u32 close_n;
+            show_message(d >= 5 ? from[k] : (close_n++ & 1) ? "BRRRRR..." : "IT'S RIGHT AROUND HERE...");
+        }
     }
     // v0.18: with the first six home, Bark summons Lily and points you south to the marsh
     if (lily_step && lily_step <= LILY_SCENE_LEN) {
