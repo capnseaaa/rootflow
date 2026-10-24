@@ -61,6 +61,9 @@ ORCHARD_FIRES = [(19, 24), (7, 4)]                 # cold campfires, a log seat 
 ORCHARD_STACKS = [(25, 20), (6, 10), (24, 3)]      # Vael smoke stacks (Pebble smashes them)
 ORCHARD_NEST = (4, 2)                              # Flick's burnt nest (v0.19 step 2), in a clearing
 ORCHARD_LEAFEN = [(27, 15), (9, 21)]               # the two Leafen (step 5): spots kept clear
+# v0.19 (step 4) a cold campfire with a log seat each side in the old regions too (Flick lights them; cook
+# there). Not in the Great Tree's region: its tile set fills video memory (the orchard has its own two).
+CAMPFIRES = [(0, 26, 16), (1, 8, 18), (2, 3, 17), (5, 12, 16)]   # off the ways people walk
 # v0.18 the drowned marsh, south-west: in from the Great Tree region's south edge (these columns)
 MARSH_GATE_COLS = (14, 15, 16, 17)
 MARSH_PIPES = [(7, 10), (23, 6), (12, 24)]         # Vael pipes on the banks, each pouring into its sludge
@@ -877,8 +880,37 @@ def tile_set(base, files):
 TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
+WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
+            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH}
+
+
+def reach_count(m, start):
+    from collections import deque
+    seen = {start}; q = deque([start])
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n = (x + dx, y + dy)
+            if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in seen and m[n[1]][n[0]] in WALKABLE:
+                seen.add(n); q.append(n)
+    return len(seen)
+
+
+def add_campfires(maps):
+    """v0.19: a cold campfire and its two log seats in each old region, checked not to cut anything off."""
+    for a, x, y in CAMPFIRES:
+        m = maps[a]
+        start = next((cx, cy) for cy in range(MAP_H) for cx in range(MAP_W) if m[cy][cx] in WALKABLE)
+        before = reach_count(m, start)
+        assert all(m[y][x + dx] in WALKABLE for dx in (-1, 0, 1)), f"campfire spot {a} {x},{y} is not open"
+        m[y][x] = CAMPFIRE_COLD
+        m[y][x - 1] = m[y][x + 1] = LOG_SEAT
+        assert reach_count(m, start) >= before - 3, f"the campfire at {a} {x},{y} cuts the way"
+
+
 def make_maps():
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard()]
+    add_campfires(maps)
     return [v for m in maps for row in m for v in row]
 
 
@@ -1004,6 +1036,10 @@ def main():
     out.append(f"#define BREEZE_SPOT_X {BREEZE_SPOT[0]}\n#define BREEZE_SPOT_Y {BREEZE_SPOT[1]}")
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
     out.append(f"#define ORCHARD_NEST_X {ORCHARD_NEST[0]}\n#define ORCHARD_NEST_Y {ORCHARD_NEST[1]}")
+    out.append(f"#define NUM_CAMPS {len(CAMPFIRES)}")
+    out.append(c_array("unsigned char", "camp_area", [a for a, _, _ in CAMPFIRES], fmt="{}"))
+    out.append(c_array("unsigned char", "camp_x", [x for _, x, _ in CAMPFIRES], fmt="{}"))
+    out.append(c_array("unsigned char", "camp_y", [y for _, _, y in CAMPFIRES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_area", [a for a, _, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_x", [x for _, x, _ in HOME_SITES], fmt="{}"))
     out.append(c_array("unsigned char", "home_site_y", [y for _, _, y in HOME_SITES], fmt="{}"))

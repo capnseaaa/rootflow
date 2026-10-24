@@ -1,0 +1,53 @@
+# v0.19.3 campfires and cooking: in the valley, Flick lights the cold campfire at (26,16); sit and cook a snack
+# (charges full), a stew (+1 heart for 45 s), then a tea (it takes the stew's place); a mushroom picked
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=494,$py=202
+40 16
+0 0 @$cur_area,$maps+536
+# Flick joins (test setup), stands below the fire facing it
+0 0 !$spirits+176=2,$party+20=6,$party_count=6,$active=5,$fruit=5,$mushrooms=3,$seeds=3
+0 0 !$px=416,$py=266,$pdir=1
+1 0
+1 1
+1 0
+20 0 ck0.ppm
+0 0 @$maps+536
+# A again: the cooking window
+1 1
+1 0
+5 0 ck1.ppm
+0 0 @$cook_open
+0 0 !$spirits+16=0,$spirits+44=0
+1 1
+1 0
+0 0 @$fruit,$spirits+16,$spirits+44
+1 128
+1 0
+1 1
+1 0
+0 0 @$fruit,$mushrooms,$meal_kind,$hearts_now,$meal_timer
+1 128
+1 0
+1 1
+1 0
+5 0 ck2.ppm
+0 0 @$mushrooms,$seeds,$meal_kind
+1 2
+1 0
+2800 0
+0 0 @$meal_kind,$meal_timer,$hearts_now
+# a mushroom (test setup: a row of them at x 24-27 on row 18, below you), A facing down
+0 0 !$maps+600=1532713819,$pdir=0,$px=400
+1 0
+1 1
+1 0
+0 0 @$mushrooms,$maps+600

@@ -844,6 +844,11 @@ static u32 tree_step, tree_wait, tree_done;
 // invincibility, and the mini bosses beaten (a bit each, saved).
 #define MAX_HEARTS 5
 static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
+// v0.19 (step 4) cooking at a lit campfire (Caleb: one meal at a time, 45 seconds; no faster walking)
+enum { MEAL_NONE, MEAL_HEART, MEAL_LIGHT };
+#define MEAL_FRAMES (45 * 60)
+static u32 meal_kind, meal_timer, mushrooms;      // mushrooms: picked in the marsh (saved); the meal is not saved
+static u32 hearts_max(void) { return MAX_HEARTS + (meal_kind == MEAL_HEART); }
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
 static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
 // ---------- the Leafen (v0.17) ----------
@@ -960,7 +965,7 @@ static void unstick_player(void) {
 // Once the Great Tree is healed, Bark lives in it and his slot is the wizard's own: "YOU".
 static int is_you(s32 kind) { return kind == KIND_BARK && tree_alive; }
 static void draw_active(void) {
-    for (s32 c = 16; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' ');   // the bar spans the screen
+    for (s32 c = 17; c < 30; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' ');   // the bar spans the screen (16: a sixth heart)
     if (party_count == 0) return;
     Spirit *s = &spirits[party[active]];
     const char *n = is_you(s->kind) ? "YOU" : spirit_name[s->kind];
@@ -1216,7 +1221,7 @@ static void update_blooms(void) {
 #define FIRE_R 44          // a lit lantern's or campfire's
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 static s32 dark_on, light_n, light_x[24], light_y[24];
-static s32 dark_r(void) { return in_party(KIND_FLICK) ? DARK_R_FLICK : DARK_R; }
+static s32 dark_r(void) { return (in_party(KIND_FLICK) ? DARK_R_FLICK : DARK_R) + (meal_kind == MEAL_LIGHT ? 12 : 0); }
 // Is (x, y) in a lantern's or campfire's light (its index), or the daylight past the trunk (-2), or dark (-1)?
 static s32 fire_lit(s32 x, s32 y) {
     if (y >= ORCHARD_WALL_ROW * 16 - 4) return -2;
@@ -1258,7 +1263,7 @@ static void dark_enter(s32 a) {
 }
 static void dark_update(void) {                    // each frame: the cells round you (you move a few pixels at most)
     if (!dark_on) return;
-    s32 cx = (px + 8) >> 3, cy = (py + 4) >> 3, n = (DARK_R_FLICK + 12) >> 3;
+    s32 cx = (px + 8) >> 3, cy = (py + 4) >> 3, n = (DARK_R_FLICK + 24) >> 3;
     for (s32 y = cy - n; y <= cy + n; y++)
         for (s32 x = cx - n; x <= cx + n; x++) dark_put(x, y);
 }
@@ -1702,9 +1707,25 @@ static void read_wreck(s32 i) {
 
 // A on a chest, a pump, a fruit tree, or flowers does that instead of a spirit power.
 // Returns 1 if it handled the press.
+static void open_cook(void);
 static int interact(s32 mx, s32 my) {
     u8 t = tile_at(mx, my);
     s32 i;
+    if (t == CAMPFIRE_LIT || (t == LOG_SEAT && (tile_at(mx - 1, my) == CAMPFIRE_LIT || tile_at(mx + 1, my) == CAMPFIRE_LIT))) {
+        open_cook(); return 1;                        // v0.19: sit by the fire and cook
+    }
+    if (t == CAMPFIRE_COLD && !(party_count && spirits[party[active]].kind == KIND_FLICK)) {   // Flick lights it
+        show_message("A COLD CAMPFIRE.");
+        if (spirits[KIND_FLICK].state == SP_JOINED || spirits[KIND_FLICK].state == SP_POUCH) queue_message("FLICK COULD LIGHT IT.");
+        return 1;
+    }
+    if (t == MUSHROOMS) {                            // v0.19: marsh mushrooms, for cooking
+        set_tile(mx, my, MOSS);
+        mushrooms++;
+        sfx_play(SFX_GIFT);
+        show_message("+1 MUSHROOM");
+        return 1;
+    }
     if ((t == CHEST || t == CHEST_GRASS) && (i = find_at(chest_x, chest_y, chest_area, NUM_CHESTS, mx, my)) >= 0) {
         open_chest(i, mx, my); return 1;
     }
@@ -1792,7 +1813,7 @@ static int interact(s32 mx, s32 my) {
     }
     if (t == BENCH) {
         for (s32 p = 0; p < party_count; p++) spirits[party[p]].energy = energy_max(&spirits[party[p]]);
-        hearts_now = MAX_HEARTS;
+        hearts_now = hearts_max();
         draw_active();
         draw_hearts_hud();
         sfx_play(SFX_JOIN);
@@ -1828,8 +1849,8 @@ static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLO
                                          cur_area == ORCHARD; }
 
 static void draw_hearts_hud(void) {
-    for (s32 i = 0; i < MAX_HEARTS; i++)
-        SCREENBLOCK(TEXT_SB)[11 + i] = glyph_entry(in_combat_area() ? ((u32)i < hearts_now ? '*' : '@') : ' ');
+    for (s32 i = 0; i < MAX_HEARTS + 1; i++)        // the sixth only while a stew lasts (v0.19)
+        SCREENBLOCK(TEXT_SB)[11 + i] = glyph_entry(in_combat_area() && (u32)i < hearts_max() ? ((u32)i < hearts_now ? '*' : '@') : ' ');
 }
 
 // Enemies: blobs creep after you, drones dart at you through the air.
@@ -1932,7 +1953,7 @@ static void boss_start(s32 k) {
 
 // Enter the west: enemies return; a boss whose task is done (and not beaten) waits there.
 static void combat_enter(void) {
-    hearts_now = MAX_HEARTS;
+    hearts_now = hearts_max();
     draw_hearts_hud();
     boss.alive = 0;
     atk.life = 0;
@@ -1964,6 +1985,7 @@ static void faint(void) {
     show_message("YOU FAINTED...");
     queue_message("YOU WAKE UP AT HOME.");
     hurt_timer = 90;
+    meal_kind = MEAL_NONE; meal_timer = 0;             // fainting ends a meal
     if (best < 0) { hearts_now = MAX_HEARTS; return; }
     s32 hx = home_site_x[best], hy = home_site_y[best] + 1;
     static const signed char near_x[9] = { 0, -1, 1, 0, -1, 1, -2, 2, 0 }, near_y[9] = { 0, 0, 0, 1, 1, 1, 0, 0, 2 };
@@ -3175,7 +3197,7 @@ static void update_homes(void) {
             Spirit *s = &spirits[party[p]];
             if (s->energy < energy_max(s)) { s->energy = energy_max(s); changed = 1; }
         }
-        if (hearts_now < MAX_HEARTS) { hearts_now = MAX_HEARTS; draw_hearts_hud(); }
+        if (hearts_now < hearts_max()) { hearts_now = hearts_max(); draw_hearts_hud(); }
     }
     if (changed) draw_active();
 
@@ -4284,7 +4306,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x44534652u   // "RFSD" (v0.19: Flick)
+#define SAVE_MAGIC 0x45534652u   // "RFSE" (v0.19.3: cooking)
+#define SAVE_MAGIC_V191 0x44534652u   // "RFSD": v0.19.1-2 saves still load
 #define SAVE_MAGIC_V190 0x43534652u   // "RFSC": v0.19.0 saves still load
 #define SAVE_MAGIC_V184 0x42534652u   // "RFSB": v0.18.4 saves still load
 #define SAVE_MAGIC_V18 0x41534652u   // "RFSA": v0.18 saves still load
@@ -4335,9 +4358,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     // v0.19 (step 2): Flick
     { &spirits[KIND_FLICK], sizeof(Spirit) }, { &party[6], 4 }, { &fp[KIND_FLICK], 1 }, { &quest[KIND_FLICK], 1 },
     { &unlocked[KIND_FLICK], 1 }, { &flick_step, 4 }, { &flick_flags, 4 },
+    // v0.19 (step 4): marsh mushrooms (and, on load from older saves, the old regions' campfires)
+    { &mushrooms, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V190_FIELDS (NUM_SAVE_FIELDS - 7)
+#define NUM_V191_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
 #define NUM_V184_FIELDS (NUM_V190_FIELDS - 8)
 #define NUM_V18_FIELDS (NUM_V184_FIELDS - 1)
 #define NUM_V17_FIELDS (NUM_V18_FIELDS - 17)
@@ -4391,6 +4417,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V18) nf = NUM_V18_FIELDS;
     else if (magic == SAVE_MAGIC_V184) nf = NUM_V184_FIELDS;
     else if (magic == SAVE_MAGIC_V190) nf = NUM_V190_FIELDS;
+    else if (magic == SAVE_MAGIC_V191) nf = NUM_V191_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4407,7 +4434,24 @@ static int load_game(void) {
         leafen_init = has_shiny = pip_cell = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19 step 2: Flick cold in its nest
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19.3: no mushrooms; set the campfires down
+        mushrooms = 0;
+        for (s32 k = 0; k < NUM_CAMPS; k++) {
+            u8 *m = maps[camp_area[k]];
+            s32 x = camp_x[k], y = camp_y[k];
+            int ok = 1;                                  // only on open ground (never over something built)
+            for (s32 dx = -1; dx <= 1; dx++) {
+                u8 t = m[y * MAP_W + x + dx];
+                if (is_solid(t) || is_built(t) || t == HOMESITE) ok = 0;
+            }
+            if (!ok) continue;
+            for (s32 dx = -1; dx <= 1; dx++)
+                if (is_restorable(m[y * MAP_W + x + dx])) restorable[camp_area[k]]--;
+            m[y * MAP_W + x] = CAMPFIRE_COLD;
+            m[y * MAP_W + x - 1] = m[y * MAP_W + x + 1] = LOG_SEAT;
+        }
+    }
+    if (nf < NUM_V191_FIELDS) {                          // before v0.19 step 2: Flick cold in its nest
         spirit_init(KIND_FLICK, ORCHARD_NEST_X, ORCHARD_NEST_Y, SP_ASLEEP);
         spirits[KIND_FLICK].area = ORCHARD;
         party[6] = 0; fp[KIND_FLICK] = quest[KIND_FLICK] = unlocked[KIND_FLICK] = 0;
@@ -4518,7 +4562,7 @@ static void draw_window(s32 x0, s32 y0, s32 x1, s32 y1) {
 }
 
 // Build "LABEL....N" lines: a label, then a number (with "/of" or "%") ending at column w.
-static char line[24];
+static char line[32];   // v0.19: the cooking line is wider
 static const char *num_line(const char *label, u32 v, s32 of, s32 w) {
     char num[12], *q = num;
     q = fmt_num(q, v);
@@ -4760,6 +4804,7 @@ static void draw_page(void) {
         put_text_win(2, r++, num_line("FRUIT", fruit, -1, 16));
         put_text_win(2, r++, num_line("SEEDS", seeds, -1, 16));
         put_text_win(2, r++, num_line("WOOD", wood, -1, 16));
+        put_text_win(2, r++, num_line("MUSHROOMS", mushrooms, -1, 16));
         r++;
         put_text_win(2, r++, num_line("RELICS", count_set(chest_open, NUM_CHESTS), NUM_CHESTS, 16));
         r += 2;
@@ -4811,8 +4856,73 @@ static void open_menu(void) {
     sfx_play(SFX_MENU_OPEN);
 }
 
+// ---------- v0.19 cooking at a lit campfire ----------
+// One meal at a time (a new one takes the old one's place), 45 seconds (Caleb). The snack is eaten at once.
+static s32 cook_open, cook_cursor;
+static const struct { const char *name, *how; u8 fruit, mush, seed, meal; } recipe[3] = {
+    { "FRUIT SNACK", "2 FRUIT: CHARGES FULL", 2, 0, 0, MEAL_NONE },
+    { "MUSHROOM STEW", "2 MUSH, 1 FRUIT: +1 HEART", 1, 2, 0, MEAL_HEART },
+    { "EMBER TEA", "1 MUSH, 1 SEED: MORE LIGHT", 0, 1, 1, MEAL_LIGHT },
+};
+static void draw_cook(void) {
+    draw_window(0, 1, 29, 15);
+    put_text_win(2, 2, "THE CAMPFIRE CRACKLES.");
+    for (s32 i = 0; i < 3; i++) {
+        put_text_win(1, 4 + i * 3, i == cook_cursor ? ">" : " ");
+        put_text_win(2, 4 + i * 3, recipe[i].name);
+        put_text_win(3, 5 + i * 3, recipe[i].how);
+    }
+    char *p = line;
+    str_cat(&p, "FRUIT "); p = fmt_num(p, fruit);
+    str_cat(&p, "  MUSH "); p = fmt_num(p, mushrooms);
+    str_cat(&p, "  SEEDS "); p = fmt_num(p, seeds);
+    *p = 0;
+    for (s32 c = 1; c < 29; c++) put_text_win(c, 13, " ");
+    put_text_win(2, 13, line);
+    put_text_win(2, 14, "A: COOK   B: LEAVE");
+}
+static void open_cook(void) { cook_open = 1; paused = 1; cook_cursor = 0; draw_cook(); sfx_play(SFX_MENU_OPEN); }
+static void update_cook(void) {
+    s32 old = cook_cursor;
+    if (HIT(KEY_DOWN)) cook_cursor = (cook_cursor + 1) % 3;
+    if (HIT(KEY_UP)) cook_cursor = (cook_cursor + 2) % 3;
+    if (old != cook_cursor) { draw_cook(); sfx_play(SFX_MENU_MOVE); }
+    if (HIT(KEY_B) || HIT(KEY_START)) {
+        cook_open = 0; paused = 0;
+        for (s32 r = 1; r <= 18; r++) clear_row(r);
+        sfx_play(SFX_MENU_BACK);
+        return;
+    }
+    if (!HIT(KEY_A)) return;
+    const s32 k = cook_cursor;
+    if (fruit < recipe[k].fruit || mushrooms < recipe[k].mush || seeds < recipe[k].seed) {
+        sfx_play(SFX_FAIL); show_message("NOT ENOUGH FOR THAT."); return;
+    }
+    fruit -= recipe[k].fruit; mushrooms -= recipe[k].mush; seeds -= recipe[k].seed;
+    if (recipe[k].meal == MEAL_NONE) {
+        for (s32 i = 0; i < party_count; i++) spirits[party[i]].energy = energy_max(&spirits[party[i]]);
+        show_message("YUM! EVERY SPIRIT PERKS UP.");
+    } else {
+        meal_kind = recipe[k].meal; meal_timer = MEAL_FRAMES;
+        if (meal_kind == MEAL_HEART) { hearts_now++; show_message("A WARM STEW! +1 HEART A WHILE."); }
+        else { show_message("A HOT TEA! YOUR LIGHT GROWS."); dark_update(); }
+    }
+    sfx_play(SFX_QUEST);
+    draw_active();
+    draw_hearts_hud();
+    draw_cook();
+}
+static void update_meal(void) {                       // each frame: a meal wears off after 45 seconds
+    if (!meal_timer || --meal_timer) return;
+    show_message(meal_kind == MEAL_HEART ? "THE STEW WEARS OFF." : "THE TEA WEARS OFF.");
+    meal_kind = MEAL_NONE;
+    if (hearts_now > MAX_HEARTS) hearts_now = MAX_HEARTS;
+    draw_hearts_hud();
+}
+
 // Called every frame while the menu is open.
 static void update_menu(void) {
+    if (cook_open) { update_cook(); return; }
     if (menu_page == M_POUCH) draw_pouch_page(); else hide_pouch_page();
     if (HIT(KEY_START)) { close_menu(); return; }
     if (menu_page < 0) {
@@ -5255,6 +5365,7 @@ int main(void) {
         update_blooms();
         if (!scene_on) { update_attack(); update_enemies(); update_boss(); }
         if (hurt_timer) hurt_timer--;
+        update_meal();
         update_camera();
         dark_update();
         draw_sprites();
