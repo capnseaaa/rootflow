@@ -56,11 +56,11 @@ NUM_AREAS = 7                      # 4: the hollow inside the Great Tree (v0.16)
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
 ORCHARD_POCKET = (11, 28, 20, 31)                  # the pocket you arrive in (x0, y0, x1, y1)
 ORCHARD_WALL_ROW = 27
-ORCHARD_LANTERNS = [(14, 23), (16, 18), (14, 12), (16, 6), (10, 14), (5, 16), (21, 10), (26, 8)]
+ORCHARD_LANTERNS = [(14, 23), (16, 18), (14, 12), (16, 6), (10, 14), (5, 16), (21, 10), (26, 8)]   # (26, 8): Wick's
 ORCHARD_FIRES = [(19, 24), (7, 4)]                 # cold campfires, a log seat on each side
 ORCHARD_STACKS = [(25, 20), (6, 10), (24, 3)]      # Vael smoke stacks (Pebble smashes them)
 ORCHARD_NEST = (4, 2)                              # Flick's burnt nest (v0.19 step 2), in a clearing
-ORCHARD_LEAFEN = [(27, 15), (9, 21)]               # the two Leafen (step 5): spots kept clear
+ORCHARD_LEAFEN = [(27, 10), (23, 21)]              # Wick (in the dark by a lantern), Soot (by a smoke stack)
 # v0.19 (step 4) a cold campfire with a log seat each side in the old regions too (Flick lights them; cook
 # there). Not in the Great Tree's region: its tile set fills video memory (the orchard has its own two).
 CAMPFIRES = [(0, 26, 16), (1, 8, 18), (2, 3, 17), (5, 12, 16)]   # off the ways people walk
@@ -1037,6 +1037,9 @@ def main():
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
     out.append(f"#define ORCHARD_NEST_X {ORCHARD_NEST[0]}\n#define ORCHARD_NEST_Y {ORCHARD_NEST[1]}")
     out.append(f"#define NUM_CAMPS {len(CAMPFIRES)}")
+    out.append(f"#define NUM_STACKS {len(ORCHARD_STACKS)}")
+    out.append(c_array("unsigned char", "stack_x", [x for x, _ in ORCHARD_STACKS], fmt="{}"))
+    out.append(c_array("unsigned char", "stack_y", [y for _, y in ORCHARD_STACKS], fmt="{}"))
     out.append(c_array("unsigned char", "camp_area", [a for a, _, _ in CAMPFIRES], fmt="{}"))
     out.append(c_array("unsigned char", "camp_x", [x for _, x, _ in CAMPFIRES], fmt="{}"))
     out.append(c_array("unsigned char", "camp_y", [y for _, _, y in CAMPFIRES], fmt="{}"))

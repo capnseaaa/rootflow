@@ -115,7 +115,9 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define MARSH 5       // the drowned marsh, south-west (v0.18)
 #define ORCHARD 6     // the burnt orchard, north-west (v0.19)
 #define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
-static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid, none restorable
+static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid
+// none restorable but the burnt trees, which grow back (v0.19.4)
+static int is_burnt_tree(u8 t) { return t == BURNT_TREE || t == BURNT_FRUIT_TREE; }
 #define MARSH_BANK_ROW 19   // v0.18.1: its way to Stone Hollow, along the river's north bank
 static int is_home(u8 t) { return t >= HOME_FIRST && t < HOME_FIRST + NUM_HOME_TILES; }
 // The home tile for spirit k at a level (1 or 2): the roof sits on the tile above the site.
@@ -347,7 +349,7 @@ static int is_restorable(u8 t) {
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
-             is_bog(t) || t == BOG_PAD || t == LOG || is_orchard_piece(t) || t == ASH_LANE);
+             is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE);
 }
 
 static void draw_area(void) {
@@ -431,6 +433,7 @@ static void load_tileset(s32 ts) {
 static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
 static void dark_enter(s32 a);   // v0.19 the orchard's dark (below)
 static void pool_clear(void);    // v0.19 the shared sprite slots (below)
+static void smoke_fade(void);    // v0.19.4 (below)
 static void set_ground_palette(s32 a) {
     load_region_sprites(a);   // and, once the tree is healed, Flick's colors
     pool_clear();                                      // a new region: its own things take the shared slots
@@ -855,8 +858,9 @@ static u32 leaf_timer;                              // > 0 while leaves swirl ro
 // Six Leafen hide in the valley, the steppe, and Stone Hollow once the Great Tree is healed. Help one
 // and it calls up two friends; they walk to Bark's tree, where they build tiny homes. Every two that
 // Bark welcomes, he teaches YOU a skill: LEAF STEP, LEAF SHIELD, SEEDFALL.
-enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_PUDDLE, NUM_LEAFEN };
+enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_PUDDLE, LF_WICK, LF_SOOT, NUM_LEAFEN };
 #define FIRST_LEAFEN 6   // the valley, steppe and hollow ones; v0.18 adds three in the marsh
+#define FIRST_ORCH_LEAFEN 9   // v0.19.4: two in the burnt orchard (they need Flick's world: light, the stacks gone)
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
@@ -1151,6 +1155,8 @@ static void grow_tile(s32 mx, s32 my, int edge) {
     u8 t = tile_at(mx, my);
     int here = work_area == cur_area;   // the player only stands in the area on screen
     if (t == SWAMP_TREE) { set_tile(mx, my, SWAMP_TREE_ALIVE); return; }   // v0.18.1: swamp trees leaf out
+    if (t == BURNT_FRUIT_TREE) { set_tile(mx, my, FRUIT_TREE); return; }   // v0.19.4: the orchard bears fruit again
+    if (t == BURNT_TREE) { set_tile(mx, my, TREE); return; }
     if (t == SWAMP_TOP) { set_tile(mx, my, SWAMP_TOP_ALIVE); return; }
     if (t == DEAD_TREE || t == STUMP || t == STUMP_GRASS) {   // dead trees and stumps grow back
         if (!(here && player_on_tile(mx, my))) set_tile(mx, my, TREE);
@@ -1161,7 +1167,8 @@ static void grow_tile(s32 mx, s32 my, int edge) {
         set_tile(mx, my, t == CHEST ? CHEST_GRASS : t == CHEST_OPEN ? CHEST_OPEN_GRASS : WRECK_GRASS);
         return;
     }
-    if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES && t != MOSS && t != MUSHROOMS) return;
+    if (t != DEAD && t != DEAD_CRACK && t != DIRT && t != DRY_GRASS && t != PEBBLES && t != MOSS && t != MUSHROOMS &&
+        t != CHARRED_BRUSH) return;
     if (edge && t != DIRT) { set_tile(mx, my, DIRT); return; }
     u32 r = rng() % 100;
     static const signed char nbx[4] = { 1, -1, 0, 0 }, nby[4] = { 0, 0, 1, -1 };
@@ -1223,8 +1230,10 @@ static void update_blooms(void) {
 static s32 dark_on, light_n, light_x[24], light_y[24];
 static s32 dark_r(void) { return (in_party(KIND_FLICK) ? DARK_R_FLICK : DARK_R) + (meal_kind == MEAL_LIGHT ? 12 : 0); }
 // Is (x, y) in a lantern's or campfire's light (its index), or the daylight past the trunk (-2), or dark (-1)?
+static s32 stack_dark(s32 wx, s32 wy);
 static s32 fire_lit(s32 x, s32 y) {
     if (y >= ORCHARD_WALL_ROW * 16 - 4) return -2;
+    if (stack_dark(x, y) == 0) return -2;               // a cleared part (its stack smashed)
     for (s32 i = 0; i < light_n; i++) {
         s32 ddx = x - light_x[i], ddy = y - light_y[i];
         if (ddx * ddx + ddy * ddy < (FIRE_R - 4) * (FIRE_R - 4)) return i;
@@ -1235,9 +1244,23 @@ static s32 dark_lv(s32 dx, s32 dy, s32 r) {        // 0 lit, 1 a quarter dark, 2
     s32 d2 = dx * dx + dy * dy;
     return d2 < (r - 10) * (r - 10) ? 0 : d2 < (r - 5) * (r - 5) ? 1 : d2 < r * r ? 2 : 3;
 }
+// v0.19.4: each smoke stack keeps its part of the orchard dark (the cells nearer it than any other stack);
+// once Pebble smashes it, that part stays clear. 0 clear, 2 the dithered edge next to a clear part, 3 dark.
+static s32 stack_dark(s32 wx, s32 wy) {
+    s32 best = -1, bd = 1 << 30, cd = 1 << 30;           // the nearest stack, and the nearest smashed one
+    for (s32 k = 0; k < NUM_STACKS; k++) {
+        s32 ddx = wx - stack_x[k] * 16 - 8, ddy = wy - stack_y[k] * 16 - 8, d = ddx * ddx + ddy * ddy;
+        int gone = maps[ORCHARD][stack_y[k] * MAP_W + stack_x[k]] != SMOKE_STACK;
+        if (d < bd) { bd = d; best = k; }
+        if (gone && d < cd) cd = d;
+    }
+    if (maps[ORCHARD][stack_y[best] * MAP_W + stack_x[best]] != SMOKE_STACK) return 0;
+    return cd < bd + 2600 ? 2 : 3;                       // about a tile from the line between the two parts
+}
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
     s32 lv = wy >= y0 + 16 ? 0 : wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // daylight past the trunk
+    if (lv) lv = MIN(lv, stack_dark(wx, wy));
     if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
     for (s32 i = 0; i < light_n && lv; i++) lv = MIN(lv, dark_lv(wx - light_x[i], wy - light_y[i], FIRE_R));
     return lv;
@@ -1569,6 +1592,17 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         sparkle_at(mx, my);
         sfx_play(SFX_WAKE);
         if (cur_area == ORCHARD) dark_enter(ORCHARD);   // the new light (all of the dark is redrawn)
+    } else if (kind == KIND_STONE && t == SMOKE_STACK) {
+        set_tile(mx, my, DEAD);                // v0.19.4: a Vael smoke stack falls; its part of the orchard clears
+        restorable[work_area]++;
+        stone += 2;
+        sparkle_at(mx, my);
+        sfx_play(SFX_PUMP_OFF);
+        show_message("THE SMOKE STACK FALLS! +2 STONE");
+        s32 left = 0;
+        for (s32 k = 0; k < NUM_STACKS; k++) left += maps[ORCHARD][stack_y[k] * MAP_W + stack_x[k]] == SMOKE_STACK;
+        queue_message(left ? "THE SMOKE HERE THINS AWAY." : "THE LAST OF THE SMOKE CLEARS!");
+        if (cur_area == ORCHARD) { dark_enter(ORCHARD); smoke_fade(); }
     } else if (kind == KIND_STONE && t == VAEL_PIPE) {
         set_tile(mx, my, DEAD);                // a Vael pipe cracks: its sludge stops coming
         restorable[work_area]++;
@@ -1941,6 +1975,7 @@ static void spawn_enemies(void) {
         e->hp = e->type == E_DRONE ? 2 : 3;
         e->timer = i * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
         e->alive = 1;
+        if (e->type == E_SMOKE && stack_dark(e->x + 8, e->y + 8) == 0) e->alive = 0;   // not in the clear air
     }
 }
 
@@ -2248,6 +2283,13 @@ static void add_mote_c(s32 x, s32 y, s32 dx, s32 dy, s32 life, s32 c) {
         }
 }
 static void add_mote(s32 x, s32 y, s32 dx, s32 dy, s32 life) { add_mote_c(x, y, dx, dy, life, C_MOTE); }
+static void smoke_fade(void) {                        // v0.19.4: smoke creatures caught in cleared air fade away
+    for (s32 i = 0; i < MAX_ENEMIES; i++)
+        if (enemies[i].alive && enemies[i].type == E_SMOKE && stack_dark(enemies[i].x + 8, enemies[i].y + 8) == 0) {
+            enemies[i].alive = 0;
+            add_mote_c(enemies[i].x + 4, enemies[i].y, 0, -6, 20, C_GLINT);
+        }
+}
 // Motes fly out from (x, y): speed in 1/32 of the dir16 speed (32 = 2 px per frame).
 static void gloom_burst(s32 x, s32 y, s32 speed, s32 life) {
     for (s32 k = 0; k < 8; k++)
@@ -2662,6 +2704,7 @@ static void use_ability(void) {
     if (!use_power(s->kind, fx >> 4, fy >> 4)) {
         sfx_play(SFX_FAIL);
         if (tile_at(fx >> 4, fy >> 4) == VAEL_PIPE && !msg_timer) show_message("A VAEL PIPE! PEBBLE CAN SMASH IT.");
+        if (tile_at(fx >> 4, fy >> 4) == SMOKE_STACK && !msg_timer) show_message("A VAEL SMOKE STACK! PEBBLE CAN SMASH IT.");
         return;
     }
     if (!free_use) s->energy--;                              // a bonded Sprout blooms for free
@@ -3352,13 +3395,13 @@ static s32 area_song(s32 a) {
 // ---------- the Leafen (v0.17): where they wait, what they need, the rescue, the welcome ----------
 enum { LOOK_SPROUT, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_DEW };
 enum { POSE_STAND, POSE_STEP, POSE_SWIM, POSE_CLIMB };
-static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH };
-static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7 };
-static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12 };
+static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH, ORCHARD, ORCHARD };
+static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7, 27, 23 };   // Wick: by the lantern at (26,8)
+static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12, 10, 21 };
 static const u8 leafen_look[NUM_LEAFEN] = { LOOK_SPROUT, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT, LOOK_DEW,
-                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD };
+                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_LEAF };
 static const char *leafen_name[NUM_LEAFEN] = { "PIP", "MOSSY", "TWIG", "POSY", "NUB", "DEWDROP", "BOG", "REEDY",
-                                               "PUDDLE" };
+                                               "PUDDLE", "WICK", "SOOT" };
 static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you meet it (its problem, not the fix)
     { "PIP: HELP! I'M STUCK ON THIS", "LILY PAD. I CAN'T SWIM YET!" },
     { "MOSSY: SO... HUNGRY...", "SOME FRUIT? THREE, MAYBE?" },
@@ -3369,16 +3412,20 @@ static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you me
     { "BOG: THE GOO IS ALL ROUND ME!", "I'M STUCK ON THIS LITTLE ISLE!" },
     { "REEDY: I'M ALL TANGLED UP!", "THESE REEDS WON'T LET GO!" },
     { "PUDDLE: EW. EW! STINKY GOO!", "I WANT CLEAN WATER BY ME!" },
+    { "WICK: IT'S SO DARK! SO SCARY!", "I WON'T MOVE TILL I CAN SEE!" },
+    { "SOOT: COUGH! THE SMOKE! COUGH!", "THAT STACK WON'T STOP PUFFING!" },
 };
 static const char *leafen_thanks[NUM_LEAFEN] = {
     "PIP: A BRIDGE! YOU'RE GREAT!", "MOSSY: MMM! FRUIT! THANK YOU!", "TWIG: NO MORE THORNS! YAY!",
     "POSY: FLOWERS! SO PRETTY!", "NUB: PHEW! I CAN BREATHE!", "DEWDROP: MY SHINY! THANK YOU!",
     "BOG: THE GOO'S GONE! HOP HOP!", "REEDY: FREE! I CAN WIGGLE!", "PUDDLE: AH! CLEAN! SPLASH!",
+    "WICK: LIGHT! I CAN SEE YOU!", "SOOT: FRESH AIR! AAH! YAY!",
 };
 static const char *leafen_gift[NUM_LEAFEN] = {
     "NEW BUILD: DEW POND", "NEW BUILD: ACORN BENCH", "NEW BUILD: LEAF SWING",
     "NEW BUILD: FLOWER ARCH", "NEW BUILD: PEBBLE PATH", "NEW BUILD: MUSHROOM LAMP",
     "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT",   // the marsh Leafen give a little haul
+    "+3 FRUIT +2 MUSHROOMS", "+3 FRUIT +2 MUSHROOMS",                    // the orchard's: things to cook
 };
 #define SHINY_X 2    // Dewdrop's shiny pebble lies in the valley, far west
 #define SHINY_Y 15
@@ -3463,6 +3510,8 @@ static int leafen_ready(s32 k) {
     case LF_BOG:                                            // the goo round his isle is gone (swim to him), or a pad
         return is_pad(LF_AT(x - 1, y)) || is_pad(LF_AT(x + 1, y)) || is_pad(LF_AT(x, y - 1)) || is_pad(LF_AT(x, y + 1)) ||
                (LF_AT(x - 1, y) != SLUDGE && LF_AT(x + 1, y) != SLUDGE && LF_AT(x, y - 1) != SLUDGE && LF_AT(x, y + 1) != SLUDGE);
+    case LF_WICK: return fire_lit(x * 16 + 8, y * 16 + 8) != -1;   // a lantern lit by it (or its smoke gone)
+    case LF_SOOT: return maps[ORCHARD][stack_y[0] * MAP_W + stack_x[0]] != SMOKE_STACK;   // the stack beside it
     default: {                                              // Reedy: no reeds round; Puddle: no sludge round
         u8 bad = k == LF_REEDY ? REEDS : SLUDGE;
         for (s32 dy = -1; dy <= 1; dy++)
@@ -3473,6 +3522,11 @@ static int leafen_ready(s32 k) {
 #undef LF_AT
 }
 static int leafen_waiting(s32 k) { return leafen_state[k] == LS_WAIT || leafen_state[k] == LS_MET; }
+// How many Leafen you know of: the first six, the marsh's once Lily has joined, the orchard's once you are in it.
+static s32 leafen_total(void) {
+    return FIRST_LEAFEN + (lily_step > LILY_SCENE_LEN ? FIRST_ORCH_LEAFEN - FIRST_LEAFEN : 0) +
+           ((flick_flags & 2) || spirits[KIND_FLICK].state != SP_ASLEEP ? NUM_LEAFEN - FIRST_ORCH_LEAFEN : 0);
+}
 static int near_leafen(s32 k, s32 r) {
     s32 dx = px + 8 - (leafen_x(k) * 16 + 8), dy = py + 8 - (leafen_y(k) * 16 + 8);
     return dx * dx + dy * dy < r * r;
@@ -3560,7 +3614,7 @@ static void update_leafen(void) {
         }
         if (lf_scene == 5) {                             // walking off toward the tree
             int north = leafen_area[lf_k] == 2 || leafen_area[lf_k] == MARSH;   // the tree is north of them
-            s32 dx = north ? 0 : -1, dy = north ? -1 : 0;
+            s32 dx = north || leafen_area[lf_k] == ORCHARD ? 0 : -1, dy = north ? -1 : leafen_area[lf_k] == ORCHARD ? 1 : 0;
             for (s32 i = 0; i < 3; i++) { lf_sx[i] += dx; lf_sy[i] += dy; }
             if (++lf_wait < 150) return;
             lf_scene = 6; lf_wait = 0;
@@ -3578,11 +3632,12 @@ static void update_leafen(void) {
         case 4: lf_scene = 5; lf_wait = 0; break;
         default: {
             leafen_state[lf_k] = LS_FREE;
-            if (lf_k >= FIRST_LEAFEN) { seeds += 5; fruit += 3; }
+            if (lf_k >= FIRST_ORCH_LEAFEN) { fruit += 3; mushrooms += 2; }
+            else if (lf_k >= FIRST_LEAFEN) { seeds += 5; fruit += 3; }
             u32 n = 0;
             for (s32 k = 0; k < NUM_LEAFEN; k++) n += leafen_state[k] >= LS_FREE;
-            str_cat(&p, "LEAFEN FREED: "); *p++ = (char)('0' + n);
-            str_cat(&p, lily_step > LILY_SCENE_LEN ? " OF 9" : " OF 6"); *p = 0;
+            str_cat(&p, "LEAFEN FREED: "); p = fmt_num(p, n);
+            str_cat(&p, " OF "); p = fmt_num(p, leafen_total()); *p = 0;
             show_message(lf_line);
             queue_message(leafen_gift[lf_k]);
             sfx_play(SFX_CHEST);
@@ -3736,6 +3791,8 @@ static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 m
     { { 134, 346, 5 }, { 0, 0, 0 } },
     { { 362, 346, 0 }, { 0, 0, 0 } },
     { { 470, 470, 1 }, { 0, 0, 0 } },   // the marsh Leafen: one home each
+    { { 70, 150, 2 }, { 0, 0, 0 } },    // v0.19.4 the orchard's, north-west and north-east of the tree
+    { { 432, 150, 4 }, { 0, 0, 0 } },
 };
 static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 242, 422, V_SWIM }, { 214, 470, V_WALK }, { 168, 262, V_CLIMB } },
@@ -3747,6 +3804,8 @@ static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 144, 368, V_WALK }, { 136, 390, V_WALK }, { 180, 300, V_CLIMB } },
     { { 356, 382, V_WALK }, { 346, 402, V_WALK }, { 332, 286, V_CLIMB } },
     { { 450, 478, V_WALK }, { 430, 480, V_WALK }, { 176, 312, V_CLIMB } },
+    { { 92, 172, V_WALK }, { 52, 184, V_WALK }, { 214, 232, V_CLIMB } },
+    { { 410, 172, V_WALK }, { 452, 186, V_WALK }, { 300, 234, V_CLIMB } },
 };
 static short folk_x[NUM_LEAFEN * 3], folk_y[NUM_LEAFEN * 3];
 static u8 folk_look(s32 k, s32 i) { return i == 0 ? leafen_look[k] : (u8)((leafen_look[k] + i * 2 + k) % 5); }
@@ -4306,7 +4365,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x45534652u   // "RFSE" (v0.19.3: cooking)
+#define SAVE_MAGIC 0x46534652u   // "RFSF" (v0.19.4: the orchard's Leafen)
+#define SAVE_MAGIC_V193 0x45534652u   // "RFSE": v0.19.3 saves still load
 #define SAVE_MAGIC_V191 0x44534652u   // "RFSD": v0.19.1-2 saves still load
 #define SAVE_MAGIC_V190 0x43534652u   // "RFSC": v0.19.0 saves still load
 #define SAVE_MAGIC_V184 0x42534652u   // "RFSB": v0.18.4 saves still load
@@ -4345,7 +4405,7 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { leafen_state, FIRST_LEAFEN }, { &leafen_init, 4 }, { &has_shiny, 4 }, { &pip_cell, 4 },
     // v0.18: Lily (the sixth spirit), the marsh and its three Leafen
     { &spirits[KIND_LILY], sizeof(Spirit) }, { &party[OLD_SPIRITS], 4 }, { &fp[KIND_LILY], 1 }, { &quest[KIND_LILY], 1 },
-    { &unlocked[KIND_LILY], 1 }, { &leafen_state[FIRST_LEAFEN], NUM_LEAFEN - FIRST_LEAFEN }, { &lily_step, 4 },
+    { &unlocked[KIND_LILY], 1 }, { &leafen_state[FIRST_LEAFEN], FIRST_ORCH_LEAFEN - FIRST_LEAFEN }, { &lily_step, 4 },
     { maps[MARSH], sizeof(maps[0]) }, { &restorable[MARSH], 4 }, { picked[MARSH], sizeof(picked[0]) },
     { &pump_on[MARSH], 1 }, { &pump_x[MARSH], 1 }, { &pump_y[MARSH], 1 }, { &pump_drain[MARSH], 4 },
     { &told_full[MARSH], 1 }, { &swim_skill, 4 }, { &swim_step, 4 },
@@ -4360,9 +4420,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &unlocked[KIND_FLICK], 1 }, { &flick_step, 4 }, { &flick_flags, 4 },
     // v0.19 (step 4): marsh mushrooms (and, on load from older saves, the old regions' campfires)
     { &mushrooms, 4 },
+    // v0.19.4: the orchard's two Leafen
+    { &leafen_state[FIRST_ORCH_LEAFEN], NUM_LEAFEN - FIRST_ORCH_LEAFEN },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V191_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V193_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
 #define NUM_V184_FIELDS (NUM_V190_FIELDS - 8)
 #define NUM_V18_FIELDS (NUM_V184_FIELDS - 1)
@@ -4418,6 +4481,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V184) nf = NUM_V184_FIELDS;
     else if (magic == SAVE_MAGIC_V190) nf = NUM_V190_FIELDS;
     else if (magic == SAVE_MAGIC_V191) nf = NUM_V191_FIELDS;
+    else if (magic == SAVE_MAGIC_V193) nf = NUM_V193_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4434,7 +4498,13 @@ static int load_game(void) {
         leafen_init = has_shiny = pip_cell = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19.3: no mushrooms; set the campfires down
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
+        for (s32 k = FIRST_ORCH_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
+        restorable[ORCHARD] = 0;                         // as ground that can live again now
+        for (s32 i = 0; i < MAP_W * MAP_H; i++)
+            restorable[ORCHARD] += is_restorable(maps[ORCHARD][i]) || is_alive(maps[ORCHARD][i]);
+    }
+    if (nf < NUM_V193_FIELDS) {                          // before v0.19.3: no mushrooms; set the campfires down
         mushrooms = 0;
         for (s32 k = 0; k < NUM_CAMPS; k++) {
             u8 *m = maps[camp_area[k]];
@@ -4473,7 +4543,7 @@ static int load_game(void) {
     if (nf < NUM_V18_FIELDS) {                            // before v0.18: no Lily, a fresh marsh
         spirit_init(KIND_LILY, 0, 0, SP_HIDDEN);
         party[OLD_SPIRITS] = 0; fp[KIND_LILY] = quest[KIND_LILY] = unlocked[KIND_LILY] = 0;
-        for (s32 k = FIRST_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
+        for (s32 k = FIRST_LEAFEN; k < FIRST_ORCH_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
         lily_step = 0; swim_skill = swim_step = 0;
         restorable[MARSH] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
@@ -4775,7 +4845,7 @@ static void draw_page(void) {
                 for (s32 i = 0; i < NUM_LEAFEN; i++) n += leafen_state[i] >= LS_FREE;
                 put_text_win(2, r - 2, "BRING THE LEAFEN");
                 put_text_win(2, r - 1, "HOME             ");
-                put_text_win(2, r++, num_line("FREED", n, lily_step > LILY_SCENE_LEN ? NUM_LEAFEN : FIRST_LEAFEN, 16));
+                put_text_win(2, r++, num_line("FREED", n, leafen_total(), 16));
             }
         }
         r++;

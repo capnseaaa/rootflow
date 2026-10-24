@@ -1,0 +1,47 @@
+# v0.19.4 the orchard, step 5: Pebble smashes the smoke stack by Soot (its part of the orchard clears, Soot is
+# freed); Flick lights Wick's lantern (Wick is freed). Setup: TREE HEALED, through the trunk, smokes gone.
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=248,$py=4
+30 64
+0 0 !$px=240,$py=458,$active=4
+20 64
+1 1
+1 0
+200 0
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 @$leafen_state+8
+# Pebble (slot 2) below the stack at (25,20), facing up
+0 0 !$px=400,$py=330,$pdir=1,$active=2
+1 0
+1 1
+1 0
+0 0 @$maps+6809
+600 0 or4.ppm
+0 0 @$leafen_state+8,$lf_scene
+900 0
+0 0 @$leafen_state+8
+# Flick joins (test setup); right of Wick's lantern at (26,8), facing left (Wick is at (27,10))
+0 0 !$spirits+176=2,$party+20=6,$party_count=6,$active=5
+0 0 !$px=432,$py=122,$pdir=2
+1 0
+1 1
+1 0
+30 0 or5.ppm
+1500 0
+0 0 @$leafen_state+8,$maps+6424
+# Sprout blooms by the burnt fruit tree at (21,19): it grows back a fruit tree; the charred brush beside it, grass
+0 0 !$px=336,$py=314,$pdir=1,$active=0,$spirits+16=3
+1 0
+1 1
+1 0
+150 0 or6.ppm
+0 0 @$maps+6772
