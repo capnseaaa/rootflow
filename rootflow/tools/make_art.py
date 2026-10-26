@@ -95,6 +95,11 @@ ORCHARD_META = ["burnt_tree", "burnt_fruit_tree", "burnt_log", "lantern_cold", "
                 "campfire_lit", "log_seat", "smoke_stack", "burnt_fence", "darkness",
                 "ash_lane", "charred_brush"]   # Caleb: darker grey lanes; more dead growth on the ground
 META += ORCHARD_META
+# v0.20 the mushroom grove (south-east), loaded like the marsh's. hollow_log and cracked_rock are solid at full size
+# and open to a tiny wizard; the fairy ring is where Cap shrinks you; Cap waits under the fallen cap.
+GROVE_META = ["giant_mush", "giant_mush_blue", "glowcaps", "fairy_ring", "hollow_log", "cracked_rock", "fallen_cap",
+              "tiny_chest", "tiny_chest_open"]
+META += GROVE_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -714,6 +719,125 @@ def charred_brush(rng):
                     px[y - t][x] = 15 if t else 1
         px[by][bx] = 15
     px[10][7] = 13                                    # a last ember
+    return px
+
+
+def _ellset(cx, cy, rx, ry):
+    return {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
+
+
+def _outline_paint(px, shape, fill):
+    for (x, y) in shape:
+        px[y][x] = fill(x, y)
+    for (x, y) in shape:
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            nx, ny = x + dx, y + dy
+            if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape:
+                px[ny][nx] = 15
+
+
+def giant_mush(rng, blue):
+    """v0.20 a giant mushroom of the grove (solid): a thick pale stem under a broad spotted cap; red, or a
+    glowing blue (the grove's water colors light it)."""
+    px = moss(rng)
+    stem = {(x, y) for y in range(9, 15) for x in range(5, 11)}
+    _outline_paint(px, stem, lambda x, y: 5 if x >= 9 else 14)
+    cap = _ellset(7.5, 5.4, 7.0, 4.4) - {(x, y) for (x, y) in _ellset(7.5, 5.4, 7.0, 4.4) if y > 8}
+    hi, mid, lo = (11, 10, 9) if blue else (14, 13, 12)
+    _outline_paint(px, cap, lambda x, y: lo if y >= 7 else mid if y >= 3 or x > 9 else (hi if blue else 13))
+    for (x, y) in ((4, 4), (10, 3), (7, 2), (12, 6), (3, 6)):
+        if (x, y) in cap and not blue:
+            px[y][x] = 14
+    if blue:
+        for (x, y) in ((5, 3), (6, 3), (5, 4)):
+            px[y][x] = 11
+    for x in range(3, 13):                             # the gills, a shadow under the cap
+        if (x, 9) in stem or 3 < x < 12:
+            if px[9][x] not in (15,):
+                px[9][x] = 5 if not blue else 9
+    return px
+
+
+def glowcaps(rng):
+    """v0.20 a cluster of tiny glowing caps on the moss (walkable)."""
+    px = moss(rng)
+    for (cx, cy) in ((4, 11), (9, 7), (12, 12), (6, 4)):
+        px[cy + 1][cx] = 14
+        px[cy][cx - 1] = px[cy][cx + 1] = 10
+        px[cy][cx] = 11
+        px[cy - 1][cx] = 10
+    return px
+
+
+def fairy_ring(rng):
+    """v0.20 a fairy ring (walkable): a circle of little cream mushrooms on the moss. Stand in it with Cap
+    and press A to shrink, or to grow back."""
+    import math as _m
+    px = moss(rng)
+    for k in range(10):
+        a = 2 * _m.pi * k / 10
+        x, y = round(7.5 + 5.6 * _m.cos(a)), round(7.5 + 5.0 * _m.sin(a))
+        if 0 <= x < 16 and 0 < y < 15:
+            px[y][x] = 14
+            px[y + 1][x] = 5
+            if 0 <= x - 1:
+                px[y][x - 1] = 13 if k % 2 else 14
+    px[7][7] = px[8][8] = 7                           # a little brighter moss in the middle
+    return px
+
+
+def hollow_log(rng):
+    """v0.20 a hollow log (solid at full size; a tiny wizard walks through it): mossy bark, a dark tunnel."""
+    px = moss(rng)
+    for y in range(4, 14):
+        for x in range(16):
+            px[y][x] = 15 if y in (4, 13) else 5 if y == 5 else 4 if y < 11 else 12
+    for y in range(7, 13):                            # the dark way through, running the whole length
+        for x in range(16):
+            if y >= 8:
+                px[y][x] = 15 if y < 12 else 12
+    for x in (2, 9, 13):
+        px[5][x] = px[6][x] = 7                       # moss on top
+    return px
+
+
+def cracked_rock(rng):
+    """v0.20 a boulder with a crack at its foot (solid at full size; a tiny wizard slips through)."""
+    px = rock(rng)
+    for y in range(8, 15):                            # the crack, opening wider at the bottom
+        w = (y - 8) // 3
+        for x in range(7 - w, 9 + w):
+            px[y][x] = 15
+    px[7][8] = px[6][7] = 15
+    return px
+
+
+def fallen_cap(rng):
+    """v0.20 a giant mushroom cap fallen on its side (solid; YOU heaves it away): Cap is squashed under it."""
+    px = moss(rng)
+    cap = _ellset(7.5, 9.0, 7.2, 5.2) - {(x, y) for (x, y) in _ellset(7.5, 9.0, 7.2, 5.2) if y > 13}
+    _outline_paint(px, cap, lambda x, y: 5 if y >= 11 else 13)
+    for (x, y) in ((4, 7), (10, 6), (7, 5), (12, 9), (3, 10)):
+        if (x, y) in cap:
+            px[y][x] = 14
+    for x in range(2, 14, 2):                          # gills along the bottom edge
+        if (x, 12) in cap:
+            px[12][x] = 12
+    return px
+
+
+def tiny_chest(rng, opened):
+    """v0.20 a tiny chest tucked in a nook (open it while tiny): a decoration for a Leafen home inside."""
+    px = moss(rng)
+    for y in range(8, 13):
+        for x in range(5, 11):
+            px[y][x] = 15 if y in (8, 12) or x in (5, 10) else 5 if y == 9 else 12
+    if opened:
+        for x in range(6, 10):
+            px[9][x] = 15
+        px[7][6] = px[7][9] = 15
+    else:
+        px[10][7] = px[10][8] = 14                     # the latch
     return px
 
 
@@ -1472,6 +1596,8 @@ def make_terrain():
     tiles += [burnt_tree(rng), burnt_fruit_tree(rng), burnt_log(rng), orchard_lantern(rng, False),
               orchard_lantern(rng, True), campfire(rng, False), campfire(rng, True), log_seat(rng), smoke_stack(rng),
               burnt_fence(rng), darkness(), ash_lane(rng), charred_brush(rng)]
+    tiles += [giant_mush(rng, False), giant_mush(rng, True), glowcaps(rng), fairy_ring(rng), hollow_log(rng),
+              cracked_rock(rng), fallen_cap(rng), tiny_chest(rng, False), tiny_chest(rng, True)]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -2490,6 +2616,7 @@ LEAFEN_ORDER += [f"orb_{k}" for k in range(6)]  # v0.18.1: the spirits as little
 LEAFEN_ORDER += ["wake_h", "wake_d", "wake_u"]  # v0.18.1: the wake behind the swimming wizard
 LEAFEN_ORDER += [f"mini_{k}" for k in range(6)]  # v0.18.4: a spirit in the pouch: a tiny orb circling his head
 LEAFEN_ORDER += ["orb_6", "mini_6"]   # v0.19 Flick's (after the others: main.c maps them)
+LEAFEN_ORDER += ["orb_7", "mini_7"]   # v0.20 Cap's
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2643,7 +2770,7 @@ def leafen_cell(name):
     elif name.startswith("lh_"):
         leafen_home(px, name[3:])
     elif name.startswith("orb_"):              # a spirit as an orb: its color, a bright spot, a soft halo
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11)][int(name[4:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10)][int(name[4:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -2653,7 +2780,7 @@ def leafen_cell(name):
                     px[y][x] = halo
         px[6][7] = px[7][6] = light
     elif name.startswith("mini_"):             # a pouch spirit: smaller than a swim orb (Caleb), 3 px with a soft rim
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11)][int(name[5:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10)][int(name[5:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -3178,7 +3305,7 @@ def make_pouch():
 
 # v0.18.4 each spirit as a little ball, for the pouch (Caleb's reference): its body colors (light, main,
 # shade, in its own palette's indices), a face, and a tiny mark so you can tell them apart.
-BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6), (6, 7, 8)]   # Sprout..Flick
+BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6), (6, 7, 8), (4, 3, 2)]   # Sprout..Cap
 def ball_cell(kind):
     px = _canvas()
     lt, mid, sh = BALL_COLORS[kind]
@@ -3203,6 +3330,8 @@ def ball_cell(kind):
         px[2][8] = px[2][9] = 6; px[3][8] = 5
     if kind == 4:                                        # Bark: a leaf on his head
         px[2][9] = px[2][10] = 5; px[3][8] = 5
+    if kind == 7:                                        # Cap: white spots on its red
+        px[6][9] = px[8][5] = px[5][6] = 4
     if kind == 6:                                        # Flick: a little flame crest
         px[2][7] = 5; px[3][6] = px[3][7] = px[3][8] = 3; px[2][8] = 4
     if kind == 5:                                        # Lily: a tiny white bloom with a yellow heart
@@ -3365,6 +3494,107 @@ def make_orch():
     return img
 
 
+CAP_PAL = [                        # v0.20 Cap, the toadstool (OBJ bank 4: Pebble's sleeping colors, free by then)
+    (255, 0, 255), (40, 28, 34), (176, 40, 48), (226, 74, 70), (252, 240, 226), (240, 214, 186), (206, 176, 146),
+    (150, 210, 120), (100, 170, 90), (248, 236, 170), (246, 140, 150), (234, 220, 160), (190, 170, 110),
+] + [(0, 0, 0)] * 3
+
+
+def cap_cell(frame):
+    """Cap (Caleb's pick A): a red-capped toadstool with white spots and a face on its stem. 0, 1: idle (the
+    cap bobs); 2: its spore puff, flying; 3, 4: the puff lingering where it landed (Caleb), swirling."""
+    px = _canvas()
+    def paint(shape, fill):
+        for (x, y) in shape:
+            px[y][x] = fill(x, y)
+        for (x, y) in shape:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                    px[ny][nx] = 1
+    if frame == 2:
+        puff = _ellset(7.5, 8.0, 3.4, 3.0) | _ellset(5.5, 6.6, 2.0, 1.8) | _ellset(9.8, 7.0, 1.9, 1.7)
+        paint(puff, lambda x, y: 9 if y < 8 else 11)
+        return px
+    if frame in (3, 4):                               # a loose cloud of spores, drifting round
+        import math as _m
+        for k in range(9):
+            a = 2 * _m.pi * k / 9 + frame * 0.7
+            r_ = 4.5 + (k % 3)
+            x, y = round(7.5 + r_ * _m.cos(a)), round(8 + r_ * 0.8 * _m.sin(a))
+            if 0 < x < 15 and 0 < y < 15:
+                px[y][x] = 9 if k % 2 else 11
+                if k % 3 == 0:
+                    px[y][x + 1] = 12
+        px[8][7] = px[7][8] = 11
+        return px
+    d = frame
+    stem = {(x, y) for y in range(8, 15) for x in range(5, 11)} - {(5, 14), (10, 14)}
+    paint(stem, lambda x, y: 6 if x >= 9 else 4)
+    cap = _ellset(7.5, 5.2 + d * 0.5, 6.6, 3.6)
+    cap -= {(x, y) for (x, y) in cap if y > 7 + d}
+    for (x, y) in cap:
+        px[y][x] = 0
+    paint(cap, lambda x, y: 2 if y >= 6 + d else 3)
+    for (x, y) in ((4, 4 + d), (10, 3 + d), (7, 2 + d), (12, 6 + d), (3, 7 + d)):
+        if (x, y) in cap:
+            px[y][x] = 4
+    px[9][6] = px[9][9] = px[10][6] = px[10][9] = 1   # eyes
+    px[11][5] = px[11][10] = 10                        # cheeks
+    px[11][7] = px[11][8] = 1                          # a smile
+    return px
+
+
+def make_cap():
+    img = Image.new("P", (80, 16), 0)
+    img.putpalette([c for rgb in CAP_PAL for c in rgb])
+    for f in range(5):
+        for y, row in enumerate(cap_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
+    return img
+
+
+GROVE_PAL = [                      # v0.20 the grove's own sprites (its region set; OBJ bank 13 while you are there)
+    (255, 0, 255), (30, 20, 36), (96, 60, 120), (146, 98, 168), (196, 156, 210), (120, 176, 70), (176, 220, 110),
+    (236, 220, 240),
+] + [(0, 0, 0)] * 8
+
+
+def grove_cell(frame):
+    """v0.20 a poison spore puff: a round, lumpy puffball with sleepy eyes, drifting (0, 1); and the poison
+    cloud it lets out now and then (2, 3): a sickly green haze of spores."""
+    px = _canvas()
+    if frame >= 2:
+        import math as _m
+        for k in range(14):
+            a = 2 * _m.pi * k / 14 + frame
+            r_ = 3 + (k * 5 % 4)
+            x, y = round(7.5 + r_ * _m.cos(a)), round(8 + r_ * _m.sin(a))
+            if 0 <= x < 16 and 0 <= y < 16:
+                px[y][x] = 5 if k % 2 else 6
+        return px
+    body = _ellset(7.5, 9.0 + frame * 0.4, 5.2 + frame * 0.4, 4.6 - frame * 0.4) | _ellset(7.5, 4.6, 2.0, 1.6)
+    for (x, y) in body:
+        e = any((x + dx, y + dy) not in body for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        px[y][x] = 1 if e else 2 if y >= 11 else 3
+    for (x, y) in ((4, 8), (11, 9), (6, 12), (10, 12)):
+        px[y][x] = 4                                  # pale warts
+    px[9][6] = px[9][7] = px[9][9] = px[9][10] = 1     # sleepy eyes
+    px[11][8] = 6
+    return px
+
+
+def make_grove():
+    img = Image.new("P", (64, 16), 0)
+    img.putpalette([c for rgb in GROVE_PAL for c in rgb])
+    for f in range(4):
+        for y, row in enumerate(grove_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
+    return img
+
+
 def make_lily():
     img = Image.new("P", (32, 16), 0)
     img.putpalette([c for rgb in LILY_PAL for c in rgb])
@@ -3504,7 +3734,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("grove_sprite.png", make_grove),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

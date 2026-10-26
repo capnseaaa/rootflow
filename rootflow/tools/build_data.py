@@ -29,6 +29,9 @@ SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tre
 # v0.19 the burnt orchard's own (loaded like the marsh's); DARKNESS is never in a map (BG2 draws the dark)
 (BURNT_TREE, BURNT_FRUIT_TREE, BURNT_LOG, LANTERN_COLD, LANTERN_LIT, CAMPFIRE_COLD, CAMPFIRE_LIT, LOG_SEAT,
  SMOKE_STACK, BURNT_FENCE, DARKNESS, ASH_LANE, CHARRED_BRUSH) = range(127, 140)
+# v0.20 the mushroom grove's own (loaded like the marsh's)
+(GIANT_MUSH, GIANT_MUSH_BLUE, GLOWCAPS, FAIRY_RING, HOLLOW_LOG, CRACKED_ROCK, FALLEN_CAP, TINY_CHEST,
+ TINY_CHEST_OPEN) = range(140, 149)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -49,8 +52,8 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
-VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD = 0, 1, 2, 3, 4, 5, 6
-NUM_AREAS = 7                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE = 0, 1, 2, 3, 4, 5, 6, 7
+NUM_AREAS = 8                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
                                    # 6: the burnt orchard (v0.19), north of the Great Tree
 # v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
@@ -61,6 +64,13 @@ ORCHARD_FIRES = [(19, 24), (7, 4)]                 # cold campfires, a log seat 
 ORCHARD_STACKS = [(25, 20), (6, 10), (24, 3)]      # Vael smoke stacks (Pebble smashes them)
 ORCHARD_NEST = (4, 2)                              # Flick's burnt nest (v0.19 step 2), in a clearing
 ORCHARD_LEAFEN = [(27, 10), (23, 21)]              # Wick (in the dark by a lantern), Soot (by a smoke stack)
+# v0.20 the mushroom grove (south-east): in from the steppe's south edge and from Stone Hollow's east edge (Caleb:
+# both). Cap is squashed under a fallen cap in its middle. Fairy rings: where Cap shrinks you (and grows you back).
+GROVE_CAP = (16, 16)
+GROVE_RINGS = [(8, 8), (24, 22), (12, 26)]
+GROVE_LEAFEN = [(24, 6), (6, 20)]                   # Tuft (in a nook you reach through a hollow log), Button
+GROVE_LOG = (24, 9)                                 # the hollow log: the nook's way in (tiny only)
+GROVE_NOOK = (27, 27)                               # a tiny chest behind a cracked rock (step 4)
 # v0.19 (step 4) a cold campfire with a log seat each side in the old regions too (Flick lights them; cook
 # there). Not in the Great Tree's region: its tile set fills video memory (the orchard has its own two).
 CAMPFIRES = [(0, 26, 16), (1, 8, 18), (2, 3, 17), (5, 12, 16)]   # off the ways people walk
@@ -825,6 +835,106 @@ def make_orchard():
     return m
 
 
+def make_grove():
+    """The mushroom grove (v0.20): dim mossy ground under giant red and glowing blue mushrooms, glowcaps
+    everywhere, three fairy rings, a clearing with the fallen cap Cap is under, a nook of giant mushrooms you
+    can only enter through a hollow log (Tuft waits inside), and a cracked rock hiding a tiny chest."""
+    rng = random.Random(9090)
+    m = [[MOSS if rng.random() < 0.7 else DEAD for _ in range(MAP_W)] for _ in range(MAP_H)]
+    keep = set()
+    def clear(x, y, r=1):
+        for yy in range(y - r, y + r + 1):
+            for xx in range(x - r, x + r + 1):
+                if 0 <= xx < MAP_W and 0 <= yy < MAP_H:
+                    keep.add((xx, yy))
+    clear(*GROVE_CAP, r=2)
+    for p_ in GROVE_RINGS:
+        clear(*p_)
+    clear(*GROVE_LEAFEN[1], r=2)
+    for t in (5, 16, 26):                             # the ways in: open ground in each third of both edges
+        for k in range(3):
+            clear(t, k); clear(k, t)
+    # giant mushrooms: clumps, and a wall of them along the east and south edges
+    for _ in range(26):
+        cx, cy = rng.randrange(2, 30), rng.randrange(2, 30)
+        for y in range(cy - 1, cy + 2):
+            for x in range(cx - 1, cx + 2):
+                if 0 <= x < MAP_W and 0 <= y < MAP_H and (x, y) not in keep and rng.random() < 0.6:
+                    m[y][x] = GIANT_MUSH_BLUE if rng.random() < 0.4 else GIANT_MUSH
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            edge_e, edge_s = MAP_W - 1 - x, MAP_H - 1 - y
+            if (x, y) in keep:
+                continue
+            if edge_e == 0 or edge_s == 0 or ((edge_e == 1 or edge_s == 1) and rng.random() < 0.6):
+                m[y][x] = GIANT_MUSH_BLUE if (x + y) % 3 == 0 else GIANT_MUSH
+            elif m[y][x] in (MOSS, DEAD) and rng.random() < 0.12:
+                m[y][x] = GLOWCAPS
+    # the clearing and the fallen cap
+    cx, cy = GROVE_CAP
+    for y in range(cy - 2, cy + 3):
+        for x in range(cx - 2, cx + 3):
+            m[y][x] = MOSS
+    m[cy][cx] = FALLEN_CAP
+    for (x, y) in GROVE_RINGS:
+        for yy in range(y - 1, y + 2):
+            for xx in range(x - 1, x + 2):
+                m[yy][xx] = MOSS
+        m[y][x] = FAIRY_RING
+    # Tuft's nook: a ring of giant mushrooms, its only way in a hollow log
+    tx, ty = GROVE_LEAFEN[0]
+    for y in range(ty - 2, ty + 4):
+        for x in range(tx - 2, tx + 3):
+            inside = ty - 1 <= y <= ty + 2 and tx - 1 <= x <= tx + 1
+            m[y][x] = MOSS if inside else (GIANT_MUSH if (x + y) % 2 else GIANT_MUSH_BLUE)
+    lx, ly = GROVE_LOG
+    m[ly][lx] = HOLLOW_LOG
+    m[ly + 1][lx] = MOSS
+    # the tiny chest's nook: rocks round it, a cracked one the way in
+    nx, ny = GROVE_NOOK
+    for y in range(ny - 1, ny + 2):
+        for x in range(nx - 1, nx + 2):
+            m[y][x] = ROCK
+    m[ny][nx] = TINY_CHEST
+    m[ny - 1][nx] = CRACKED_ROCK
+    m[ny - 2][nx] = MOSS
+    m[GROVE_LEAFEN[1][1]][GROVE_LEAFEN[1][0]] = MOSS
+    # everything that matters can be reached at full size from both ways in
+    from collections import deque
+    walk = {MOSS, DEAD, GLOWCAPS, FAIRY_RING}
+    def reach():
+        seen = {(16, 0), (0, 16)}; q = deque(seen)
+        while q:
+            x, y = q.popleft()
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in seen and m[n[1]][n[0]] in walk:
+                    seen.add(n); q.append(n)
+        return seen
+    targets = [(cx, cy + 1), (lx, ly + 1), (nx, ny - 2), GROVE_LEAFEN[1], (5, 0), (26, 0), (0, 5), (0, 26)]
+    targets += list(GROVE_RINGS)
+    for (gx, gy) in targets:
+        seen = reach()
+        if (gx, gy) in seen:
+            continue
+        prev = {(gx, gy): None}; q = deque([(gx, gy)])
+        while q:
+            c = q.popleft()
+            if c in seen:
+                while c is not None:
+                    if m[c[1]][c[0]] not in walk:
+                        m[c[1]][c[0]] = MOSS
+                    c = prev[c]
+                break
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (c[0] + dx, c[1] + dy)
+                if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in prev and \
+                        m[n[1]][n[0]] not in (HOLLOW_LOG, CRACKED_ROCK, TINY_CHEST, FALLEN_CAP, ROCK) and \
+                        not (tx - 2 <= n[0] <= tx + 2 and ty - 2 <= n[1] <= ty + 3):   # never into Tuft's nook
+                    prev[n] = c; q.append(n)
+    return m
+
+
 def make_hollow_in():
     """The hollow inside the Great Tree: floor (walkable, never grows) inside the chamber and its
     corridor, solid elsewhere. The room itself is drawn by art/hollow.png on the trunk's layer."""
@@ -881,7 +991,7 @@ TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
-            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH}
+            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING}
 
 
 def reach_count(m, start):
@@ -909,7 +1019,8 @@ def add_campfires(maps):
 
 
 def make_maps():
-    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard()]
+    maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
+            make_grove()]
     add_campfires(maps)
     return [v for m in maps for row in m for v in row]
 
@@ -973,7 +1084,9 @@ def main():
     ball = Image.open(os.path.join(ART, "ball_sprite.png"))     # v0.18.4: each spirit as a ball (its own palette)
     flick = Image.open(os.path.join(ART, "flick_sprite.png"))   # v0.19: Flick (awake x2, cold, ember, shivering)
     orch = Image.open(os.path.join(ART, "orch_sprite.png"))     # v0.19: the orchard's region set (smoke creatures)
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch):
+    cap = Image.open(os.path.join(ART, "cap_sprite.png"))       # v0.20: Cap (idle x2, its puff, the lingering cloud x2)
+    grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -981,7 +1094,7 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16), ("CAP", cap, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -1004,7 +1117,8 @@ def main():
     region_base = len(sprite_words) // 8
     tile_defs.append(f"#define TILE_REGION {region_base}")
     region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)]),   # the Great Tree and its hollow
-                   ("ORCH", [("SMOKE", orch, 16)])]                           # v0.19 the burnt orchard
+                   ("ORCH", [("SMOKE", orch, 16)]),                           # v0.19 the burnt orchard
+                   ("GROVE", [("PUFF", grove, 16)])]                          # v0.20 the mushroom grove
     region_words = {}
     for set_name, set_sheets in region_sets:
         words = []
@@ -1037,6 +1151,7 @@ def main():
     out.append(f"#define NUM_AREAS {NUM_AREAS}")
     out.append(f"#define ORCHARD_NEST_X {ORCHARD_NEST[0]}\n#define ORCHARD_NEST_Y {ORCHARD_NEST[1]}")
     out.append(f"#define NUM_CAMPS {len(CAMPFIRES)}")
+    out.append(f"#define GROVE_CAP_X {GROVE_CAP[0]}\n#define GROVE_CAP_Y {GROVE_CAP[1]}")
     out.append(f"#define NUM_STACKS {len(ORCHARD_STACKS)}")
     out.append(c_array("unsigned char", "stack_x", [x for x, _ in ORCHARD_STACKS], fmt="{}"))
     out.append(c_array("unsigned char", "stack_y", [y for _, y in ORCHARD_STACKS], fmt="{}"))
@@ -1076,6 +1191,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_lily", palette_of(lily), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_flick", palette_of(flick), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_orch", palette_of(orch), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_cap", palette_of(cap), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_grove", palette_of(grove), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
     out.append(c_array("unsigned int", "pouch_tiles", pouch_all))

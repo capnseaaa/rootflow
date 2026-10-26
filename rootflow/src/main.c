@@ -104,7 +104,11 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // v0.19 the burnt orchard's own (loaded like the marsh's); DARKNESS is never on a map: BG2 draws the dark
        BURNT_TREE = WATER_EDGE + 15, BURNT_FRUIT_TREE, BURNT_LOG, LANTERN_COLD, LANTERN_LIT, CAMPFIRE_COLD,
        CAMPFIRE_LIT, LOG_SEAT, SMOKE_STACK, BURNT_FENCE, DARKNESS,
-       ASH_LANE, CHARRED_BRUSH };   // dark ash lanes (walkable, they stay lanes); burnt brush (walkable, it blooms)
+       ASH_LANE, CHARRED_BRUSH,     // dark ash lanes (walkable, they stay lanes); burnt brush (walkable, it blooms)
+       // v0.20 the mushroom grove's own (loaded like the marsh's). HOLLOW_LOG and CRACKED_ROCK: solid at full size,
+       // open to a tiny wizard; FAIRY_RING: where Cap shrinks you; FALLEN_CAP: Cap is squashed under it (YOU)
+       GIANT_MUSH, GIANT_MUSH_BLUE, GLOWCAPS, FAIRY_RING, HOLLOW_LOG, CRACKED_ROCK, FALLEN_CAP, TINY_CHEST,
+       TINY_CHEST_OPEN };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -114,6 +118,8 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define HOLLOW_IN 4   // the hollow inside the Great Tree (v0.16)
 #define MARSH 5       // the drowned marsh, south-west (v0.18)
 #define ORCHARD 6     // the burnt orchard, north-west (v0.19)
+#define GROVE 7       // the mushroom grove, south-east (v0.20): in from the steppe's south and Stone Hollow's east
+static int is_grove_piece(u8 t) { return t == GIANT_MUSH || t == GIANT_MUSH_BLUE || (t >= HOLLOW_LOG && t <= TINY_CHEST_OPEN); }
 #define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
 static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid
 // none restorable but the burnt trees, which grow back (v0.19.4)
@@ -336,7 +342,7 @@ static int is_solid(u8 t) {
            t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND ||
            t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
            is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE ||
-           is_orchard_piece(t);
+           is_orchard_piece(t) || is_grove_piece(t);
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -354,7 +360,8 @@ static int is_restorable(u8 t) {
              t == WRECK || t == MENHIR || t == DRY_RIVER || t == DRY_BRIDGE || t == DAM || t == LEVER ||
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
-             is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE);
+             is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE ||
+             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS);
 }
 
 static void draw_area(void) {
@@ -401,6 +408,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
     { 0, 0, 0 },   // the hollow: its own layer covers the map
     { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh: dark, mossy mud (v0.18.1)
     { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) },  // the orchard: grey ash (v0.19)
+    { RGB5(40, 46, 40), RGB5(58, 66, 52), RGB5(82, 90, 70) },     // the grove: dim, damp earth (v0.20)
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -412,6 +420,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { 0, 0, 0 },
     { RGB5(40, 116, 78), RGB5(72, 166, 98), RGB5(150, 214, 118) },  // the marsh: a fresh bog green (v0.18.2)
     { RGB5(74, 94, 58), RGB5(104, 124, 76), RGB5(146, 158, 104) },  // the orchard: a dull, ashy green (v0.19.7, Caleb)
+    { RGB5(52, 96, 78), RGB5(78, 132, 100), RGB5(120, 176, 130) },  // the grove: a deep blue-green moss (v0.20)
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -555,6 +564,7 @@ static void oam_flush(void) {
 #define SPR_LILY (TILE_LILY / 4)
 #define SPR_BALL (TILE_BALL / 4)   // v0.18.4: each spirit as a ball, in the pouch (its own palette)
 #define SPR_FLICK (TILE_FLICK / 4)   // v0.19: awake x2, cold, its ember shot, cold and shivering
+#define SPR_CAP (TILE_CAP / 4)       // v0.20: idle x2, its spore puff, the lingering cloud x2
 #define PAL_MAIN 0
 #define PAL_RIPPLE 1
 #define PAL_SLEEP 2
@@ -570,6 +580,7 @@ static void oam_flush(void) {
 // before the orchard can be reached). Loaded in set_ground_palette once the tree is healed. The other two
 // sleeping banks (PAL_SLEEP, PAL_STONE_SLEEP) are free the same way, for the corner spirits still to come.
 #define PAL_FLICK PAL_BREEZE_SLEEP
+#define PAL_CAP PAL_STONE_SLEEP   // v0.20 Cap: Pebble's sleeping colors' bank (free by then the same way)
 #define PAL_CLAMP 11
 #define PAL_COMBAT 12
 #define PAL_BOSS 13
@@ -602,7 +613,8 @@ static void oam_flush(void) {
 #define OAM_RING    (OAM_POOL + 8)   //   +8..23: the Gloomheart's rot ring (inside the tree)
 #define OAM_FIREFLY (OAM_POOL + 8)   //   +8..11: the marsh's fireflies
 #define OAM_LHOME   (OAM_POOL + 8)   //   +8..27: the Leafen's tiny homes (the Great Tree's region, healed)
-#define OAM_FOLK    (OAM_POOL + 28)  //   +28..60: the Leafen living round Bark's tree (33: three each for 11)
+#define OAM_FOLK    (OAM_POOL + 28)  //   +28..60: the Leafen living round Bark's tree on screen (v0.20: by slot)
+#define FOLK_SLOTS  33
 #define POOL_SIZE   61
 #define OAM_SWIMHANDS 125 // swimming, front to back: ripples (slot 0), his hands, him, his wake
 #define OAM_SWIMRING 126  // (named for the ring's old slot: now his head and shoulders while he swims)
@@ -616,20 +628,26 @@ static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(O
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
-enum { RS_NONE, RS_TREE, RS_ORCH };
+enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
-    if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank
-        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_FLICK * 16 + i] = obj_pal_flick[i];
-    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : RS_NONE;
+    if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank,
+        for (s32 i = 0; i < 16; i++) {                 // v0.20: Cap's Pebble's
+            PAL_OBJ[PAL_FLICK * 16 + i] = obj_pal_flick[i];
+            PAL_OBJ[PAL_CAP * 16 + i] = obj_pal_cap[i];
+        }
+    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : a == GROVE ? RS_GROVE : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
     if (rs == RS_TREE) {
         copy32(OBJ_TILES + TILE_REGION * 8, region_tree_tiles, sizeof(region_tree_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_boss[i];
-    } else {                                           // v0.19 the orchard: its smoke creatures
+    } else if (rs == RS_ORCH) {                        // v0.19 the orchard: its smoke creatures
         copy32(OBJ_TILES + TILE_REGION * 8, region_orch_tiles, sizeof(region_orch_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_orch[i];
+    } else {                                           // v0.20 the grove: its poison puffs and their clouds
+        copy32(OBJ_TILES + TILE_REGION * 8, region_grove_tiles, sizeof(region_grove_tiles) / 4);
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_grove[i];
     }
 }
 
@@ -660,10 +678,10 @@ static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim);
 // ---------- spirits ----------
 enum { SP_ASLEEP, SP_AWAKE, SP_JOINED, SP_HOME, SP_HIDDEN, SP_POUCH };   // hidden: not in the world yet (Bark)
 // SP_POUCH (v0.18.4): joined but not carried; it rides in the spirit pouch as a tiny orb (not selectable)
-enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE, KIND_BARK, KIND_LILY, KIND_FLICK };
+enum { KIND_SPROUT, KIND_RIPPLE, KIND_STONE, KIND_BREEZE, KIND_BARK, KIND_LILY, KIND_FLICK, KIND_CAP };
 // housed: the spirit has a home. While it travels with you its power is weaker (fewer charges).
 typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // area: where it is
-#define NUM_SPIRITS 7   // v0.18: Lily, summoned by Bark; v0.19: Flick, found in the burnt orchard
+#define NUM_SPIRITS 8   // v0.18: Lily, summoned by Bark; v0.19: Flick, found in the burnt orchard; v0.20: Cap (the grove)
 #define OLD_SPIRITS 5   // saves before v0.18 hold five
 #define NUM_SHIELDS 5   // the Gloomheart's shields: Sprout, Ripple, Pebble, Breeze, Bark
 #define NUM_HOMES 4   // Sprout, Ripple, Pebble, Breeze have homes; Bark has none yet
@@ -673,15 +691,17 @@ typedef struct { s32 x, y, state, kind, energy, housed, area; } Spirit;   // are
 static Spirit spirits[NUM_SPIRITS];   // index == kind
 static s32 party[NUM_SPIRITS], party_count, active;   // party holds spirit indexes in join order
 static u32 pouch_on;                       // v0.18.4: Bark gave you the spirit pouch (saved)
-static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE", "BARK", "LILY", "FLICK" };
+static const char *spirit_name[] = { "SPROUT", "RIPPLE", "PEBBLE", "BREEZE", "BARK", "LILY", "FLICK", "CAP" };
 static const char *spirit_skill[] = { "SPROUT: BLOOM", "RIPPLE: BRIDGE", "PEBBLE: BREAK ROCK",
                                       "BREEZE: CLEAR THORNS", "BARK: CUT AND CLEAR", "LILY: CLEAN WATER, PADS",
-                                      "FLICK: LIGHT LANTERNS, FIRES" };
+                                      "FLICK: LIGHT LANTERNS, FIRES", "CAP: SHRINK IN A FAIRY RING" };
 static const char *spirit_joined[] = { "SPROUT JOINED! A: BLOOM", "RIPPLE JOINED! R: SWAP",
                                        "PEBBLE JOINED! R: SWAP", "BREEZE JOINED! R: SWAP",
-                                       "BARK JOINED... HMPH.", "LILY JOINED! WHEE!", "FLICK JOINED! CHEEP!" };
+                                       "BARK JOINED... HMPH.", "LILY JOINED! WHEE!", "FLICK JOINED! CHEEP!",
+                                       "CAP JOINED! TEENY!" };
 static const char *spirit_tired[] = { "SPROUT IS TIRED", "RIPPLE IS TIRED", "PEBBLE IS TIRED",
-                                      "BREEZE IS TIRED", "BARK: NO. I'M TIRED.", "LILY IS SLEEPY...", "FLICK IS SLEEPY..." };
+                                      "BREEZE IS TIRED", "BARK: NO. I'M TIRED.", "LILY IS SLEEPY...", "FLICK IS SLEEPY...",
+                                      "CAP IS SLEEPY..." };
 static const char *home_built[] = { "SPROUT'S GROVE IS BUILT!", "RIPPLE'S SPRING IS BUILT!",
                                     "PEBBLE'S CAIRN IS BUILT!", "BREEZE'S NOOK IS BUILT!" };
 static const char *home_prompt[] = { "A: BUILD SPROUT'S GROVE", "A: BUILD RIPPLE'S SPRING",
@@ -730,10 +750,10 @@ static u32 told_tips;
 #define TIP_ALL     4
 static u32 told_ending;
 // per kind: sprite cell, awake palette, asleep palette
-static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE, SPR_BARK, SPR_LILY, SPR_FLICK };
-static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE, PAL_BARK, PAL_LILY, PAL_FLICK };
+static const u8 spirit_tile[] = { SPR_SPROUT, SPR_RIPPLE, SPR_STONE, SPR_BREEZE, SPR_BARK, SPR_LILY, SPR_FLICK, SPR_CAP };
+static const u8 spirit_pal[] = { PAL_SPROUT, PAL_RIPPLE, PAL_STONE, PAL_BREEZE, PAL_BARK, PAL_LILY, PAL_FLICK, PAL_CAP };
 static const u8 spirit_sleep_pal[] = { PAL_SPROUT, PAL_SLEEP, PAL_STONE_SLEEP, PAL_BREEZE_SLEEP, PAL_BARK, PAL_LILY,
-                                       PAL_FLICK };   // Flick, cold in its nest, has its own cold frame
+                                       PAL_FLICK, PAL_CAP };   // Flick, cold in its nest, has its own cold frame
 static void draw_home_spirit(s32 i, s32 x, s32 y, s32 b, s32 anim) {
     s32 id = SPIRIT_OAM(i), lv = home_level[i];
     switch (i) {
@@ -856,7 +876,9 @@ static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
 // v0.19 (step 4) cooking at a lit campfire (Caleb: one meal at a time, 45 seconds; no faster walking)
 enum { MEAL_NONE, MEAL_HEART, MEAL_LIGHT };
 #define MEAL_FRAMES (45 * 60)
-static u32 meal_kind, meal_timer, mushrooms;      // mushrooms: picked in the marsh (saved); the meal is not saved
+static u32 meal_kind, meal_timer, mushrooms;
+static u32 shrunk;                  // v0.20 Cap shrank you at a fairy ring (not saved: a load grows you back)
+static u32 grove_seen;              // v0.20 you have been in the grove (its Leafen count from then on; saved)      // mushrooms: picked in the marsh (saved); the meal is not saved
 static u32 hearts_max(void) { return MAX_HEARTS + (meal_kind == MEAL_HEART); }
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
 static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
@@ -864,15 +886,19 @@ static u32 leaf_timer;                              // > 0 while leaves swirl ro
 // Six Leafen hide in the valley, the steppe, and Stone Hollow once the Great Tree is healed. Help one
 // and it calls up two friends; they walk to Bark's tree, where they build tiny homes. Every two that
 // Bark welcomes, he teaches YOU a skill: LEAF STEP, LEAF SHIELD, SEEDFALL.
-enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_PUDDLE, LF_WICK, LF_SOOT, NUM_LEAFEN };
+enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_PUDDLE, LF_WICK, LF_SOOT, LF_TUFT, LF_BUTTON,
+       NUM_LEAFEN };
 #define FIRST_LEAFEN 6   // the valley, steppe and hollow ones; v0.18 adds three in the marsh
 #define FIRST_ORCH_LEAFEN 9   // v0.19.4: two in the burnt orchard (they need Flick's world: light, the stacks gone)
+#define FIRST_GROVE_LEAFEN 11   // v0.20: two in the mushroom grove (one only a tiny wizard can reach)
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
 static u32 flick_step, flick_flags;   // v0.19 Flick's wake-up scene; flags: 1 the warm ember, 2 the chirp told,
                                       // 4 its first shiver heard
 #define FLICK_SCENE_LEN 8
+static u32 cap_step;                    // v0.20 Cap's scene, once YOU heaves the fallen cap away (saved)
+#define CAP_SCENE_LEN 8
 static u32 swim_step;                                 // v0.18.1: Ripple's swimming lesson (saved; swim_skill after)
 enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
 static u8 leafen_state[NUM_LEAFEN];
@@ -1010,6 +1036,9 @@ static void reset_game(void) {
     spirit_init(KIND_FLICK, ORCHARD_NEST_X, ORCHARD_NEST_Y, SP_ASLEEP);   // v0.19: cold in its nest in the orchard
     spirits[KIND_FLICK].area = ORCHARD;
     flick_step = flick_flags = 0;
+    spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);   // v0.20: squashed under the fallen cap
+    spirits[KIND_CAP].area = GROVE;
+    cap_step = 0;
     lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
@@ -1304,11 +1333,13 @@ static void dark_update(void) {                    // each frame: the cells roun
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, -1, 0, -1, 2, -1 }, area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, -1, -1, MARSH, -1, -1, WEST };
-static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1 };
+static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1 },
+                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2 };
+static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1 };
+static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1, 1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
-                                            "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD" };
+                                            "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD",
+                                            "THE MUSHROOM GROVE" };
 // Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
 // A scene may set its own (scene_song; -1 = silence).
 #define NO_SCENE_SONG (-2)
@@ -1322,6 +1353,7 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
     use_area(a);
     if (blocked_at(nx, ny)) { use_area(cur_area); return 0; }
     cur_area = a;
+    if (a == GROVE) grove_seen = 1;
     music_play(area_song(a));
     for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;   // blooms finish where they started
     sparkle_life = 0;
@@ -1471,11 +1503,11 @@ static const char *quest_reward[NUM_SPIRITS] = {
 };
 static const char *grew_msg[NUM_SPIRITS] = {
     "SPROUT GREW STRONGER!", "RIPPLE GREW STRONGER!", "PEBBLE GREW STRONGER!", "BREEZE GREW STRONGER!",
-    "BARK GREW STRONGER!", "LILY GREW STRONGER!", "FLICK GREW STRONGER!",   // v0.19: Lily's was missing
+    "BARK GREW STRONGER!", "LILY GREW STRONGER!", "FLICK GREW STRONGER!", "CAP GREW STRONGER!",   // v0.19: Lily's was missing
 };
 static const char *trust_msg[NUM_SPIRITS] = {
     "SPROUT TRUSTS YOU FULLY!", "RIPPLE TRUSTS YOU FULLY!", "PEBBLE TRUSTS YOU FULLY!", "BREEZE TRUSTS YOU FULLY!",
-    "BARK TRUSTS YOU FULLY!", "LILY TRUSTS YOU FULLY!", "FLICK TRUSTS YOU FULLY!",
+    "BARK TRUSTS YOU FULLY!", "LILY TRUSTS YOU FULLY!", "FLICK TRUSTS YOU FULLY!", "CAP TRUSTS YOU FULLY!",
 };
 
 static void add_fp(s32 k, s32 n) {
@@ -1653,6 +1685,11 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         else if (t == REEDS) { set_tile(mx, my, DEAD); restorable[work_area]++; show_message("REEDS CLEARED"); }   // v0.18
         else if (t == LOG) { set_tile(mx, my, MOSS); restorable[work_area]++; wood++; show_message("+1 WOOD"); }
         else if (t == BURNT_LOG && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
+        else if (t == FALLEN_CAP && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
+        else if (t == FALLEN_CAP) {                     // v0.20: YOU heaves the fallen cap away: Cap is under it
+            set_tile(mx, my, MOSS); restorable[work_area]++;
+            if (!cap_step) cap_step = 1;
+        }
         else if (t == BURNT_LOG || t == BURNT_TREE) {   // v0.19: the orchard's fallen trunk (YOU) and burnt trees
             set_tile(mx, my, DEAD); restorable[work_area]++; wood++; show_message("+1 WOOD");
             if (t == BURNT_LOG && !(flick_flags & 1)) {   // deep in the trunk, still glowing: it will warm Flick
@@ -1892,7 +1929,7 @@ enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_
 enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, C_SWIMRING, C_ORB = C_SWIMRING + 2,
        C_WAKE = C_ORB + 6, C_MINI = C_WAKE + 3 };   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH ||
-                                         cur_area == ORCHARD; }
+                                         cur_area == ORCHARD || cur_area == GROVE; }
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS + 1; i++)        // the sixth only while a stew lasts (v0.19)
@@ -1900,7 +1937,7 @@ static void draw_hearts_hud(void) {
 }
 
 // Enemies: blobs creep after you, drones dart at you through the air.
-enum { E_BLOB, E_DRONE, E_SMOKE };   // E_SMOKE (v0.19): the orchard's smoke creatures
+enum { E_BLOB, E_DRONE, E_SMOKE, E_PUFF };   // E_SMOKE (v0.19): the orchard's smoke creatures; E_PUFF (v0.20): the grove's
 typedef struct { s32 type, x, y, hp, timer, dx, dy, flash, knock, alive; } Enemy;
 #define MAX_ENEMIES 8
 static Enemy enemies[MAX_ENEMIES];
@@ -1975,16 +2012,21 @@ static const u8 marsh_spawn[][3] = { { E_BLOB, 10, 15 }, { E_BLOB, 21, 16 }, { E
 // v0.19 smoke creatures drifting in the orchard's dark, away from the lanes, the nest and the way in
 static const u8 orchard_spawn[][3] = { { E_SMOKE, 8, 19 }, { E_SMOKE, 22, 14 }, { E_SMOKE, 26, 24 },
                                        { E_SMOKE, 12, 6 }, { E_SMOKE, 21, 4 }, { E_SMOKE, 6, 24 } };
+// v0.20 poison spore puffs drifting in the grove (Caleb: avoidable), three of them round Button
+static const u8 grove_spawn[][3] = { { E_PUFF, 4, 18 }, { E_PUFF, 9, 22 }, { E_PUFF, 5, 23 }, { E_PUFF, 20, 12 },
+                                     { E_PUFF, 12, 13 }, { E_PUFF, 27, 17 } };
 static void spawn_enemies(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
-    const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : cur_area == ORCHARD ? orchard_spawn : enemy_spawn;
+    const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : cur_area == ORCHARD ? orchard_spawn :
+                        cur_area == GROVE ? grove_spawn : enemy_spawn;
     u32 count = cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) :
-                cur_area == ORCHARD ? sizeof(orchard_spawn) / sizeof(orchard_spawn[0]) : NUM_SPAWNS;
+                cur_area == ORCHARD ? sizeof(orchard_spawn) / sizeof(orchard_spawn[0]) :
+                cur_area == GROVE ? sizeof(grove_spawn) / sizeof(grove_spawn[0]) : NUM_SPAWNS;
     for (u32 i = 0; i < count && i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
         e->type = sp[i][0];
         e->x = sp[i][1] * 16; e->y = sp[i][2] * 16;
-        e->hp = e->type == E_DRONE ? 2 : 3;
+        e->hp = e->type == E_DRONE || e->type == E_PUFF ? 2 : 3;
         e->timer = i * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
         e->alive = 1;
         if (e->type == E_SMOKE && stack_dark(e->x + 8, e->y + 8) == 0) e->alive = 0;   // not in the clear air
@@ -2064,7 +2106,9 @@ static void hurt(s32 n, s32 fromx, s32 fromy) {
     if (hearts_now == 0) faint();
 }
 
-static int can_fight(s32 kind) { return kind == KIND_BARK || kind == KIND_LILY || kind == KIND_FLICK || home_level[kind] >= 2; }
+static int can_fight(s32 kind) {
+    return kind == KIND_BARK || kind == KIND_LILY || kind == KIND_FLICK || kind == KIND_CAP || home_level[kind] >= 2;
+}
 
 // Is something to hit within reach, in the direction the wizard faces?
 static int enemy_ahead(void) {
@@ -2103,6 +2147,8 @@ static void start_attack(s32 kind) {
         chime(1319, 6); break;                            // v0.18.2: a spinning lily blossom
     case KIND_FLICK: atk.life = 22; atk.w = atk.h = 10; atk.dmg = 1; atk.push = 6; atk.dx = fx * 3; atk.dy = fy * 3;
         chime(988, 5); break;                             // v0.19: an ember shot
+    case KIND_CAP: atk.life = 18; atk.w = atk.h = 10; atk.dmg = 1; atk.push = 2; atk.dx = fx * 3; atk.dy = fy * 3;
+        chime(523, 5); break;                             // v0.20: a spore puff (it lingers where it stops)
     default: atk.life = 14; atk.x = px - 16; atk.y = py - 16; atk.w = atk.h = 48; atk.dmg = 2; atk.push = 14;
         sfx_play(SFX_BUILD); break;                       // Bark slams the ground all around
     }
@@ -2112,8 +2158,23 @@ static void start_attack(s32 kind) {
     atk_cooldown = 24;
 }
 
+// v0.20 (Caleb): Cap's spore puff lingers where it stops: a cloud that keeps hurting what stays in it.
+static s32 spore_x, spore_y, spore_t;            // the cloud's middle (pixels) and frames left
+#define SPORE_FRAMES 150
+static void update_spore_cloud(void);
 static int boxes_meet(s32 ax, s32 ay, s32 aw, s32 ah, s32 bx, s32 by, s32 bw, s32 bh) {
     return ax < bx + bw && bx < ax + aw && ay < by + bh && by < ay + ah;
+}
+static void update_spore_cloud(void) {
+    if (!spore_t) return;
+    spore_t--;
+    if (spore_t % 30) return;                          // a sting every half second to what is in it
+    for (s32 i = 0; i < MAX_ENEMIES; i++) {
+        Enemy *e = &enemies[i];
+        if (!e->alive || !boxes_meet(spore_x - 12, spore_y - 12, 24, 24, e->x + 2, e->y + 2, 12, 12)) continue;
+        e->hp -= 1; e->flash = 8;
+        if (e->hp <= 0) { e->alive = 0; sfx_play(SFX_REMOVE); }
+    }
 }
 
 static void spark(s32 x, s32 y) { hit_x = x; hit_y = y; hit_life = 10; }
@@ -2128,7 +2189,9 @@ static const signed char loop_y48[48] = { 0, 2, 4, 6, 8, 9, 11, 12, 14, 15, 15, 
 
 static void update_attack(void) {
     if (atk_cooldown) atk_cooldown--;
+    update_spore_cloud();
     if (!atk.life) return;
+    if (atk.kind == KIND_CAP && atk.life == 1) { spore_x = atk.x + atk.w / 2; spore_y = atk.y + atk.h / 2; spore_t = SPORE_FRAMES; }
     atk.life--;
     atk.x += atk.dx; atk.y += atk.dy;
     if (atk.dx || atk.dy) {                                  // shots stop at walls and the trunk
@@ -2148,7 +2211,10 @@ static void update_attack(void) {
         spark(e->x, e->y);
         chime(880, 8);
         if (e->hp <= 0) { e->alive = 0; sfx_play(SFX_REMOVE); }
-        if (atk.dx || atk.dy) atk.life = 0;                  // a shot stops at what it hits
+        if (atk.dx || atk.dy) {                              // a shot stops at what it hits
+            if (atk.kind == KIND_CAP) { spore_x = atk.x + atk.w / 2; spore_y = atk.y + atk.h / 2; spore_t = SPORE_FRAMES; }
+            atk.life = 0;
+        }
     }
     if (boss.alive && boss.state != 3 && boss.hop < 8 && !(atk.hit & (1 << 30)) &&
         boxes_meet(atk.x, atk.y, atk.w, atk.h, boss.x + 3, boss.y + 3, 26, 26)) {
@@ -2238,7 +2304,12 @@ static void update_enemies(void) {
         if (e->knock) { e->knock--; move_enemy(e, e->dx * 2, e->dy * 2, e->type != E_BLOB); continue; }
         s32 dx = pcx - (e->x + 8), dy = pcy - (e->y + 8);
         s32 near = dx * dx + dy * dy < 100 * 100;
-        if (e->type == E_SMOKE) {                            // v0.19: drifts in the dark; comes for you once it sees
+        if (e->type == E_PUFF) {                             // v0.20: drifts slowly; every few seconds it lets out a
+            if ((e->timer & 255) == 0) { e->dx = (s32)(rng() % 3) - 1; e->dy = (s32)(rng() % 3) - 1; }   // poison cloud
+            if ((e->timer & 3) == 0) move_enemy(e, e->dx, e->dy, 0);
+            u32 t = e->timer % 200;
+            if (t >= 140 && dx * dx + dy * dy < 26 * 26) hurt(1, e->x + 8, e->y + 8);   // the cloud stings (avoid it)
+        } else if (e->type == E_SMOKE) {                     // v0.19: drifts in the dark; comes for you once it sees
             s32 cx = e->x + 8, cy = e->y + 8, mx = 0, my = 0, lit = fire_lit(cx, cy);   // your light; shuns fire
             s32 see = dark_r() + 40;
             if (lit != -1) {                                 // caught in a lantern's or fire's light: away from it
@@ -2583,7 +2654,19 @@ static void draw_gloom_fx(void) {
 static void draw_combat(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
-        if (!e->alive || !in_combat_area()) { sprite_hide(OAM_ENEMY + i); continue; }
+        if (!e->alive || !in_combat_area()) {
+            sprite_hide(OAM_ENEMY + i);
+            if (cur_area == GROVE) sprite_hide(OAM_ENEMY + 8 + i);   // a puff's cloud
+            continue;
+        }
+        if (e->type == E_PUFF) {                         // the grove's own (region set, bank PAL_BOSS), and its cloud
+            sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, TILE_PUFF / 4 + ((e->timer >> 4) & 1), e->dx < 0,
+                       e->flash ? PAL_FLASH : PAL_BOSS);
+            if (e->timer % 200 >= 140)                   // the shared slots after the enemies' (only the grove uses them)
+                sprite_set(OAM_ENEMY + 8 + i, e->x - cam_x, e->y - cam_y, TILE_PUFF / 4 + 2 + ((frame >> 3) & 1), 0, PAL_BOSS);
+            else sprite_hide(OAM_ENEMY + 8 + i);
+            continue;
+        }
         if (e->type == E_SMOKE) {                        // the orchard's own sprite (its region set, bank PAL_BOSS)
             sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, TILE_SMOKE / 4 + ((e->timer >> 4) & 1), e->dx < 0,
                        e->flash ? PAL_FLASH : PAL_BOSS);
@@ -2593,6 +2676,8 @@ static void draw_combat(void) {
         sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y, SPR_COMBAT + cell, e->dx < 0, e->flash ? PAL_FLASH : PAL_COMBAT);
     }
     for (s32 k = 0; k < 4; k++) sprite_hide(OAM_ATTACK + k);
+    if (spore_t)                                       // v0.20 Cap's lingering spore cloud (the last attack slot)
+        sprite_set(OAM_ATTACK + 3, spore_x - 8 - cam_x, spore_y - 8 - cam_y, SPR_CAP + 3 + ((frame >> 3) & 1), 0, PAL_CAP);
     if (atk.life) {
         s32 x = atk.x - cam_x, y = atk.y - cam_y;
         switch (atk.kind) {
@@ -2605,6 +2690,7 @@ static void draw_combat(void) {
         case KIND_BREEZE: sprite_set(OAM_ATTACK, x, y, SPR_COMBAT + C_GUST, (frame >> 2) & 1, PAL_COMBAT); break;
         case KIND_LILY: sprite_set(OAM_ATTACK, x - 2, y - 2, SPR_COMBAT + C_PETAL, (frame >> 2) & 1, PAL_COMBAT); break;
         case KIND_FLICK: sprite_set(OAM_ATTACK, x - 3, y - 3, SPR_FLICK + 3, (frame >> 2) & 1, PAL_FLICK); break;
+        case KIND_CAP: sprite_set(OAM_ATTACK, x - 3, y - 3, SPR_CAP + 2, (frame >> 2) & 1, PAL_CAP); break;
         default:                                         // four quarters of the ring, flipped into place
             for (s32 k = 0; k < 4; k++) {
                 u16 *o = &oam_shadow[(OAM_ATTACK + k) * 4];
@@ -2733,7 +2819,7 @@ static s32 party_cap(void) { return spirits[KIND_BARK].state != SP_HIDDEN && !tr
 static s32 carried(void) { return party_count - (tree_alive && in_party(KIND_BARK)); }
 static const char *pouch_msg[NUM_SPIRITS] = { "SPROUT HOPS IN THE POUCH.", "RIPPLE HOPS IN THE POUCH.",
     "PEBBLE HOPS IN THE POUCH.", "BREEZE HOPS IN THE POUCH.", "", "LILY HOPS IN THE POUCH.",
-    "FLICK HOPS IN THE POUCH." };
+    "FLICK HOPS IN THE POUCH.", "CAP HOPS IN THE POUCH." };
 static void party_add(s32 i) {
     if (carried() >= party_cap() && pouch_on && !is_you(i)) {
         spirits[i].state = SP_POUCH;
@@ -3056,11 +3142,11 @@ static void update_pumps(void) {
 }
 
 // ---------- gifts: tap B while facing a spirit ----------
-static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2, 1, 1, 1 };    // 0 stone, 1 fruit, 2 seeds
+static const u8 favorite[NUM_SPIRITS] = { 2, 1, 0, 2, 1, 1, 1, 2 };    // 0 stone, 1 fruit, 2 seeds
 static const char *favorite_name[3] = { "STONE", "FRUIT", "SEEDS" };
 static const char *loves_msg[NUM_SPIRITS] = {
     "SPROUT LOVES THE SEEDS!", "RIPPLE LOVES THE FRUIT!", "PEBBLE LOVES THE STONE!", "BREEZE LOVES THE SEEDS!",
-    "BARK: ...FINE. THANKS.", "LILY LOVES THE FRUIT!", "FLICK LOVES THE FRUIT!",
+    "BARK: ...FINE. THANKS.", "LILY LOVES THE FRUIT!", "FLICK LOVES THE FRUIT!", "CAP LOVES THE SEEDS!",
 };
 static u32 b_hold;
 // B by deep water with Ripple chosen (and the skill learned): jump in (v0.18.1).
@@ -3399,7 +3485,7 @@ static void update_gloom_intro(void) {
 // once healed; the fight is gloomfight.
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
-                                           SONG_WITHERED, SONG_WITHERED };   // the marsh, the orchard: for now (music later)
+                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW };   // marsh, orchard, grove: for now (music later)
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
         return tree_alive ? SONG_HEARTWOOD : boss_beaten == (1 << NUM_BOSSES) - 1 ? SONG_UNEASY :
@@ -3410,13 +3496,13 @@ static s32 area_song(s32 a) {
 // ---------- the Leafen (v0.17): where they wait, what they need, the rescue, the welcome ----------
 enum { LOOK_SPROUT, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_DEW };
 enum { POSE_STAND, POSE_STEP, POSE_SWIM, POSE_CLIMB };
-static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH, ORCHARD, ORCHARD };
-static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7, 27, 23 };   // Wick: by the lantern at (26,8)
-static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12, 10, 21 };
+static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH, ORCHARD, ORCHARD, GROVE, GROVE };
+static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7, 27, 23, 24, 6 };   // Wick: by the lantern at (26,8)
+static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12, 10, 21, 6, 20 };
 static const u8 leafen_look[NUM_LEAFEN] = { LOOK_SPROUT, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT, LOOK_DEW,
-                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_LEAF };
+                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT };
 static const char *leafen_name[NUM_LEAFEN] = { "PIP", "MOSSY", "TWIG", "POSY", "NUB", "DEWDROP", "BOG", "REEDY",
-                                               "PUDDLE", "WICK", "SOOT" };
+                                               "PUDDLE", "WICK", "SOOT", "TUFT", "BUTTON" };
 static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you meet it (its problem, not the fix)
     { "PIP: HELP! I'M STUCK ON THIS", "LILY PAD. I CAN'T SWIM YET!" },
     { "MOSSY: SO... HUNGRY...", "SOME FRUIT? THREE, MAYBE?" },
@@ -3429,18 +3515,22 @@ static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you me
     { "PUDDLE: EW. EW! STINKY GOO!", "I WANT CLEAN WATER BY ME!" },
     { "WICK: IT'S SO DARK! SO SCARY!", "I WON'T MOVE TILL I CAN SEE!" },
     { "SOOT: COUGH! THE SMOKE! COUGH!", "THAT STACK WON'T STOP PUFFING!" },
+    { "TUFT: (A TINY VOICE) HELLO?", "I'M IN HERE! THE LOG IS TOO SMALL!" },
+    { "BUTTON: THOSE PUFFS! EVERYWHERE!", "THEY WON'T LET ME OUT!" },
 };
 static const char *leafen_thanks[NUM_LEAFEN] = {
     "PIP: A BRIDGE! YOU'RE GREAT!", "MOSSY: MMM! FRUIT! THANK YOU!", "TWIG: NO MORE THORNS! YAY!",
     "POSY: FLOWERS! SO PRETTY!", "NUB: PHEW! I CAN BREATHE!", "DEWDROP: MY SHINY! THANK YOU!",
     "BOG: THE GOO'S GONE! HOP HOP!", "REEDY: FREE! I CAN WIGGLE!", "PUDDLE: AH! CLEAN! SPLASH!",
     "WICK: LIGHT! I CAN SEE YOU!", "SOOT: FRESH AIR! AAH! YAY!",
+    "TUFT: YOU'RE TINY TOO! LET'S GO!", "BUTTON: THE PUFFS ARE GONE! PHEW!",
 };
 static const char *leafen_gift[NUM_LEAFEN] = {
     "NEW BUILD: DEW POND", "NEW BUILD: ACORN BENCH", "NEW BUILD: LEAF SWING",
     "NEW BUILD: FLOWER ARCH", "NEW BUILD: PEBBLE PATH", "NEW BUILD: MUSHROOM LAMP",
     "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT",   // the marsh Leafen give a little haul
     "+3 FRUIT +2 MUSHROOMS", "+3 FRUIT +2 MUSHROOMS",                    // the orchard's: things to cook
+    "+5 SEEDS +2 MUSHROOMS", "+5 SEEDS +2 MUSHROOMS",                    // the grove's
 };
 #define SHINY_X 2    // Dewdrop's shiny pebble lies in the valley, far west
 #define SHINY_Y 15
@@ -3527,6 +3617,15 @@ static int leafen_ready(s32 k) {
                (LF_AT(x - 1, y) != SLUDGE && LF_AT(x + 1, y) != SLUDGE && LF_AT(x, y - 1) != SLUDGE && LF_AT(x, y + 1) != SLUDGE);
     case LF_WICK: return fire_lit(x * 16 + 8, y * 16 + 8) != -1;   // a lantern lit by it (or its smoke gone)
     case LF_SOOT: return maps[ORCHARD][stack_y[0] * MAP_W + stack_x[0]] != SMOKE_STACK;   // the stack beside it
+    case LF_TUFT: return shrunk;                         // you came in through the log: as tiny as it is
+    case LF_BUTTON: {                                    // no poison puff left near it
+        for (s32 i = 0; i < MAX_ENEMIES; i++) {
+            if (!enemies[i].alive || enemies[i].type != E_PUFF || cur_area != GROVE) continue;
+            s32 ddx = enemies[i].x - x * 16, ddy = enemies[i].y - y * 16;
+            if (ddx * ddx + ddy * ddy < 96 * 96) return 0;
+        }
+        return cur_area == GROVE;
+    }
     default: {                                              // Reedy: no reeds round; Puddle: no sludge round
         u8 bad = k == LF_REEDY ? REEDS : SLUDGE;
         for (s32 dy = -1; dy <= 1; dy++)
@@ -3540,7 +3639,8 @@ static int leafen_waiting(s32 k) { return leafen_state[k] == LS_WAIT || leafen_s
 // How many Leafen you know of: the first six, the marsh's once Lily has joined, the orchard's once you are in it.
 static s32 leafen_total(void) {
     return FIRST_LEAFEN + (lily_step > LILY_SCENE_LEN ? FIRST_ORCH_LEAFEN - FIRST_LEAFEN : 0) +
-           ((flick_flags & 2) || spirits[KIND_FLICK].state != SP_ASLEEP ? NUM_LEAFEN - FIRST_ORCH_LEAFEN : 0);
+           ((flick_flags & 2) || spirits[KIND_FLICK].state != SP_ASLEEP ? FIRST_GROVE_LEAFEN - FIRST_ORCH_LEAFEN : 0) +
+           (grove_seen ? NUM_LEAFEN - FIRST_GROVE_LEAFEN : 0);
 }
 static int near_leafen(s32 k, s32 r) {
     s32 dx = px + 8 - (leafen_x(k) * 16 + 8), dy = py + 8 - (leafen_y(k) * 16 + 8);
@@ -3628,7 +3728,7 @@ static void update_leafen(void) {
             return;
         }
         if (lf_scene == 5) {                             // walking off toward the tree
-            int north = leafen_area[lf_k] == 2 || leafen_area[lf_k] == MARSH;   // the tree is north of them
+            int north = leafen_area[lf_k] == 2 || leafen_area[lf_k] == MARSH || leafen_area[lf_k] == GROVE;   // the tree is north
             s32 dx = north || leafen_area[lf_k] == ORCHARD ? 0 : -1, dy = north ? -1 : leafen_area[lf_k] == ORCHARD ? 1 : 0;
             for (s32 i = 0; i < 3; i++) { lf_sx[i] += dx; lf_sy[i] += dy; }
             if (++lf_wait < 150) return;
@@ -3647,7 +3747,8 @@ static void update_leafen(void) {
         case 4: lf_scene = 5; lf_wait = 0; break;
         default: {
             leafen_state[lf_k] = LS_FREE;
-            if (lf_k >= FIRST_ORCH_LEAFEN) { fruit += 3; mushrooms += 2; }
+            if (lf_k >= FIRST_GROVE_LEAFEN) { seeds += 5; mushrooms += 2; }
+            else if (lf_k >= FIRST_ORCH_LEAFEN) { fruit += 3; mushrooms += 2; }
             else if (lf_k >= FIRST_LEAFEN) { seeds += 5; fruit += 3; }
             u32 n = 0;
             for (s32 k = 0; k < NUM_LEAFEN; k++) n += leafen_state[k] >= LS_FREE;
@@ -3760,6 +3861,29 @@ static void update_leafen(void) {
             show_message(d >= 5 ? from[k] : (close_n++ & 1) ? "BRRRRR..." : "IT'S RIGHT AROUND HERE...");
         }
     }
+    // v0.20 Cap, squashed under the fallen cap, pops up
+    if (cap_step && cap_step <= CAP_SCENE_LEN) {
+        scene_on = 1;
+        if (msg_timer || msgq_len) return;
+        static const char *lines[CAP_SCENE_LEN] = {
+            "THE BIG CAP ROLLS AWAY...", "CAP: PHEW! I WAS SQUASHED FLAT!", "CAP: I'M CAP! THANK YOU!",
+            "I CAN MAKE YOU TINY! TEENY!", "CAP JOINED! TEENY!", "STAND IN A FAIRY RING, PICK",
+            "ME, AND PRESS A TO SHRINK.", "PRESS A THERE AGAIN TO GROW.",
+        };
+        Spirit *s = &spirits[KIND_CAP];
+        if (cap_step == 2) {                                     // it pops up out of the moss
+            s->x = GROVE_CAP_X * 16; s->y = GROVE_CAP_Y * 16; s->area = GROVE; s->state = SP_AWAKE;
+            for (s32 k = 0; k < 8; k++) add_mote_c(s->x + 4, s->y, dir16[k * 2] >> 1, DIR16_Y(k * 2) >> 1, 24, C_GLINT);
+            sfx_play(SFX_WAKE);
+        }
+        if (cap_step == 5) { s->energy = 3; party_add(KIND_CAP); sfx_play(SFX_JOIN); }
+        if (cap_step == 5 && s->state == SP_POUCH) {
+            show_message("CAP HOPS IN YOUR POUCH!");
+            queue_message("START, POUCH: SWAP CAP IN.");
+        } else show_message(lines[cap_step - 1]);
+        cap_step++;
+        return;
+    }
     // v0.18: with the first six home, Bark summons Lily and points you south to the marsh
     if (lily_step && lily_step <= LILY_SCENE_LEN) {
         scene_on = 1;
@@ -3840,6 +3964,8 @@ static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 m
     { { 470, 470, 1 }, { 0, 0, 0 } },   // the marsh Leafen: one home each
     { { 70, 150, 2 }, { 0, 0, 0 } },    // v0.19.4 the orchard's, north-west and north-east of the tree
     { { 432, 150, 4 }, { 0, 0, 0 } },
+    { { 30, 250, 3 }, { 0, 0, 0 } },    // v0.20 the grove's, west and east of the tree
+    { { 466, 250, 0 }, { 0, 0, 0 } },
 };
 static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 242, 422, V_SWIM }, { 214, 470, V_WALK }, { 168, 262, V_CLIMB } },
@@ -3853,6 +3979,8 @@ static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 450, 478, V_WALK }, { 430, 480, V_WALK }, { 176, 312, V_CLIMB } },
     { { 92, 172, V_WALK }, { 52, 184, V_WALK }, { 214, 232, V_CLIMB } },
     { { 410, 172, V_WALK }, { 452, 186, V_WALK }, { 300, 234, V_CLIMB } },
+    { { 50, 270, V_WALK }, { 28, 284, V_WALK }, { 196, 250, V_CLIMB } },
+    { { 446, 270, V_WALK }, { 470, 282, V_WALK }, { 318, 260, V_CLIMB } },
 };
 static short folk_x[NUM_LEAFEN * 3], folk_y[NUM_LEAFEN * 3];
 static u8 folk_look(s32 k, s32 i) { return i == 0 ? leafen_look[k] : (u8)((leafen_look[k] + i * 2 + k) % 5); }
@@ -3861,7 +3989,7 @@ static void draw_leafen(void) {
     for (s32 i = 0; i < 6; i++) sprite_hide(OAM_LEAFEN + i);
     sprite_hide(OAM_SHINY);
     if (cur_area == WEST && tree_alive) {           // the village's slots are shared (OAM_POOL)
-        for (s32 i = 0; i < NUM_LEAFEN * 3; i++) sprite_hide(OAM_FOLK + i);
+        for (s32 i = 0; i < FOLK_SLOTS; i++) sprite_hide(OAM_FOLK + i);
         for (s32 i = 0; i < FIRST_LEAFEN * 2 + NUM_LEAFEN - FIRST_LEAFEN; i++) sprite_hide(OAM_LHOME + i);   // 15 homes
     }
     if (!tree_alive || !leafen_init) return;
@@ -3907,6 +4035,7 @@ static void draw_leafen(void) {
                 if (maps[MARSH][y * MAP_W + x] == VAEL_PIPE) add_mote(x * 16 + (s32)(rng() % 6), y * 16 - 4, 0, 6, 18);
     }
     if (cur_area != WEST) return;
+    s32 fslot = 0;
     for (s32 k = 0; k < NUM_LEAFEN; k++) {
         if (leafen_state[k] != LS_HOME) continue;
         for (s32 h = 0; h < 2; h++) {
@@ -3942,8 +4071,9 @@ static void draw_leafen(void) {
             folk_sx[n] = x; folk_sy[n] = y;
             s32 hop = 0;
             if (folk_hop[n]) { folk_hop[n]--; hop = folk_hop[n] > 8 ? 16 - folk_hop[n] : folk_hop[n]; }
-            sprite_set(OAM_FOLK + n, x - cam_x, y - cam_y - hop, SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose, flip,
-                       PAL_LEAFEN);
+            if (x - cam_x < -16 || x - cam_x > SCREEN_W || y - cam_y < -16 || y - cam_y > SCREEN_H || fslot >= FOLK_SLOTS) continue;
+            sprite_set(OAM_FOLK + fslot++, x - cam_x, y - cam_y - hop, SPR_LEAFEN + C_LEAFEN + folk_look(k, i) * 4 + pose,
+                       flip, PAL_LEAFEN);   // v0.20: only the ones on screen take a slot
         }
     }
 }
@@ -4196,7 +4326,8 @@ static void update_music(void) {
 // Milestones, checked twice a second: an area reaching 100% LIFE, and harmony.
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "",
-                                            "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!" };
+                                            "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!",
+                                            "THE GROVE IS FULLY ALIVE!" };
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -4342,7 +4473,7 @@ static void draw_sprites(void) {
         if (s->state == SP_POUCH) {                   // v0.18.4: tiny orbs circling his head, spread evenly
             u32 a = ((frame >> 1) + (u32)(j_pouch++ * 48 / n_pouch)) % 48;
             sprite_set(SPIRIT_OAM(i), px - cam_x + loop_x48[a] * 10 / 24, py - cam_y - 22 + loop_y48[a] * 4 / 16,
-                       SPR_LEAFEN + (i < 6 ? C_MINI + i : C_MINI + 7), 0, PAL_LEAFEN);   // Flick's after the rest
+                       SPR_LEAFEN + (i < 6 ? C_MINI + i : C_MINI + 7 + (i - 6) * 2), 0, PAL_LEAFEN);   // Flick's, Cap's after
             sprite_hide(ZZZ_OAM(i));
             continue;
         }
@@ -4352,7 +4483,7 @@ static void draw_sprites(void) {
         int orb = swimming();
         if (orb_morph) orb = ((orb_morph >> 1) & 1) ? !orb : orb;   // changing: flicker between the two forms
         if (s->state == SP_JOINED && in_party(i) && orb && tree_alive && !is_you(i)) {   // v0.18.1: orbs while you swim
-            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + (i < 6 ? C_ORB + i : C_MINI + 6), 0, PAL_LEAFEN);
+            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + (i < 6 ? C_ORB + i : C_MINI + 6 + (i - 6) * 2), 0, PAL_LEAFEN);
             sprite_hide(ZZZ_OAM(i));
         } else if (i == KIND_BARK && float_on) {         // the revival: Bark floats, then shoots up
             if (float_on == 2) sprite_hide(SPIRIT_OAM(i));
@@ -4425,7 +4556,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x46534652u   // "RFSF" (v0.19.4: the orchard's Leafen)
+#define SAVE_MAGIC 0x47534652u   // "RFSG" (v0.20: the mushroom grove and Cap)
+#define SAVE_MAGIC_V198 0x46534652u   // "RFSF": v0.19.4-8 saves still load
 #define SAVE_MAGIC_V193 0x45534652u   // "RFSE": v0.19.3 saves still load
 #define SAVE_MAGIC_V191 0x44534652u   // "RFSD": v0.19.1-2 saves still load
 #define SAVE_MAGIC_V190 0x43534652u   // "RFSC": v0.19.0 saves still load
@@ -4481,10 +4613,17 @@ static const struct { void *p; u32 n; } save_fields[] = {
     // v0.19 (step 4): marsh mushrooms (and, on load from older saves, the old regions' campfires)
     { &mushrooms, 4 },
     // v0.19.4: the orchard's two Leafen
-    { &leafen_state[FIRST_ORCH_LEAFEN], NUM_LEAFEN - FIRST_ORCH_LEAFEN },
+    { &leafen_state[FIRST_ORCH_LEAFEN], FIRST_GROVE_LEAFEN - FIRST_ORCH_LEAFEN },
+    // v0.20: the mushroom grove, Cap, the grove's Leafen
+    { maps[GROVE], sizeof(maps[0]) }, { &restorable[GROVE], 4 }, { picked[GROVE], sizeof(picked[0]) },
+    { &pump_on[GROVE], 1 }, { &pump_x[GROVE], 1 }, { &pump_y[GROVE], 1 }, { &pump_drain[GROVE], 4 },
+    { &told_full[GROVE], 1 }, { &spirits[KIND_CAP], sizeof(Spirit) }, { &party[7], 4 }, { &fp[KIND_CAP], 1 },
+    { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
+    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V193_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 16)
+#define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
 #define NUM_V184_FIELDS (NUM_V190_FIELDS - 8)
@@ -4542,6 +4681,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V190) nf = NUM_V190_FIELDS;
     else if (magic == SAVE_MAGIC_V191) nf = NUM_V191_FIELDS;
     else if (magic == SAVE_MAGIC_V193) nf = NUM_V193_FIELDS;
+    else if (magic == SAVE_MAGIC_V198) nf = NUM_V198_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -4562,8 +4702,23 @@ static int load_game(void) {
         pump_on[WEST] = 0; pump_drain[WEST] = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
-        for (s32 k = FIRST_ORCH_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.20: a fresh grove, Cap under its fallen cap
+        restorable[GROVE] = 0;
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+            u8 t = start_maps[GROVE * MAP_W * MAP_H + i];
+            maps[GROVE][i] = t;
+            if (is_restorable(t)) restorable[GROVE]++;
+            if (i < MAP_W * MAP_H / 8) picked[GROVE][i] = 0;
+        }
+        pump_on[GROVE] = 0; pump_drain[GROVE] = 0; told_full[GROVE] = 0;
+        spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);
+        spirits[KIND_CAP].area = GROVE;
+        party[7] = 0; fp[KIND_CAP] = quest[KIND_CAP] = unlocked[KIND_CAP] = 0;
+        cap_step = 0; grove_seen = 0;
+        for (s32 k = FIRST_GROVE_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
+    }
+    if (nf < NUM_V198_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
+        for (s32 k = FIRST_ORCH_LEAFEN; k < FIRST_GROVE_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
         restorable[ORCHARD] = 0;                         // as ground that can live again now
         for (s32 i = 0; i < MAP_W * MAP_H; i++)
             restorable[ORCHARD] += is_restorable(maps[ORCHARD][i]) || is_alive(maps[ORCHARD][i]);

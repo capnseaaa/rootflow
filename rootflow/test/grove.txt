@@ -1,0 +1,40 @@
+# v0.20 the mushroom grove: in from the steppe's south edge; YOU heaves the fallen cap away and Cap joins (into the
+# pouch: you carry four); Cap's spore puff on a poison puff, and the cloud it leaves finishes it
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=494,$py=202
+40 16
+0 0 @$cur_area
+0 0 !$px=240,$py=494
+40 128
+0 0 @$cur_area,$px,$py,$grove_seen
+20 0 gr0.ppm
+# YOU (slot 4) below the fallen cap at (16,16), facing up; the puffs gone
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$px=256,$py=266,$pdir=1,$active=4
+1 0
+1 1
+1 0
+2000 0 gr1.ppm
+0 0 @$cap_step,$spirits+204,$party_count
+# Cap swapped in for Breeze (test setup); a poison puff right of you
+0 0 !$spirits+92=5,$spirits+204=2,$party+12=7,$active=3
+0 0 !$px=256,$py=266,$pdir=3,$enemies=3,$enemies+4=300,$enemies+8=266,$enemies+12=2,$enemies+32=0,$enemies+36=1,$hurt_timer=300
+1 0
+1 1
+1 0
+10 0 gr2.ppm
+0 0 @$enemies+12,$spore_t
+0 0 !$enemies+4=300,$enemies+8=266
+40 0 gr3.ppm
+0 0 @$enemies+12,$enemies+36
