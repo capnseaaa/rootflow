@@ -106,7 +106,7 @@ INTERIOR_META = ["room_void", "wall_gills", "wall_roots", "wall_planks", "room_f
                  "stool", "acorn_table", "leaf_bed", "dew_lamp", "pebble_shelf", "sprout_pot", "rug",
                  "sp_lilypool", "sp_fruitbowl", "sp_twigs", "sp_vase", "sp_rocks", "sp_shiny", "sp_mudbath",
                  "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar",
-                 "dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle"]
+                 "dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle", "dc_spot"]
 META += INTERIOR_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
@@ -975,6 +975,10 @@ def room_tile(rng, name):
             c = (13, 10, 7, 14)[k % 4]
             px[3][x] = px[3][x + 1] = c; px[4][x] = c; px[5][x] = 15 if k % 2 else c
         for x in range(16): px[2][x] = 12
+    elif name == "dc_spot":                            # an empty spot for a decoration: a faint dashed square
+        for k in range(3, 13):
+            if k % 2:
+                px[3][k] = px[12][k] = px[k][3] = px[k][12] = 3
     elif name == "dc_candle":
         box(6, 7, 9, 14, 14); px[5][7] = px[5][8] = 13; px[4][7] = 14; px[3][8] = 13
     return px

@@ -1,0 +1,54 @@
+# v0.20 (step 4) decorations: tiny, through the grove's cracked rock to its tiny chest (a candle); then in Posy's
+# home, a flower pot (test setup) in a spot: Posy's wish, thanks and a gift
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=10
+1 1
+1 0
+200 0
+# Cap joins (test setup) in Breeze's place; into the grove from the steppe
+0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=240,$py=494
+40 128
+0 0 @$cur_area
+# shrink in the ring at (24,22); tiny in the crack at (27,26), facing the chest below it
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$px=384,$py=348,$pdir=0
+2 0
+1 1
+1 0
+40 0
+0 0 @$shrunk
+0 0 !$px=432,$py=410,$pdir=0
+2 0
+1 1
+1 0
+5 0 dc0.ppm
+0 0 @$decor_have
+# back to the village (test setup), tiny; a flower pot to give; below Posy's door (its home at 62,416), walking in
+0 0 !$decor_have=1,$px=240,$py=2
+40 64
+0 0 !$px=2,$py=202
+40 32
+0 0 !$px=2,$py=202
+40 32
+0 0 @$cur_area,$shrunk
+0 0 !$px=62,$py=440
+40 64
+40 0
+0 0 @$cur_area,$home_k
+# Posy's burrow: spot a at (9,2); below it, facing up
+0 0 !$px=144,$py=42,$pdir=1
+2 0
+1 1
+1 0
+5 0 dc1.ppm
+0 0 @$decor_have,$home_decor,$decor_done,$seeds

@@ -1007,6 +1007,59 @@ def reach_count(m, start):
     return len(seen)
 
 
+# v0.20 (step 4) a tiny secret in each old region: a nook of rocks with a tiny chest inside, its only way in a
+# cracked rock (tiny only), and a fairy ring a few steps away to shrink in. The chests hold decorations for the
+# Leafen homes (kinds 0 flower pot, 1 painting, 2 bunting, 3 candle); the grove's nook is in its own map.
+NOOK_TARGETS = [(VALLEY, 27, 14, 0), (EAST, 24, 20, 1), (SOUTH, 24, 12, 2), (MARSH, 21, 3, 3), (ORCHARD, 9, 6, 0)]
+GROVE_NOOK_KIND = 3
+KEEP_CLEAR = {(0, 10, 25), (0, 26, 22), (1, 6, 20), (1, 20, 28), (2, 16, 4), (2, 28, 22), (5, 17, 26), (5, 26, 26),
+              (5, 7, 12), (6, 27, 10), (6, 23, 21),   # the Leafen's spots
+              (0, 6, 18), (0, 13, 9), (0, 14, 24), (1, 27, 23), (2, 3, 26)}   # the start, the first spirits' spots
+NOOKS = []                                          # filled by add_nooks: (area, chest x, y, kind, ring x, ring y)
+
+
+def add_nooks(maps):
+    near = lambda a, x, y, d: any(aa == a and abs(xx - x) <= d and abs(yy - y) <= d for (aa, xx, yy) in
+                                  KEEP_CLEAR | {(a2, x2, y2) for (a2, x2, y2) in HOME_SITES + CHESTS + WRECKS} |
+                                  {(a3, x3, y3) for (a3, x3, y3) in CAMPFIRES})
+    for (a, tx, ty, kind) in NOOK_TARGETS:
+        m = maps[a]
+        start = next((cx, cy) for cy in range(MAP_H) for cx in range(MAP_W) if m[cy][cx] in WALKABLE)
+        before = reach_count(m, start)
+        cands = []
+        for y in range(2, MAP_H - 7):
+            for x in range(2, MAP_W - 2):
+                land = [(x, y + 1), (x, y + 2), (x, y + 3), (x, y + 4)]      # the door, in front of it, the ring, below
+                block = [(x + dx, y + dy) for dy in (-1, 0, 1) for dx in (-1, 0, 1)] + [(x - 1, y + 2), (x + 1, y + 2)]
+                ok_land = lambda t: t in WALKABLE and t not in (BRIDGE, DRY_BRIDGE, LILY_PAD, BOG_PAD)
+                if not all(ok_land(m[cy][cx]) for (cx, cy) in land) or \
+                        not all(ok_land(m[cy][cx]) or m[cy][cx] == BOG_WATER for (cx, cy) in block):
+                    continue
+                if near(a, x, y, 3) or near(a, x, y + 3, 2):
+                    continue
+                if a == VALLEY and 8 <= x <= 24 and 6 <= y <= 28:   # the first walks: to Sprout, Ripple, the river
+                    continue
+                if a == VALLEY and x <= 7 and 9 <= y <= 17:         # the way west to the Great Tree, kept clear
+                    continue
+                cands.append((abs(x - tx) + abs(y - ty), x, y))
+        for _, x, y in sorted(cands):                  # the nearest spot that cuts nothing off
+            saved = [row[:] for row in m]
+            for yy in range(y - 1, y + 2):
+                for xx in range(x - 1, x + 2):
+                    m[yy][xx] = ROCK
+            m[y][x] = TINY_CHEST
+            m[y + 1][x] = CRACKED_ROCK                # the way in, from below
+            m[y + 3][x] = FAIRY_RING
+            if reach_count(m, start) >= before - 12:
+                NOOKS.append((a, x, y, kind, x, y + 3))
+                break
+            m[:] = saved
+        else:
+            raise AssertionError(f"no room for a tiny nook in area {a}")
+    gx, gy = GROVE_NOOK
+    NOOKS.append((GROVE, gx, gy, GROVE_NOOK_KIND, -1, -1))
+
+
 def add_campfires(maps):
     """v0.19: a cold campfire and its two log seats in each old region, checked not to cut anything off."""
     for a, x, y in CAMPFIRES:
@@ -1023,6 +1076,7 @@ def make_maps():
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
             make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)]]   # 8: inside a Leafen home (built in-game)
     add_campfires(maps)
+    add_nooks(maps)
     return [v for m in maps for row in m for v in row]
 
 
@@ -1208,6 +1262,9 @@ def main():
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
+    out.append(f"#define NUM_NOOKS {len(NOOKS)}")
+    for i, nm in enumerate(("nook_area", "nook_x", "nook_y", "nook_kind", "nook_ring_x", "nook_ring_y")):
+        out.append(c_array("signed char", nm, [n[i] for n in NOOKS], fmt="{}"))
     # tree tiles follow the map's tiles in charblock 0; the 9 home animation frames are not loaded there
     base = (MARSH_META_FIRST - 9) * 4                 # the marsh's own metatiles load into the tree slots
     out.append(f"#define MARSH_META_FIRST {MARSH_META_FIRST}")

@@ -8,7 +8,7 @@
 cd "$(dirname "$0")"
 TESTS="v2 lr v4 perks rewards save builds menu friends stuck v13 tips v14 dev combat v16 gloom gloom_melee cam
 swap_text jump_gloom west_exit aura gloom_intro music_story omen leafen chatter west_entry rock_grass marsh
-swim_orbs river_narrow shores marsh_views picker thirds lily_attack pouch orchard flick smoke cook orchard2 chirp roots grove shrink home"
+swim_orbs river_narrow shores marsh_views picker thirds lily_attack pouch orchard flick smoke cook orchard2 chirp roots grove shrink home decor"
 UPDATE=0
 if [ "$1" = "--update" ]; then UPDATE=1; shift; fi
 [ $# -gt 0 ] && TESTS="$*"

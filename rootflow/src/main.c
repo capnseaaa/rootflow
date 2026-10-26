@@ -114,7 +114,7 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        ROOM_VOID, WALL_GILLS, WALL_ROOTS, WALL_PLANKS, ROOM_FLOOR, DOOR_MAT,
        STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT, RUG,
        SP_FIRST, SP_LAST = SP_FIRST + 12,
-       DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE };
+       DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE, DC_SPOT };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -130,7 +130,7 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 // in the way south that is always kept clear
 #define WEST_RING_X (15 * 16 + 8)
 #define WEST_RING_Y (29 * 16 + 8)
-static int is_room_piece(u8 t) { return t >= ROOM_VOID && t <= DC_CANDLE; }   // solid but the floor, the mat, rugs
+static int is_room_piece(u8 t) { return t >= ROOM_VOID && t <= DC_SPOT; }   // solid but the floor, the mat, rugs
 static int room_walkable(u8 t) { return t == ROOM_FLOOR || t == DOOR_MAT || t == RUG; }
 static int is_grove_piece(u8 t) { return t == GIANT_MUSH || t == GIANT_MUSH_BLUE || (t >= HOLLOW_LOG && t <= TINY_CHEST_OPEN); }
 #define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
@@ -901,6 +901,11 @@ enum { MEAL_NONE, MEAL_HEART, MEAL_LIGHT };
 static u32 meal_kind, meal_timer, mushrooms;
 static u32 shrunk;                  // v0.20 Cap shrank you at a fairy ring (saved)
 static u32 grove_seen;              // v0.20 you have been in the grove (its Leafen count from then on; saved)
+// v0.20 (step 4) decorations for the Leafen homes, from tiny chests: how many of each you carry (flower pot,
+// painting, bunting, candle), what stands in each home's two spots (+1, low and high nibble), requests met
+static u8 decor_have[4], home_decor[13];
+static u32 decor_done;
+static const char *decor_name[4] = { "FLOWER POT", "PAINTING", "BUNTING", "CANDLE" };
 static s32 shrink_t, shrink_dir;    // v0.20 the shrink (or grow) under way: frames left, +1 shrinking, -1 growing
 #define SHRINK_FRAMES 30
 static void update_shrink(void) {
@@ -1822,6 +1827,7 @@ static void read_wreck(s32 i) {
 // A on a chest, a pump, a fruit tree, or flowers does that instead of a spirit power.
 // Returns 1 if it handled the press.
 static void open_cook(void);
+static int place_decor(s32 mx, s32 my);
 static int interact(s32 mx, s32 my) {
     u8 t = tile_at(mx, my);
     s32 i;
@@ -1833,6 +1839,20 @@ static int interact(s32 mx, s32 my) {
         if (spirits[KIND_FLICK].state == SP_JOINED || spirits[KIND_FLICK].state == SP_POUCH) queue_message("FLICK COULD LIGHT IT.");
         return 1;
     }
+    if (t == TINY_CHEST) {                           // v0.20: a decoration for a Leafen home
+        s32 kind = 0;
+        for (s32 n = 0; n < NUM_NOOKS; n++)
+            if (nook_area[n] == cur_area && nook_x[n] == mx && nook_y[n] == my) kind = nook_kind[n];
+        set_tile(mx, my, TINY_CHEST_OPEN);
+        decor_have[kind]++;
+        static char got[32];
+        char *p = got; str_cat(&p, "+1 "); str_cat(&p, decor_name[kind]); str_cat(&p, "!"); *p = 0;
+        show_message(got);
+        queue_message("A LEAFEN MIGHT LIKE IT.");
+        sfx_play(SFX_CHEST);
+        return 1;
+    }
+    if (t == DC_SPOT && cur_area == INTERIOR) return place_decor(mx, my);   // v0.20: a spot in a Leafen home
     if (t == MUSHROOMS) {                            // v0.19: marsh mushrooms, for cooking
         set_tile(mx, my, MOSS);
         mushrooms++;
@@ -3719,6 +3739,10 @@ static const char *home_owner_line[NUM_LEAFEN] = {
     "BUTTON: I COLLECT BUTTONS!",
 };
 static s32 home_k = -1;                   // whose home you are in (saved, so a load rebuilds it)
+// v0.20 (step 4, Caleb: some ask you to help them decorate): Posy, Twig, Wick and Button each want one thing
+static const signed char decor_wish[NUM_LEAFEN] = { -1, -1, 1, 0, -1, -1, -1, -1, -1, 3, -1, -1, 2 };
+static const char *decor_ask[NUM_LEAFEN] = { 0, 0, "TWIG: A PAINTING WOULD BE NICE...", "POSY: A FLOWER POT, MAYBE?",
+    0, 0, 0, 0, 0, "WICK: A CANDLE! FOR MORE LIGHT!", 0, 0, "BUTTON: SOME BUNTING! SO FESTIVE!" };
 #define OWNER_X (9 * 16)
 #define OWNER_Y (4 * 16)
 // v0.17.2 (Caleb): the Leafen at Bark's tree chatter when you press A by one; they all share these.
@@ -3739,11 +3763,14 @@ static u8 folk_hop[NUM_LEAFEN * 3];                               // a little ho
 // A at a waiting Leafen: its trouble, or (when the trouble is fixed) the rescue. Returns 1 if it talked.
 // Facing a rock, thorn or water next to it, A is the spirit's power instead (to break Nub out, and so on).
 static int leafen_talk(s32 fmx, s32 fmy) {
-    if (cur_area == INTERIOR && home_k >= 0) {          // v0.20: the Leafen at home
-        s32 dx = px + 8 - (OWNER_X + 8), dy = py + 8 - (OWNER_Y + 8);
-        if (dx * dx + dy * dy >= 26 * 26) return 0;
+    if (cur_area == INTERIOR && home_k >= 0) {          // v0.20: the Leafen at home, when you face it
+        s32 dx = fmx * 16 + 8 - (OWNER_X + 8), dy = fmy * 16 + 8 - (OWNER_Y + 8);
+        if (dx * dx + dy * dy >= 14 * 14) return 0;
         static int next;
-        if (next++ & 1) { chatter_at = (chatter_at + 1 + rng() % 3) % NUM_CHATTER; show_message(leafen_chatter[chatter_at]); }
+        if (decor_wish[home_k] >= 0 && !(decor_done & (1u << home_k))) {   // what it wishes it had
+            show_message(decor_ask[home_k]);
+            queue_message("PUT IT IN A SPOT IN HERE.");
+        } else if (next++ & 1) { chatter_at = (chatter_at + 1 + rng() % 3) % NUM_CHATTER; show_message(leafen_chatter[chatter_at]); }
         else show_message(home_owner_line[home_k]);
         sfx_play(SFX_GIFT);
         return 1;
@@ -4508,6 +4535,34 @@ static const u16 room_floor_pal[3][3] = { { RGB5(150, 116, 92), RGB5(184, 148, 1
 static const u8 home_layout_of[6] = { 0, 2, 2, 1, 1, 0 };   // mushroom, tent, acorn hut, pot, pebble hut, dew hut
 static const u8 room_furniture[6] = { STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT };
 static s32 home_lay(s32 k) { return home_layout_of[village_home[k][0][2]]; }
+static s32 home_kind_spot(s32 mx, s32 my) {      // which decoration spot (0 a, 1 b) is at this cell, or -1
+    if (mx < 0 || my < 0 || mx >= 15 || my >= 10) return -1;
+    char c = room_layout[home_lay(home_k)][my][mx];
+    return c == 'a' ? 0 : c == 'b' ? 1 : -1;
+}
+// A at an empty spot: the thing this Leafen wished for if you have it, else the first you carry.
+static int place_decor(s32 mx, s32 my) {
+    s32 k = home_kind_spot(mx, my), want = decor_wish[home_k], kind = -1;
+    if (k < 0) return 0;
+    if (want >= 0 && decor_have[want]) kind = want;
+    for (s32 i = 0; i < 4 && kind < 0; i++) if (decor_have[i]) kind = i;
+    if (kind < 0) { show_message("A SPOT FOR SOMETHING PRETTY."); return 1; }
+    decor_have[kind]--;
+    if (k == 0) home_decor[home_k] = (u8)((home_decor[home_k] & 0xF0) | (kind + 1));
+    else home_decor[home_k] = (u8)((home_decor[home_k] & 0x0F) | ((kind + 1) << 4));
+    set_tile(mx, my, (u8)(DC_FLOWERPOT + kind));
+    sparkle_at(mx, my);
+    sfx_play(SFX_BUILD);
+    if (kind == want && !(decor_done & (1u << home_k))) {   // its wish: thanks, and a gift
+        decor_done |= 1u << home_k;
+        static char t[32];
+        char *p = t; str_cat(&p, leafen_name[home_k]); str_cat(&p, ": PERFECT! THANK YOU!"); *p = 0;
+        show_message(t);
+        queue_message("+5 SEEDS +2 FRUIT");
+        seeds += 5; fruit += 2;
+    } else show_message("HOW PRETTY!");
+    return 1;
+}
 static void room_palette(void) {
     if (home_k < 0) return;
     for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = room_floor_pal[home_lay(home_k)][i];
@@ -4520,7 +4575,9 @@ static void build_room(s32 k) {
         for (s32 x = 0; x < 15; x++) {
             char c = room_layout[lay][y][x];
             u8 t = c == 'W' ? room_wall[lay] : c == 'v' ? ROOM_VOID : c == 'D' ? DOOR_MAT : c == 'r' ? RUG :
-                   c == 'S' ? (u8)(SP_FIRST + k) : (c >= '1' && c <= '6') ? room_furniture[(c - '1' + k) % 6] : ROOM_FLOOR;
+                   c == 'S' ? (u8)(SP_FIRST + k) : (c >= '1' && c <= '6') ? room_furniture[(c - '1' + k) % 6] :
+                   c == 'a' ? ((home_decor[k] & 15) ? (u8)(DC_FLOWERPOT + (home_decor[k] & 15) - 1) : DC_SPOT) :
+                   c == 'b' ? ((home_decor[k] >> 4) ? (u8)(DC_FLOWERPOT + (home_decor[k] >> 4) - 1) : DC_SPOT) : ROOM_FLOOR;
             m[y * MAP_W + x] = t;
         }
 }
@@ -4857,10 +4914,10 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &told_full[GROVE], 1 }, { &spirits[KIND_CAP], sizeof(Spirit) }, { &party[7], 4 }, { &fp[KIND_CAP], 1 },
     { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
     { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 }, { &home_k, 4 },
-    { &out_x, 4 }, { &out_y, 4 },
+    { &out_x, 4 }, { &out_y, 4 }, { decor_have, 4 }, { home_decor, 13 }, { &decor_done, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 20)
+#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 23)
 #define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
@@ -4953,6 +5010,29 @@ static int load_game(void) {
         spirits[KIND_CAP].area = GROVE;
         party[7] = 0; fp[KIND_CAP] = quest[KIND_CAP] = unlocked[KIND_CAP] = 0;
         cap_step = 0; grove_seen = 0; shrunk = 0; home_k = -1;
+        for (s32 i = 0; i < 4; i++) decor_have[i] = 0;
+        for (s32 i = 0; i < 13; i++) home_decor[i] = 0;
+        decor_done = 0;
+        for (s32 n = 0; n < NUM_NOOKS; n++) {            // the tiny nooks in the old regions, where there is room
+            s32 a = nook_area[n], x = nook_x[n], y = nook_y[n];
+            if (a == GROVE) continue;
+            u8 *m = maps[a];
+            int ok = 1;
+            for (s32 yy = y - 1; yy <= y + 4 && ok; yy++)
+                for (s32 xx = x - 1; xx <= x + 1; xx++) {
+                    u8 t = m[yy * MAP_W + xx];
+                    if (is_built(t) || t == HOMESITE || (is_solid(t) && !is_bog(t) && t != WATER)) ok = 0;
+                }
+            if (!ok) continue;
+            for (s32 yy = y - 1; yy <= y + 1; yy++)
+                for (s32 xx = x - 1; xx <= x + 1; xx++) {
+                    if (is_restorable(m[yy * MAP_W + xx])) restorable[a]--;
+                    m[yy * MAP_W + xx] = ROCK;
+                }
+            if (is_restorable(m[(y + 1) * MAP_W + x])) restorable[a]--;
+            if (is_restorable(m[(y + 3) * MAP_W + x])) restorable[a]--;
+            m[y * MAP_W + x] = TINY_CHEST; m[(y + 1) * MAP_W + x] = CRACKED_ROCK; m[(y + 3) * MAP_W + x] = FAIRY_RING;
+        }
         for (s32 k = FIRST_GROVE_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
     }
     if (nf < NUM_V198_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
@@ -5336,6 +5416,7 @@ static void draw_page(void) {
         put_text_win(2, r++, num_line("SEEDS", seeds, -1, 16));
         put_text_win(2, r++, num_line("WOOD", wood, -1, 16));
         put_text_win(2, r++, num_line("MUSHROOMS", mushrooms, -1, 16));
+        put_text_win(2, r++, num_line("DECOR", decor_have[0] + decor_have[1] + decor_have[2] + decor_have[3], -1, 16));
         r++;
         put_text_win(2, r++, num_line("RELICS", count_set(chest_open, NUM_CHESTS), NUM_CHESTS, 16));
         r += 2;
