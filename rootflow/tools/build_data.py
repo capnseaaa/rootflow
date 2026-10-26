@@ -1098,6 +1098,18 @@ def main():
         out.append(c_array("unsigned int", f"tiles_{name}", words))
         for i, lm in enumerate(layer_maps):
             out.append(c_array("unsigned short", f"map_{name}_{'trunk' if i == 0 else 'top'}", lm, fmt="0x{:04X}"))
+    # v0.19.8 (Caleb): you walk under the Great Tree's roots, not over them: which 8x8 cells of its layer are
+    # mostly drawn (a bit each, 64 x 64), for the dead tree and the healed one. The game hides you there.
+    for name, file in (("dead", "tree_trunk.png"), ("alive", "tree_alive.png")):
+        im = Image.open(os.path.join(ART, file))
+        bits = [0] * (64 * 64 // 8)
+        for cy in range(64):
+            for cx in range(64):
+                n = sum(1 for y in range(8) for x in range(8) if im.getpixel((cx * 8 + x, cy * 8 + y)))
+                if n >= 32:
+                    i = cy * 64 + cx
+                    bits[i >> 3] |= 1 << (i & 7)
+        out.append(c_array("unsigned char", f"root_mask_{name}", bits, fmt="{}"))
     out.append(f"#define NUM_CLAMPS {len(CLAMP_PX)}")
     out.append(c_array("unsigned short", "clamp_px_x", [x for x, _ in CLAMP_PX], fmt="{}"))
     out.append(c_array("unsigned short", "clamp_px_y", [y for _, y in CLAMP_PX], fmt="{}"))

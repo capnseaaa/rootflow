@@ -1,0 +1,17 @@
+# v0.19.8 (Caleb): in the Great Tree's region you walk under its roots: out of sight while on one
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=9
+1 1
+1 0
+200 0
+0 0 !$px=96,$py=372,$pdir=0
+20 0 rt0.ppm
+0 0 @$oam_shadow
+0 0 !$px=40,$py=380
+20 0 rt1.ppm
+0 0 @$oam_shadow

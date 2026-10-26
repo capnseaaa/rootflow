@@ -439,6 +439,7 @@ static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
 static void dark_enter(s32 a);   // v0.19 the orchard's dark (below)
 static void pool_clear(void);    // v0.19 the shared sprite slots (below)
 static void smoke_fade(void);    // v0.19.4 (below)
+static int under_root(s32 x, s32 y);   // v0.19.8 (below)
 static void set_ground_palette(s32 a) {
     load_region_sprites(a);   // and, once the tree is healed, Flick's colors
     pool_clear();                                      // a new region: its own things take the shared slots
@@ -2635,7 +2636,8 @@ static void draw_combat(void) {
         o[1] = (shx & 0x1FF) | (2 << 14);
         o[2] = (TILE_BOSS + 10 * 16) | (1 << 10) | (PAL_SHIELD << 12);
     } else sprite_hide(OAM_SHIELD);
-    int aura = !leaf_timer && party_count && is_you(spirits[party[active]].kind) && !swimming();   // v0.16.6: YOU is chosen (not while swimming)
+    int aura = !leaf_timer && party_count && is_you(spirits[party[active]].kind) && !swimming() &&   // v0.16.6: YOU is chosen
+               !under_root(px + 8, py + 12);                 // (not while swimming, nor under a root)
     for (s32 k = 0; k < 6; k++) {                    // leaves swirl round the wizard (Bark's gift)
         if (aura && k < 3) {                         // three small leaves circle him while YOU is chosen
             u32 a = ((frame >> 1) + k * 16) % 48;
@@ -4272,6 +4274,14 @@ static void clear_box(void) {
     REG_WIN0V = (y1 << 8) | y2;
 }
 
+// v0.19.8 (Caleb): in the Great Tree's region you go under its roots, so nothing of you shows there (not over
+// them as before). root_mask_*: the 8x8 cells its layer mostly covers; not the opening into the tree.
+static int under_root(s32 x, s32 y) {
+    if (cur_area != WEST || x < 0 || y < 0 || x >= WORLD_PX || y >= WORLD_PX) return 0;
+    if ((x >> 4) >= DOOR_X && (x >> 4) <= DOOR_X + 1 && (y >> 4) >= DOOR_Y - 1 && (y >> 4) <= DOOR_Y + 2) return 0;
+    s32 i = (y >> 3) * 64 + (x >> 3);
+    return ((tree_alive ? root_mask_alive : root_mask_dead)[i >> 3] >> (i & 7)) & 1;
+}
 static void draw_sprites(void) {
     // Player sheet: per direction (down, up, side) 4 frames: stand, walk1, walk2, walk3.
     // Walking plays 1, 2, 3, 2. Left is the side frames mirrored. The sprite is 16x32 with the
@@ -4306,6 +4316,10 @@ static void draw_sprites(void) {
         sprite_hide(OAM_SWIMHANDS);
     }
     if (hurt_timer & 4) sprite_hide(OAM_PLAYER);   // blinking just after a hit
+    if (under_root(px + 8, py + 12)) {             // v0.19.8 (Caleb): under the Great Tree's roots, out of sight
+        sprite_hide(OAM_PLAYER);
+        for (s32 k = 0; k < 6; k++) sprite_hide(OAM_LEAF + k);
+    }
 
     // v0.18.1 (Caleb): the spirits change into orbs as you go into the water and back as you come out:
     // a puff of sparkles at each, then a quick flicker between the two forms
@@ -4366,6 +4380,7 @@ static void draw_sprites(void) {
             if (i == KIND_BARK && bark_fall) b = -(s32)(bark_fall * bark_fall) / 6;   // dropping in from above
             sprite_set(SPIRIT_OAM(i), sx, sy + b, spirit_tile[s->kind] + anim, 0, spirit_pal[s->kind]);
             sprite_hide(ZZZ_OAM(i));
+            if (s->state == SP_JOINED && under_root(s->x + 8, s->y + 12)) sprite_hide(SPIRIT_OAM(i));   // under a root too
         }
     }
 
