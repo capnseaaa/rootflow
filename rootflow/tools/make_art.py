@@ -100,6 +100,14 @@ META += ORCHARD_META
 GROVE_META = ["giant_mush", "giant_mush_blue", "glowcaps", "fairy_ring", "hollow_log", "cracked_rock", "fallen_cap",
               "tiny_chest", "tiny_chest_open"]
 META += GROVE_META
+# v0.20 inside the Leafen homes (step 3): walls for three layouts (gills, roots, planks), one floor (its colors
+# set per layout), the way out, shared furniture, a special piece for each of the 13 Leafen, and decorations.
+INTERIOR_META = ["room_void", "wall_gills", "wall_roots", "wall_planks", "room_floor", "door_mat",
+                 "stool", "acorn_table", "leaf_bed", "dew_lamp", "pebble_shelf", "sprout_pot", "rug",
+                 "sp_lilypool", "sp_fruitbowl", "sp_twigs", "sp_vase", "sp_rocks", "sp_shiny", "sp_mudbath",
+                 "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar",
+                 "dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle"]
+META += INTERIOR_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -838,6 +846,137 @@ def tiny_chest(rng, opened):
         px[7][6] = px[7][9] = 15
     else:
         px[10][7] = px[10][8] = 14                     # the latch
+    return px
+
+
+def room_floor(rng):
+    """v0.20 a Leafen home's floor: planks in colors 1-3 (each layout sets those: pale, earthy or warm wood)."""
+    px = blank(2)
+    for y in range(16):
+        for x in range(16):
+            if y % 5 == 4:
+                px[y][x] = 1
+            elif (x + (y // 5) * 7) % 11 == 0:
+                px[y][x] = 1
+            elif rng.random() < 0.08:
+                px[y][x] = 3
+    return px
+
+
+def room_tile(rng, name):
+    """v0.20 one tile of a Leafen home's inside (see INTERIOR_META). Furniture stands on the floor."""
+    import math as _m
+    if name == "room_void":
+        return blank(0)
+    if name == "wall_gills":                           # under a mushroom's cap: cream gills
+        px = blank(14)
+        for y in range(16):
+            for x in range(16):
+                if x % 4 == 1:
+                    px[y][x] = 5
+                if x % 4 == 2 and y % 6 == 0:
+                    px[y][x] = 13
+        for x in range(16):
+            px[15][x] = 15
+        return px
+    if name == "wall_roots":                           # a burrow: earth with roots through it
+        px = blank(12)
+        for _ in range(30):
+            px[rng.randrange(16)][rng.randrange(16)] = 4
+        for (x0, y0, dx) in ((2, 0, 1), (11, 0, -1), (6, 8, 1)):
+            x = x0
+            for y in range(y0, min(16, y0 + 9)):
+                px[y][x] = 5; x += dx if y % 3 == 0 else 0
+                x = max(0, min(15, x))
+        for x in range(16):
+            px[15][x] = 15
+        return px
+    if name == "wall_planks":                          # a cottage: upright planks
+        px = blank(5)
+        for y in range(16):
+            for x in range(16):
+                if x % 5 == 0:
+                    px[y][x] = 12
+                elif (x * 3 + y) % 13 == 0:
+                    px[y][x] = 4
+        for x in range(16):
+            px[15][x] = 15
+        return px
+    px = room_floor(rng)
+    if name == "room_floor":
+        return px
+    def el(cx, cy, rx, ry, c, edge=15):
+        sh = {(x, y) for y in range(16) for x in range(16) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1}
+        for (x, y) in sh:
+            e = any((x + a, y + b) not in sh for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            px[y][x] = edge if e else c
+        return sh
+    def box(x0, y0, x1, y1, c, edge=15):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                px[y][x] = edge if y in (y0, y1) or x in (x0, x1) else c
+    if name == "door_mat":                             # the way out: a woven mat
+        box(2, 5, 13, 12, 13); [px[y].__setitem__(x, 14) for y in range(7, 11) for x in range(4, 12) if (x + y) % 3 == 0]
+    elif name == "stool":                              # a little red mushroom stool
+        box(6, 9, 9, 14, 14); el(7.5, 7, 6, 3.2, 13); px[6][5] = px[5][9] = 14
+    elif name == "acorn_table":                        # an upturned acorn cap on three short legs
+        el(7.5, 8, 6.6, 4, 12); [px[y].__setitem__(x, 5) for y in (5, 6) for x in range(4, 12) if (x, y) != (4, 5)]
+        px[13][4] = px[13][11] = px[14][7] = 15
+    elif name == "leaf_bed":                           # a big green leaf with a pillow
+        el(8, 8, 7, 5, 7); [px[8].__setitem__(x, 6) for x in range(2, 14)]; el(4.5, 6, 2.4, 1.8, 14)
+    elif name == "dew_lamp":                           # a dewdrop glowing on a stalk
+        for y in range(8, 15): px[y][7] = 12
+        el(7.5, 5, 3.2, 3.6, 10); px[4][6] = px[3][7] = 14; px[14][6] = px[14][8] = 15
+    elif name == "pebble_shelf":                       # a plank shelf with pebbles on it
+        box(1, 9, 14, 11, 12)
+        for cx in (3.5, 7.5, 11.5): el(cx, 7, 1.8, 1.6, 14)
+    elif name == "sprout_pot":                         # a sprout in a clay pot
+        box(5, 9, 10, 14, 13); [px[y].__setitem__(x, v) for (x, y, v) in ((7, 8, 6), (8, 8, 6), (7, 7, 6), (6, 5, 7), (5, 4, 8), (9, 5, 7), (10, 4, 8), (8, 6, 7))]
+    elif name == "rug":                                # a round woven rug (walkable)
+        el(7.5, 7.5, 7, 6, 13, edge=12); el(7.5, 7.5, 4, 3.4, 14, edge=13)
+    elif name == "sp_lilypool":                        # Pip: a little pool with a lily pad
+        el(7.5, 8, 6.6, 5, 10, edge=9); el(9, 8, 2.6, 1.8, 7)
+    elif name == "sp_fruitbowl":                       # Mossy: a bowl of fruit
+        el(7.5, 10, 6, 3, 12); [el(cx, 6.5, 1.8, 1.8, 13) for cx in (5, 8, 11)]; px[4][8] = 7
+    elif name == "sp_twigs":                           # Twig: a twig sculpture
+        for k in range(12): px[14 - k][3 + k // 2] = 12; px[14 - k][12 - k // 3] = 15
+        px[3][8] = 7
+    elif name == "sp_vase":                            # Posy: a vase of flowers
+        el(7.5, 10.5, 3, 3.6, 10, edge=9)
+        for (x, y) in ((5, 4), (8, 3), (10, 5), (7, 5)): px[y][x] = 13; px[y + 1][x] = 7
+    elif name == "sp_rocks":                           # Nub: a little rock collection
+        for (cx, cy) in ((4.5, 10), (9, 9), (12, 11), (7, 12)): el(cx, cy, 2.4, 2, 14)
+    elif name == "sp_shiny":                           # Dewdrop: the shiny pebble on a stand
+        box(5, 10, 10, 14, 12); el(7.5, 7, 2.6, 2.4, 11, edge=10); px[6][6] = 14; px[3][10] = px[4][11] = 14
+    elif name == "sp_mudbath":                         # Bog: a mud bath
+        el(7.5, 9, 6.6, 4.6, 4); px[8][5] = px[10][9] = px[7][10] = 5
+    elif name == "sp_reedbasket":                      # Reedy: a basket of reeds
+        box(3, 9, 12, 14, 5)
+        for x in (5, 7, 9, 11): [px[y].__setitem__(x, 7) for y in range(3, 9)]
+    elif name == "sp_waterbowl":                       # Puddle: a bowl of clean water
+        el(7.5, 9, 6, 4, 12); el(7.5, 8.4, 4.2, 2.2, 10, edge=9); px[8][6] = 11
+    elif name == "sp_lantern":                         # Wick: a lantern, lit
+        box(5, 4, 10, 13, 13); [px[y].__setitem__(x, 14) for y in range(6, 11) for x in (7, 8)]; px[3][7] = px[3][8] = 15
+    elif name == "sp_kettle":                          # Soot: a sooty kettle, steaming
+        el(7.5, 10, 5, 3.6, 1); px[9][12] = px[8][13] = 15
+        for (x, y) in ((6, 5), (7, 4), (8, 3), (7, 2)): px[y][x] = 14
+    elif name == "sp_mossbed":                         # Tuft: a soft bed of moss
+        el(7.5, 9, 7, 4.6, 7, edge=6); [px[y].__setitem__(x, 8) for (x, y) in ((5, 7), (9, 8), (11, 9), (7, 10))]
+    elif name == "sp_buttonjar":                       # Button: a jar of buttons
+        box(4, 4, 11, 14, 11, edge=9)
+        for (x, y, c) in ((6, 7, 13), (8, 9, 7), (6, 11, 10), (9, 12, 13), (8, 6, 14)): px[y][x] = c
+    elif name == "dc_flowerpot":                       # decorations a Leafen can be given (step 4)
+        box(5, 9, 10, 14, 13); [px[y].__setitem__(x, c) for (x, y, c) in ((6, 6, 14), (9, 5, 13), (7, 4, 13), (8, 7, 7), (6, 8, 7))]
+    elif name == "dc_painting":
+        box(2, 3, 13, 11, 10, edge=12); el(7.5, 8, 3, 2, 7, edge=6); px[5][4] = 14
+    elif name == "dc_bunting":
+        for k in range(8):
+            x = min(14, 1 + k * 2)
+            c = (13, 10, 7, 14)[k % 4]
+            px[3][x] = px[3][x + 1] = c; px[4][x] = c; px[5][x] = 15 if k % 2 else c
+        for x in range(16): px[2][x] = 12
+    elif name == "dc_candle":
+        box(6, 7, 9, 14, 14); px[5][7] = px[5][8] = 13; px[4][7] = 14; px[3][8] = 13
     return px
 
 
@@ -1598,6 +1737,7 @@ def make_terrain():
               burnt_fence(rng), darkness(), ash_lane(rng), charred_brush(rng)]
     tiles += [giant_mush(rng, False), giant_mush(rng, True), glowcaps(rng), fairy_ring(rng), hollow_log(rng),
               cracked_rock(rng), fallen_cap(rng), tiny_chest(rng, False), tiny_chest(rng, True)]
+    tiles += [room_tile(rng, n) for n in INTERIOR_META]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -2617,6 +2757,7 @@ LEAFEN_ORDER += ["wake_h", "wake_d", "wake_u"]  # v0.18.1: the wake behind the s
 LEAFEN_ORDER += [f"mini_{k}" for k in range(6)]  # v0.18.4: a spirit in the pouch: a tiny orb circling his head
 LEAFEN_ORDER += ["orb_6", "mini_6"]   # v0.19 Flick's (after the others: main.c maps them)
 LEAFEN_ORDER += ["orb_7", "mini_7"]   # v0.20 Cap's
+LEAFEN_ORDER += ["fairyring"]   # v0.20 the fairy ring by Bark's village (a sprite: the tree's tiles fill that area)
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -2789,6 +2930,13 @@ def leafen_cell(name):
                 elif d < 1.9:
                     px[y][x] = halo
         px[7][7] = light
+    elif name == "fairyring":                 # a circle of little cream mushrooms (Leafen palette)
+        import math as _m
+        for k in range(10):
+            an = 2 * _m.pi * k / 10
+            x, y = round(7.5 + 6.0 * _m.cos(an)), round(8 + 4.4 * _m.sin(an))
+            if 0 < x < 15 and 0 < y < 15:
+                px[y][x] = 6; px[y + 1][x] = 11; px[y][x - 1] = 7 if k % 2 else 6
     elif name.startswith("swimring"):          # soft, broken ripples in water blues where he meets the water
         wide = 7.4 if name.endswith("2") else 6.6
         for y in range(16):

@@ -108,7 +108,13 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // v0.20 the mushroom grove's own (loaded like the marsh's). HOLLOW_LOG and CRACKED_ROCK: solid at full size,
        // open to a tiny wizard; FAIRY_RING: where Cap shrinks you; FALLEN_CAP: Cap is squashed under it (YOU)
        GIANT_MUSH, GIANT_MUSH_BLUE, GLOWCAPS, FAIRY_RING, HOLLOW_LOG, CRACKED_ROCK, FALLEN_CAP, TINY_CHEST,
-       TINY_CHEST_OPEN };
+       TINY_CHEST_OPEN,
+       // v0.20 inside the Leafen homes (step 3): walls of three layouts, the floor, the way out, shared furniture,
+       // each Leafen's special piece (by Leafen), and the decorations a Leafen can be given (step 4)
+       ROOM_VOID, WALL_GILLS, WALL_ROOTS, WALL_PLANKS, ROOM_FLOOR, DOOR_MAT,
+       STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT, RUG,
+       SP_FIRST, SP_LAST = SP_FIRST + 12,
+       DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -119,6 +125,13 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define MARSH 5       // the drowned marsh, south-west (v0.18)
 #define ORCHARD 6     // the burnt orchard, north-west (v0.19)
 #define GROVE 7       // the mushroom grove, south-east (v0.20): in from the steppe's south and Stone Hollow's east
+#define INTERIOR 8    // inside a Leafen home (v0.20): rebuilt from a layout each time you walk in (not saved)
+// v0.20 the fairy ring by Bark's village: a sprite (the Great Tree's tiles leave no room for ring tiles there),
+// in the way south that is always kept clear
+#define WEST_RING_X (15 * 16 + 8)
+#define WEST_RING_Y (29 * 16 + 8)
+static int is_room_piece(u8 t) { return t >= ROOM_VOID && t <= DC_CANDLE; }   // solid but the floor, the mat, rugs
+static int room_walkable(u8 t) { return t == ROOM_FLOOR || t == DOOR_MAT || t == RUG; }
 static int is_grove_piece(u8 t) { return t == GIANT_MUSH || t == GIANT_MUSH_BLUE || (t >= HOLLOW_LOG && t <= TINY_CHEST_OPEN); }
 #define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
 static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid
@@ -166,6 +179,9 @@ static void vsync(void) {
 #define REG32(a) (*(volatile u32*)(a))
 #define REG_TM0CNT_L  REG16(0x04000100)
 #define REG_TM0CNT_H  REG16(0x04000102)
+#define REG_DMA0SAD   REG32(0x040000B0)   // v0.20: the circle transition (a window shape per line)
+#define REG_DMA0DAD   REG32(0x040000B4)
+#define REG_DMA0CNT   REG32(0x040000B8)
 #define REG_DMA1SAD   REG32(0x040000BC)
 #define REG_DMA1DAD   REG32(0x040000C0)
 #define REG_DMA1CNT_H REG16(0x040000C6)
@@ -342,7 +358,7 @@ static int is_solid(u8 t) {
            t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND ||
            t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
            is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE ||
-           is_orchard_piece(t) || is_grove_piece(t);
+           is_orchard_piece(t) || is_grove_piece(t) || (is_room_piece(t) && !room_walkable(t));
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -361,7 +377,7 @@ static int is_restorable(u8 t) {
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
              is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE ||
-             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS);
+             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || is_room_piece(t));
 }
 
 static void draw_area(void) {
@@ -409,6 +425,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
     { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh: dark, mossy mud (v0.18.1)
     { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) },  // the orchard: grey ash (v0.19)
     { RGB5(40, 46, 40), RGB5(58, 66, 52), RGB5(82, 90, 70) },     // the grove: dim, damp earth (v0.20)
+    { RGB5(120, 82, 52), RGB5(160, 112, 72), RGB5(196, 148, 100) },   // inside a home: wood (each layout sets its own)
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -421,6 +438,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(40, 116, 78), RGB5(72, 166, 98), RGB5(150, 214, 118) },  // the marsh: a fresh bog green (v0.18.2)
     { RGB5(74, 94, 58), RGB5(104, 124, 76), RGB5(146, 158, 104) },  // the orchard: a dull, ashy green (v0.19.7, Caleb)
     { RGB5(52, 96, 78), RGB5(78, 132, 100), RGB5(120, 176, 130) },  // the grove: a deep blue-green moss (v0.20)
+    { RGB5(60, 120, 60), RGB5(100, 170, 80), RGB5(160, 210, 110) },   // inside a home: leaves and plants
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -446,9 +464,11 @@ static void load_tileset(s32 ts) {
 }
 static void load_region_sprites(s32 a);   // v0.18.3, after the palette banks
 static void dark_enter(s32 a);   // v0.19 the orchard's dark (below)
+static void room_palette(void);   // v0.20 (below)
 static void pool_clear(void);    // v0.19 the shared sprite slots (below)
 static void smoke_fade(void);    // v0.19.4 (below)
 static int under_root(s32 x, s32 y);   // v0.19.8 (below)
+static int at_fairy_ring(void);        // v0.20 (below)
 static void set_ground_palette(s32 a) {
     load_region_sprites(a);   // and, once the tree is healed, Flick's colors
     pool_clear();                                      // a new region: its own things take the shared slots
@@ -466,6 +486,7 @@ static void set_ground_palette(s32 a) {
                                    { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) } };  // the orchard's
     for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == ORCHARD][i];   // under pipes and stacks
     dark_enter(a);
+    if (a == INTERIOR) room_palette();   // v0.20: the home's own floor colors
 }
 
 // ---------- text (BG0) ----------
@@ -523,6 +544,7 @@ static void update_message(void) {
 }
 
 static void draw_life(void) {
+    if (cur_area == INTERIOR) { for (s32 c = 0; c < 11; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' '); return; }   // v0.20
     char buf[12] = "LIFE    % ";
     u32 p = life_percent();
     buf[5] = p >= 100 ? '1' : ' ';
@@ -1342,13 +1364,13 @@ static void dark_update(void) {                    // each frame: the cells roun
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1 },
-                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2 };
-static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1 };
-static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1, 1 };
+static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1, -1 },
+                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1, -1 };
+static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1, 1, -1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
                                             "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD",
-                                            "THE MUSHROOM GROVE" };
+                                            "THE MUSHROOM GROVE", "" };
 // Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
 // A scene may set its own (scene_song; -1 = silence).
 #define NO_SCENE_SONG (-2)
@@ -1936,7 +1958,7 @@ enum { C_WHIP_H, C_WHIP_V, C_WATER, C_ROCK, C_GUST, C_SLAM, C_BLOB, C_DRONE = C_
 #define SPR_LEAFEN (TILE_LEAFEN / 4)
 #define PAL_LEAFEN 11
 enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, C_SWIMRING, C_ORB = C_SWIMRING + 2,
-       C_WAKE = C_ORB + 6, C_MINI = C_WAKE + 3 };   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
+       C_WAKE = C_ORB + 6, C_MINI = C_WAKE + 3, C_FAIRY = C_MINI + 10 };   // C_FAIRY: the village's fairy ring   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH ||
                                          cur_area == ORCHARD || cur_area == GROVE; }
 
@@ -2790,13 +2812,14 @@ static void use_ability(void) {
         if (!atk_cooldown) start_attack(spirits[party[active]].kind);
         return;
     }
-    if (leafen_talk(fx >> 4, fy >> 4)) return;               // a Leafen in need comes first
-    if (interact(fx >> 4, fy >> 4)) return;
+    int cap_ring = party_count && spirits[party[active]].kind == KIND_CAP && at_fairy_ring();   // v0.20: before any
+    if (!cap_ring && leafen_talk(fx >> 4, fy >> 4)) return;  // a Leafen in need comes first      // chatter nearby
+    if (!cap_ring && interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
     if (s->kind == KIND_CAP) {                               // v0.20 Cap: shrink, or grow back, in a fairy ring
         if (shrink_t) return;
-        if (tile_at((px + 8) >> 4, (py + 12) >> 4) != FAIRY_RING) {
+        if (!cap_ring) {
             sfx_play(SFX_FAIL);
             show_message(shrunk ? "GROW BACK IN A FAIRY RING." : "STAND IN A FAIRY RING.");
             return;
@@ -3510,7 +3533,8 @@ static void update_gloom_intro(void) {
 // once healed; the fight is gloomfight.
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
-                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW };   // marsh, orchard, grove: for now (music later)
+                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW, SONG_HEARTWOOD };   // marsh, orchard,
+                                                                    // grove: for now (music later); a home: the tree's
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
         return tree_alive ? SONG_HEARTWOOD : boss_beaten == (1 << NUM_BOSSES) - 1 ? SONG_UNEASY :
@@ -3686,6 +3710,17 @@ static void leafen_rescue(s32 k) {
     lf_sx[2] = x + 18; lf_sy[2] = y + 6;
     if (k == LF_PIP) { lf_sx[1] = px - 14; lf_sy[1] = py; lf_sx[2] = px + 14; lf_sy[2] = py; }   // on land
 }
+// v0.20 inside a Leafen home: what its Leafen says, and where it stands (pixels)
+static const char *home_owner_line[NUM_LEAFEN] = {
+    "PIP: MY OWN LITTLE POOL!", "MOSSY: SNACK? I HAVE FRUIT!", "TWIG: I MADE THAT. FROM TWIGS!",
+    "POSY: SMELL MY FLOWERS!", "NUB: MY ROCKS! DON'T TOUCH!", "DEWDROP: SEE MY SHINY? SHINY!",
+    "BOG: MUD BATH. VERY RELAXING.", "REEDY: I WEAVE BASKETS NOW!", "PUDDLE: CLEAN WATER! ALL MINE!",
+    "WICK: MY LANTERN NEVER GOES OUT.", "SOOT: TEA? THE KETTLE'S ON.", "TUFT: SOFT MOSS! TRY IT! WHEE!",
+    "BUTTON: I COLLECT BUTTONS!",
+};
+static s32 home_k = -1;                   // whose home you are in (saved, so a load rebuilds it)
+#define OWNER_X (9 * 16)
+#define OWNER_Y (4 * 16)
 // v0.17.2 (Caleb): the Leafen at Bark's tree chatter when you press A by one; they all share these.
 static const char *leafen_chatter[] = {
     "HI! HI! HI!", "I FOUND A ROCK! IT'S A ROCK!", "BARK IS GRUMPY. WE LOVE HIM!",
@@ -3704,6 +3739,15 @@ static u8 folk_hop[NUM_LEAFEN * 3];                               // a little ho
 // A at a waiting Leafen: its trouble, or (when the trouble is fixed) the rescue. Returns 1 if it talked.
 // Facing a rock, thorn or water next to it, A is the spirit's power instead (to break Nub out, and so on).
 static int leafen_talk(s32 fmx, s32 fmy) {
+    if (cur_area == INTERIOR && home_k >= 0) {          // v0.20: the Leafen at home
+        s32 dx = px + 8 - (OWNER_X + 8), dy = py + 8 - (OWNER_Y + 8);
+        if (dx * dx + dy * dy >= 26 * 26) return 0;
+        static int next;
+        if (next++ & 1) { chatter_at = (chatter_at + 1 + rng() % 3) % NUM_CHATTER; show_message(leafen_chatter[chatter_at]); }
+        else show_message(home_owner_line[home_k]);
+        sfx_play(SFX_GIFT);
+        return 1;
+    }
     if (!leafen_init || lf_scene) return 0;
     u8 faced = tile_at(fmx, fmy);
     int trouble = is_rock(faced) || faced == THORN || faced == WATER || faced == SLUDGE || faced == REEDS ||
@@ -4059,6 +4103,11 @@ static void draw_leafen(void) {
             for (s32 x = cam_x >> 4; x <= (cam_x + SCREEN_W) >> 4 && x < MAP_W; x++)
                 if (maps[MARSH][y * MAP_W + x] == VAEL_PIPE) add_mote(x * 16 + (s32)(rng() % 6), y * 16 - 4, 0, 6, 18);
     }
+    if (cur_area == INTERIOR && home_k >= 0)        // v0.20: the Leafen at home, with a little hop now and then
+        sprite_set(OAM_LEAFEN, OWNER_X - cam_x, OWNER_Y - cam_y - (((frame >> 4) % 6) == 0 ? 2 : 0),
+                   SPR_LEAFEN + C_LEAFEN + leafen_look[home_k] * 4 + POSE_STAND, px < OWNER_X, PAL_LEAFEN);
+    if (cur_area == WEST && tree_alive)              // v0.20: the village's fairy ring (a shared slot nothing else uses here)
+        sprite_set(OAM_ENEMY + 7, WEST_RING_X - 8 - cam_x, WEST_RING_Y - 8 - cam_y, SPR_LEAFEN + C_FAIRY, 0, PAL_LEAFEN);
     if (cur_area != WEST) return;
     s32 fslot = 0;
     for (s32 k = 0; k < NUM_LEAFEN; k++) {
@@ -4352,7 +4401,7 @@ static void update_music(void) {
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "",
                                             "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!",
-                                            "THE GROVE IS FULLY ALIVE!" };
+                                            "THE GROVE IS FULLY ALIVE!", "" };
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -4401,6 +4450,7 @@ static void update_camera(void) {
     cam_oy = ease_to(cam_oy, wy);
     cam_x = px + 8 - SCREEN_W / 2 + cam_ox;
     cam_y = py + 8 - SCREEN_H / 2 + cam_oy;
+    if (cur_area == INTERIOR) { cam_x = cam_y = 0; return; }   // v0.20: a home is one screen
     if (cam_x < 0) cam_x = 0;
     if (cam_y < 0) cam_y = 0;
     if (cam_x > WORLD_PX - SCREEN_W) cam_x = WORLD_PX - SCREEN_W;
@@ -4438,6 +4488,144 @@ static int under_root(s32 x, s32 y) {
     s32 i = (y >> 3) * 64 + (x >> 3);
     return ((tree_alive ? root_mask_alive : root_mask_dead)[i >> 3] >> (i & 7)) & 1;
 }
+// ---------- v0.20 inside the Leafen homes (step 3) ----------
+// A tiny wizard walks into a Leafen's door in Bark's village: a circle closes on him and opens inside, where he is
+// Leafen-sized (full size) among their furniture, the Leafen there to talk to. The mat leads back out, tiny.
+// Three shared layouts (Caleb), the home's look picks one; the six furniture places are filled differently for
+// each Leafen; S is its own special piece; a, b: places for decorations (step 4).
+static const char *room_layout[3][10] = {   // a snug room in the middle of the screen, dark round it
+    { "vvvvvvvvvvvvvvv", "vvWWWWWWWWWWWvv", "vvW1.a.S...2Wvv", "vvW.........Wvv", "vvW3...r...4Wvv",
+      "vvW.........Wvv", "vvW5..b....6Wvv", "vvW.........Wvv", "vvWWWWWDWWWWWvv", "vvvvvvvvvvvvvvv" },   // mushroom
+    { "vvvvvvvvvvvvvvv", "vvvWWWWWWWWWvvv", "vvW1..S..a.2Wvv", "vvW.........Wvv", "vvW3...r...4Wvv",
+      "vvW.........Wvv", "vvvW5.b...6Wvvv", "vvvW.......Wvvv", "vvvWWWWDWWWWvvv", "vvvvvvvvvvvvvvv" },   // burrow
+    { "vvvvvvvvvvvvvvv", "vvWWWWWWWWWWWvv", "vvW1.2.S.3.4Wvv", "vvW.........Wvv", "vvW...a.r...Wvv",
+      "vvW5.......6Wvv", "vvW...b.....Wvv", "vvW.........Wvv", "vvWWWWWDWWWWWvv", "vvvvvvvvvvvvvvv" },   // cottage
+};
+static const u8 room_wall[3] = { WALL_GILLS, WALL_ROOTS, WALL_PLANKS };
+static const u16 room_floor_pal[3][3] = { { RGB5(150, 116, 92), RGB5(184, 148, 116), RGB5(212, 180, 146) },
+                                          { RGB5(96, 66, 42), RGB5(128, 92, 60), RGB5(160, 120, 80) },
+                                          { RGB5(120, 82, 52), RGB5(160, 112, 72), RGB5(196, 148, 100) } };
+static const u8 home_layout_of[6] = { 0, 2, 2, 1, 1, 0 };   // mushroom, tent, acorn hut, pot, pebble hut, dew hut
+static const u8 room_furniture[6] = { STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT };
+static s32 home_lay(s32 k) { return home_layout_of[village_home[k][0][2]]; }
+static void room_palette(void) {
+    if (home_k < 0) return;
+    for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = room_floor_pal[home_lay(home_k)][i];
+}
+static void build_room(s32 k) {
+    u8 *m = maps[INTERIOR];
+    for (s32 i = 0; i < MAP_W * MAP_H; i++) m[i] = ROOM_VOID;
+    s32 lay = home_lay(k);
+    for (s32 y = 0; y < 10; y++)
+        for (s32 x = 0; x < 15; x++) {
+            char c = room_layout[lay][y][x];
+            u8 t = c == 'W' ? room_wall[lay] : c == 'v' ? ROOM_VOID : c == 'D' ? DOOR_MAT : c == 'r' ? RUG :
+                   c == 'S' ? (u8)(SP_FIRST + k) : (c >= '1' && c <= '6') ? room_furniture[(c - '1' + k) % 6] : ROOM_FLOOR;
+            m[y * MAP_W + x] = t;
+        }
+}
+// the owner stands here, inside (pixels)
+
+// The circle: window 0 takes a new left/right edge on each line (DMA 0 at each line's end), so the screen shows
+// only a disc round the wizard; it closes to nothing, the scene changes, and it opens again (Caleb liked it).
+static u16 iris_lines[SCREEN_H];
+static s32 iris_phase, iris_r, iris_cx, iris_cy, iris_to;   // phase: 1 closing, 2 opening; iris_to: whose home (-1 out)
+static s32 out_x, out_y;                  // where you go back to in the village (the door you came in by)
+static void iris_shape(void) {
+    for (s32 y = 0; y < SCREEN_H; y++) {
+        s32 dy = y - iris_cy, h2 = iris_r * iris_r - dy * dy;
+        if (h2 <= 0) { iris_lines[y] = 0; continue; }
+        s32 h = 0;
+        while ((h + 1) * (h + 1) <= h2) h++;
+        s32 x1 = iris_cx - h, x2 = iris_cx + h;
+        if (x1 < 0) x1 = 0;
+        if (x2 > SCREEN_W) x2 = SCREEN_W;
+        iris_lines[y] = (u16)((x1 << 8) | x2);
+    }
+}
+static void iris_vblank(void) {           // once a frame, at the top of the screen
+    REG_DMA0CNT = 0;
+    if (!iris_phase) return;
+    REG_WIN0H = iris_lines[0];
+    REG_WIN0V = SCREEN_H;
+    REG_WININ = (REG_WININ & 0xFF00) | 0x3F;   // inside the circle: everything
+    REG_WINOUT = 0;                       // outside: nothing (the dark backdrop)
+    REG_DISPCNT |= 1 << 13;
+    REG_DMA0SAD = (u32)&iris_lines[1];
+    REG_DMA0DAD = 0x04000040;             // WIN0H
+    REG_DMA0CNT = 1 | (2u << 21) | (1u << 25) | (2u << 28) | (1u << 31);   // fixed dest, repeat, at each line's end
+}
+static void start_iris(s32 to) {
+    iris_phase = 1; iris_r = 150; iris_to = to;
+    iris_cx = px + 8 - cam_x; iris_cy = py + 4 - cam_y;
+    iris_shape();
+    sfx_play(SFX_MENU_OPEN);
+}
+static void enter_home(s32 k) {
+    out_x = px; out_y = py;
+    home_k = k;
+    build_room(k);
+    shrunk = 0;                           // inside, you are their size
+    enter_area(INTERIOR, 7 * 16, 7 * 16 - 6);
+    pdir = DIR_UP;
+    static char msg[32];
+    char *p = msg;
+    str_cat(&p, leafen_name[k]); str_cat(&p, "'S HOME"); *p = 0;
+    show_message(msg);
+}
+static void leave_home(void) {
+    home_k = -1;
+    enter_area(WEST, out_x, out_y + 6);
+    shrunk = 1;                           // back out, tiny again
+    pdir = DIR_DOWN;
+}
+static void update_iris(void) {
+    if (!iris_phase) return;
+    if (iris_phase == 1) {
+        iris_r -= 10;
+        if (iris_r <= 0) {
+            iris_r = 0;
+            if (iris_to >= 0) enter_home(iris_to); else leave_home();
+            update_camera();
+            iris_cx = px + 8 - cam_x; iris_cy = py + 4 - cam_y;
+            iris_phase = 2;
+        }
+    } else {
+        iris_r += 10;
+        if (iris_r >= 160) {                  // done: the window back as it was (the Great Tree's clear box)
+            iris_phase = 0;
+            REG_DMA0CNT = 0;
+            REG_DISPCNT &= ~(1 << 13);
+            REG_WININ = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);
+            REG_WINOUT = 0x3F;
+            if (cur_area == WEST) REG_DISPCNT |= 1 << 13;
+            return;
+        }
+    }
+    iris_shape();
+}
+// In Bark's village, a tiny wizard walking up into a Leafen's door goes in; inside, the mat leads out.
+static void check_home_doors(void) {
+    if (iris_phase) return;
+    if (cur_area == INTERIOR) {
+        if (tile_at((px + 8) >> 4, (py + 12) >> 4) == DOOR_MAT && HELD(KEY_DOWN)) start_iris(-1);
+        return;
+    }
+    if (cur_area != WEST || !tree_alive || !shrunk || !HELD(KEY_UP)) return;
+    for (s32 k = 0; k < NUM_LEAFEN; k++) {
+        if (leafen_state[k] != LS_HOME) continue;
+        s32 dx = px + 8 - (village_home[k][0][0] + 8), dy = py + 12 - (village_home[k][0][1] + 15);
+        if (dx * dx + dy * dy < 7 * 7) { start_iris(k); return; }
+    }
+}
+static int at_fairy_ring(void) {
+    if (cur_area == WEST && tree_alive) {
+        s32 dx = px + 8 - WEST_RING_X, dy = py + 12 - WEST_RING_Y;
+        if (dx * dx + dy * dy < 8 * 8) return 1;
+    }
+    return tile_at((px + 8) >> 4, (py + 12) >> 4) == FAIRY_RING;
+}
+
 static void draw_sprites(void) {
     // Player sheet: per direction (down, up, side) 4 frames: stand, walk1, walk2, walk3.
     // Walking plays 1, 2, 3, 2. Left is the side frames mirrored. The sprite is 16x32 with the
@@ -4517,7 +4705,7 @@ static void draw_sprites(void) {
     for (s32 i = 0; i < NUM_SPIRITS; i++) n_pouch += spirits[i].state == SP_POUCH;
     for (s32 i = 0; i < NUM_SPIRITS; i++) {
         Spirit *s = &spirits[i];
-        if (s->area != cur_area) { sprite_hide(SPIRIT_OAM(i)); sprite_hide(ZZZ_OAM(i)); continue; }
+        if (s->area != cur_area || cur_area == INTERIOR) { sprite_hide(SPIRIT_OAM(i)); sprite_hide(ZZZ_OAM(i)); continue; }   // they wait outside homes
         if (s->state == SP_POUCH) {                   // v0.18.4: tiny orbs circling his head, spread evenly
             u32 a = ((frame >> 1) + (u32)(j_pouch++ * 48 / n_pouch)) % 48;
             sprite_set(SPIRIT_OAM(i), px - cam_x + loop_x48[a] * 10 / 24, py - cam_y - 22 + loop_y48[a] * 4 / 16,
@@ -4668,10 +4856,11 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &pump_on[GROVE], 1 }, { &pump_x[GROVE], 1 }, { &pump_y[GROVE], 1 }, { &pump_drain[GROVE], 4 },
     { &told_full[GROVE], 1 }, { &spirits[KIND_CAP], sizeof(Spirit) }, { &party[7], 4 }, { &fp[KIND_CAP], 1 },
     { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
-    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 },
+    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 }, { &home_k, 4 },
+    { &out_x, 4 }, { &out_y, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 17)
+#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 20)
 #define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
@@ -4763,7 +4952,7 @@ static int load_game(void) {
         spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);
         spirits[KIND_CAP].area = GROVE;
         party[7] = 0; fp[KIND_CAP] = quest[KIND_CAP] = unlocked[KIND_CAP] = 0;
-        cap_step = 0; grove_seen = 0; shrunk = 0;
+        cap_step = 0; grove_seen = 0; shrunk = 0; home_k = -1;
         for (s32 k = FIRST_GROVE_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
     }
     if (nf < NUM_V198_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
@@ -4823,6 +5012,10 @@ static int load_game(void) {
         pump_on[MARSH] = 0; pump_drain[MARSH] = 0; told_full[MARSH] = 0;
     }
     for (s32 i = 0; i < MAP_W * MAP_H; i++) maps[HOLLOW_IN][i] = start_maps[HOLLOW_IN * MAP_W * MAP_H + i];
+    if (cur_area == INTERIOR) {                          // v0.20: saved inside a home: build it again
+        if (home_k >= 0 && home_k < NUM_LEAFEN) build_room(home_k);
+        else { cur_area = WEST; px = out_x; py = out_y + 6; home_k = -1; }
+    }
     restorable[HOLLOW_IN] = 0;
     tileset_now = TS_NONE;
     if (nf == NUM_V13_FIELDS) {                           // the west starts fresh
@@ -5669,7 +5862,8 @@ int main(void) {
         REG_BG1HOFS = cam_x + shake;
         REG_BG2HOFS = REG_BG3HOFS = cam_x + shake;
         REG_BG2VOFS = REG_BG3VOFS = cam_y;
-        clear_box();
+        if (!iris_phase) clear_box();
+        iris_vblank();
         apply_white();
         oam_flush();
         if ((frame & 31) == 0) animate_water();
@@ -5687,7 +5881,9 @@ int main(void) {
         if (paused) { update_menu(); update_message(); continue; }
 
         // v0.16.3 (Caleb): during a scene nothing moves: not you, the enemies, the bosses, or the pumps
-        if (!scene_on) { update_player(); } else pstep = 0;
+        if (iris_phase) scene_on = 1;           // v0.20: nothing moves while the circle runs
+        if (!scene_on) { update_player(); check_home_doors(); } else pstep = 0;
+        update_iris();
         update_spirits();
         if (!scene_on) handle_action();
         check_spring();

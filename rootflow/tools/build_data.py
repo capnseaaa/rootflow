@@ -32,6 +32,7 @@ SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tre
 # v0.20 the mushroom grove's own (loaded like the marsh's)
 (GIANT_MUSH, GIANT_MUSH_BLUE, GLOWCAPS, FAIRY_RING, HOLLOW_LOG, CRACKED_ROCK, FALLEN_CAP, TINY_CHEST,
  TINY_CHEST_OPEN) = range(140, 149)
+ROOM_VOID = 149                                     # v0.20 the Leafen homes' insides start here (main.c lists them)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -52,8 +53,8 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 # Thorn grove in the bottom-left corner: interior x 0..6, y 26..31, walled by thorns.
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
-VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE = 0, 1, 2, 3, 4, 5, 6, 7
-NUM_AREAS = 8                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE, INTERIOR = 0, 1, 2, 3, 4, 5, 6, 7, 8
+NUM_AREAS = 9                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
                                    # 6: the burnt orchard (v0.19), north of the Great Tree
 # v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
@@ -1020,7 +1021,7 @@ def add_campfires(maps):
 
 def make_maps():
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
-            make_grove()]
+            make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)]]   # 8: inside a Leafen home (built in-game)
     add_campfires(maps)
     return [v for m in maps for row in m for v in row]
 

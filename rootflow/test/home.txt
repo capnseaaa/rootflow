@@ -1,0 +1,37 @@
+# v0.20 inside a Leafen home: shrink at the village's fairy ring, walk up into Pip's door (the circle closes and
+# opens inside), talk to Pip, and walk out over the mat (tiny again)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=10
+1 1
+1 0
+200 0
+# Cap joins (test setup) in Breeze's place; in the ring by the way south
+0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3,$px=240,$py=460,$pdir=0
+2 0
+1 1
+1 0
+40 0
+0 0 @$shrunk,$cur_area
+# below Pip's door (its home at 210,406), walking up into it
+0 0 !$px=210,$py=440
+40 64
+0 0 @$iris_phase,$iris_r
+6 0 hm0.ppm
+30 0 hm1.ppm
+0 0 @$cur_area,$home_k,$shrunk,$px,$py,$iris_phase
+# Pip, standing at (144,80): talk
+0 0 !$px=128,$py=62,$pdir=3
+2 0
+1 1
+1 0
+10 0 hm2.ppm
+# out over the mat (7,8)
+0 0 !$px=112,$py=106
+30 128
+40 0 hm3.ppm
+0 0 @$cur_area,$home_k,$shrunk,$px,$py
