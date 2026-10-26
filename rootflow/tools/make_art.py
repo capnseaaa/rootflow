@@ -3595,6 +3595,31 @@ def make_grove():
     return img
 
 
+TINY_FRONT = ["...11...", "..1341..", "..13341.", ".133331.", "11333311", "15555551", "1a7777a1", ".a1771a.",
+              ".a7887a.", ".122221.", "12333321", "13353531", "12333321", ".122221."]
+TINY_BACK = ["...11...", "..1341..", "..13341.", ".133331.", "11333311", "15555551", "1aaaaaa1", ".aaaaaa.",
+             ".aaaaaa.", ".122221.", "12333321", "13333331", "12333321", ".122221."]
+TINY_SIDE = ["....11..", "...1341.", "..13341.", ".133331.", "11333311", "15555551", ".1a7771.", ".1a7717.",
+             ".1a7778.", ".122221.", "12333321", "13335331", "12333321", ".122221."]
+TINY_LEGS = [(".1a11a1.", ".11..11."), (".1a1.a1.", ".11..1.."), (".1a11a1.", ".11..11."), (".1a.1a1.", "..1..11.")]
+
+
+def make_tiny():
+    """v0.20 the wizard shrunk by Cap (hand drawn, 8x16, his own palette): his 12 frames in the same order as
+    player_sprite.png (down, up, side x stand, walk1, walk2, walk3). Hat, gold band, face, robe, boots."""
+    src = Image.open(os.path.join(ART, "player_sprite.png"))
+    img = Image.new("P", (96, 16), 0)
+    img.putpalette(src.getpalette())
+    for d, body in enumerate((TINY_FRONT, TINY_BACK, TINY_SIDE)):
+        for w in range(4):
+            rows = body + list(TINY_LEGS[w])
+            for y, row in enumerate(rows):
+                for x, ch in enumerate(row):
+                    if ch != ".":
+                        img.putpixel(((d * 4 + w) * 8 + x, y), int(ch, 16))
+    return img
+
+
 def make_lily():
     img = Image.new("P", (32, 16), 0)
     img.putpalette([c for rgb in LILY_PAL for c in rgb])
@@ -3734,7 +3759,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("grove_sprite.png", make_grove),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

@@ -1086,7 +1086,8 @@ def main():
     orch = Image.open(os.path.join(ART, "orch_sprite.png"))     # v0.19: the orchard's region set (smoke creatures)
     cap = Image.open(os.path.join(ART, "cap_sprite.png"))       # v0.20: Cap (idle x2, its puff, the lingering cloud x2)
     grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
-    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove):
+    tiny = Image.open(os.path.join(ART, "tiny_sprite.png"))     # v0.20: the wizard shrunk (12 frames, 8x16)
+    for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove, tiny):
         assert im.mode == "P", "PNGs must be indexed color"
     # The player is 12 tall frames: down, up, side (faces right) x stand, walk1, walk2, walk3.
     assert player.size == (192, 32), f"player_sprite.png must be 192x32 (12 frames of 16x32), not {player.size}"
@@ -1107,6 +1108,9 @@ def main():
             for tx in range(8):
                 w += tile_words(pouch, st * 64 + tx * 8, ty * 8)
         return w
+    tile_defs.append(f"#define TILE_TINY {len(sprite_words) // 8}")   # 8x16: two tiles a frame, top then bottom
+    for f in range(tiny.width // 8):
+        sprite_words += tile_words(tiny, f * 8, 0) + tile_words(tiny, f * 8, 8)
     tile_defs.append(f"#define TILE_POUCH {len(sprite_words) // 8}")
     tile_defs.append(f"#define TILE_POUCH_FRONT {len(sprite_words) // 8 + 64}")
     sprite_words += pouch_words(0)

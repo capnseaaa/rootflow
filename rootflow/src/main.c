@@ -877,8 +877,14 @@ static u32 hearts_now = MAX_HEARTS, hurt_timer, dev_god, boss_beaten;
 enum { MEAL_NONE, MEAL_HEART, MEAL_LIGHT };
 #define MEAL_FRAMES (45 * 60)
 static u32 meal_kind, meal_timer, mushrooms;
-static u32 shrunk;                  // v0.20 Cap shrank you at a fairy ring (not saved: a load grows you back)
-static u32 grove_seen;              // v0.20 you have been in the grove (its Leafen count from then on; saved)      // mushrooms: picked in the marsh (saved); the meal is not saved
+static u32 shrunk;                  // v0.20 Cap shrank you at a fairy ring (saved)
+static u32 grove_seen;              // v0.20 you have been in the grove (its Leafen count from then on; saved)
+static s32 shrink_t, shrink_dir;    // v0.20 the shrink (or grow) under way: frames left, +1 shrinking, -1 growing
+#define SHRINK_FRAMES 30
+static void update_shrink(void) {
+    if (!shrink_t) return;
+    if (--shrink_t == 0) shrunk = shrink_dir > 0;
+}      // mushrooms: picked in the marsh (saved); the meal is not saved
 static u32 hearts_max(void) { return MAX_HEARTS + (meal_kind == MEAL_HEART); }
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
 static u32 leaf_timer;                              // > 0 while leaves swirl round the wizard
@@ -954,12 +960,15 @@ static int wide_water(s32 mx, s32 my) {
     return 0;
 }
 static int on_solid(s32 x, s32 y) {
-    // feet box: x+3..x+12, y+10..y+15
+    // feet box: x+3..x+12, y+10..y+15; tiny (v0.20): x+5..x+10, y+12..y+15, and hollow logs and cracked
+    // rocks let you through
     s32 xs[2] = { x + 3, x + 12 }, ys[2] = { y + 10, y + 15 };
+    if (shrunk) { xs[0] = x + 5; xs[1] = x + 10; ys[0] = y + 12; }
     for (int i = 0; i < 2; i++)
         for (int j = 0; j < 2; j++) {
             s32 tx = xs[i] >> 4, ty = ys[j] >> 4;
             u8 t = tile_at(tx, ty);
+            if (shrunk && (t == HOLLOW_LOG || t == CRACKED_ROCK)) continue;
             if (is_solid(t) && !(in_water && water_tile(t))) return 1;
         }
     return 0;
@@ -1039,7 +1048,7 @@ static void reset_game(void) {
     spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);   // v0.20: squashed under the fallen cap
     spirits[KIND_CAP].area = GROVE;
     cap_step = 0;
-    lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0;
+    lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0; shrunk = 0; shrink_t = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
     boss_beaten = 0;
@@ -2777,7 +2786,7 @@ static void use_ability(void) {
     // cold lantern or campfire (v0.19): lighting it is what drives the smoke off.
     u8 ahead = tile_at(fx >> 4, fy >> 4);
     int light_first = party_count && spirits[party[active]].kind == KIND_FLICK && (ahead == LANTERN_COLD || ahead == CAMPFIRE_COLD);
-    if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead() && !light_first) {
+    if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead() && !light_first && !shrunk) {
         if (!atk_cooldown) start_attack(spirits[party[active]].kind);
         return;
     }
@@ -2785,6 +2794,22 @@ static void use_ability(void) {
     if (interact(fx >> 4, fy >> 4)) return;
     if (!party_count) return;
     Spirit *s = &spirits[party[active]];
+    if (s->kind == KIND_CAP) {                               // v0.20 Cap: shrink, or grow back, in a fairy ring
+        if (shrink_t) return;
+        if (tile_at((px + 8) >> 4, (py + 12) >> 4) != FAIRY_RING) {
+            sfx_play(SFX_FAIL);
+            show_message(shrunk ? "GROW BACK IN A FAIRY RING." : "STAND IN A FAIRY RING.");
+            return;
+        }
+        shrink_dir = shrunk ? -1 : 1; shrink_t = SHRINK_FRAMES;
+        if (shrunk) shrunk = 0;                              // growing: full size at once for the walls
+        for (s32 k = 0; k < 8; k++) add_mote_c(px + 4, py + 4, dir16[k * 2] >> 1, DIR16_Y(k * 2) >> 1, 20, C_GLINT);
+        sfx_play(SFX_WAKE);
+        show_message(shrink_dir > 0 ? "CAP: TEENY TIME!" : "CAP: BACK TO BIG!");
+        add_fp(KIND_CAP, 2);
+        return;
+    }
+    if (shrunk) { sfx_play(SFX_FAIL); show_message("TOO TINY FOR THAT!"); return; }   // the others wait
     if (is_you(s->kind)) {                                   // the wizard: Bark's power, no charges
         if (use_power(KIND_BARK, fx >> 4, fy >> 4)) return;
         u8 t = tile_at(fx >> 4, fy >> 4);
@@ -3151,7 +3176,7 @@ static const char *loves_msg[NUM_SPIRITS] = {
 static u32 b_hold;
 // B by deep water with Ripple chosen (and the skill learned): jump in (v0.18.1).
 static int try_jump_in(void) {
-    if (!swim_skill || in_water || !party_count || spirits[party[active]].kind != KIND_RIPPLE) return 0;
+    if (!swim_skill || in_water || shrunk || !party_count || spirits[party[active]].kind != KIND_RIPPLE) return 0;
     s32 sx = pdir == DIR_LEFT ? -1 : pdir == DIR_RIGHT ? 1 : 0, sy = pdir == DIR_UP ? -1 : pdir == DIR_DOWN ? 1 : 0;
     s32 mx = (px + 8 + sx * 14) >> 4, my = (py + 12 + sy * 14) >> 4;
     u8 t = tile_at(mx, my);
@@ -4440,6 +4465,27 @@ static void draw_sprites(void) {
             s32 side = (frame >> 4) & 1 ? 7 : -7;
             add_mote_c(px + side + (pdir == DIR_LEFT ? 3 : pdir == DIR_RIGHT ? -3 : 0), py + 2, 0, -2, 10, C_SPLASH);
         }
+    } else if (shrink_t) {                         // v0.20 shrinking or growing: scaled smoothly, feet planted
+        s32 k = shrink_dir > 0 ? SHRINK_FRAMES - shrink_t : shrink_t;   // 0 full size .. SHRINK_FRAMES half
+        s32 sc = 256 - (128 * k) / SHRINK_FRAMES;                         // the size, 1/256ths
+        s32 y0 = py - cam_y - (16 * sc) / 256;
+        u16 *o = &oam_shadow[OAM_PLAYER * 4];
+        o[0] = (y0 & 0xFF) | (1 << 8) | (2 << 14);    // scaled (matrix 0), tall
+        o[1] = ((px - cam_x) & 0x1FF) | (0 << 9) | (2 << 14);
+        o[2] = (TILE_PLAYER + f * 8) | (1 << 10) | (PAL_MAIN << 12);
+        short inv = (short)((256 * 256) / sc);            // the matrix maps screen to texture: 1 / size
+        oam_shadow[3] = pdir == DIR_LEFT ? (u16)-inv : (u16)inv; oam_shadow[7] = 0; oam_shadow[11] = 0; oam_shadow[15] = (u16)inv;
+        sprite_hide(OAM_SWIMRING); sprite_hide(OAM_WAKE); sprite_hide(OAM_SWIMHANDS);
+    } else if (shrunk) {                           // v0.20 tiny: the 8x16 wizard, feet where his feet are
+        u16 *o = &oam_shadow[OAM_PLAYER * 4];
+        s32 x = px + 4 - cam_x, y = py - cam_y;
+        if (x < -8 || x > SCREEN_W || y < -16 || y > SCREEN_H) o[0] = 0x0200;
+        else {
+            o[0] = (y & 0xFF) | (2 << 14);            // tall, size 0: 8x16
+            o[1] = (x & 0x1FF) | (pdir == DIR_LEFT ? 1 << 12 : 0);
+            o[2] = (TILE_TINY + f * 2) | (1 << 10) | (PAL_MAIN << 12);
+        }
+        sprite_hide(OAM_SWIMRING); sprite_hide(OAM_WAKE); sprite_hide(OAM_SWIMHANDS);
     } else {
         obj_set(OAM_PLAYER, px - cam_x, py - cam_y - 16, TILE_PLAYER + f * 8, pdir == DIR_LEFT, PAL_MAIN, 1);
         sprite_hide(OAM_SWIMRING);
@@ -4447,6 +4493,8 @@ static void draw_sprites(void) {
         sprite_hide(OAM_SWIMHANDS);
     }
     if (hurt_timer & 4) sprite_hide(OAM_PLAYER);   // blinking just after a hit
+    u8 feet = tile_at((px + 8) >> 4, (py + 12) >> 4);
+    if (shrunk && (feet == HOLLOW_LOG || feet == CRACKED_ROCK)) sprite_hide(OAM_PLAYER);   // v0.20: inside the log
     if (under_root(px + 8, py + 12)) {             // v0.19.8 (Caleb): under the Great Tree's roots, out of sight
         sprite_hide(OAM_PLAYER);
         for (s32 k = 0; k < 6; k++) sprite_hide(OAM_LEAF + k);
@@ -4480,10 +4528,11 @@ static void draw_sprites(void) {
         s32 anim = (frame >> 4) & 1;
         s32 b = bob[((frame >> 2) + i * 5) & 15];
         s32 sx = s->x - cam_x, sy = s->y - cam_y - 4;
-        int orb = swimming();
+        int orb = swimming() || shrunk;                 // v0.20: tiny orbs while you are tiny
         if (orb_morph) orb = ((orb_morph >> 1) & 1) ? !orb : orb;   // changing: flicker between the two forms
         if (s->state == SP_JOINED && in_party(i) && orb && tree_alive && !is_you(i)) {   // v0.18.1: orbs while you swim
-            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + (i < 6 ? C_ORB + i : C_MINI + 6 + (i - 6) * 2), 0, PAL_LEAFEN);
+            sprite_set(SPIRIT_OAM(i), sx, sy - 2 + bob[((frame >> 2) + i * 5) & 15], SPR_LEAFEN + (shrunk ? (i < 6 ? C_MINI + i : C_MINI + 7 + (i - 6) * 2) : i < 6 ? C_ORB + i : C_MINI + 6 + (i - 6) * 2),
+                       0, PAL_LEAFEN);
             sprite_hide(ZZZ_OAM(i));
         } else if (i == KIND_BARK && float_on) {         // the revival: Bark floats, then shoots up
             if (float_on == 2) sprite_hide(SPIRIT_OAM(i));
@@ -4619,10 +4668,10 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &pump_on[GROVE], 1 }, { &pump_x[GROVE], 1 }, { &pump_y[GROVE], 1 }, { &pump_drain[GROVE], 4 },
     { &told_full[GROVE], 1 }, { &spirits[KIND_CAP], sizeof(Spirit) }, { &party[7], 4 }, { &fp[KIND_CAP], 1 },
     { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
-    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN },
+    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 16)
+#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 17)
 #define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
@@ -4714,7 +4763,7 @@ static int load_game(void) {
         spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);
         spirits[KIND_CAP].area = GROVE;
         party[7] = 0; fp[KIND_CAP] = quest[KIND_CAP] = unlocked[KIND_CAP] = 0;
-        cap_step = 0; grove_seen = 0;
+        cap_step = 0; grove_seen = 0; shrunk = 0;
         for (s32 k = FIRST_GROVE_LEAFEN; k < NUM_LEAFEN; k++) leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE;
     }
     if (nf < NUM_V198_FIELDS) {                          // before v0.19.4: the orchard's Leafen wait; burnt trees count
@@ -5656,6 +5705,7 @@ int main(void) {
         if (!scene_on) { update_attack(); update_enemies(); update_boss(); }
         if (hurt_timer) hurt_timer--;
         update_meal();
+        update_shrink();
         update_camera();
         dark_update();
         draw_sprites();
