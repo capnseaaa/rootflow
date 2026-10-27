@@ -2959,9 +2959,15 @@ static void update_flip(void) {
     REG_MOSAIC = k | (k << 4);
     if (flip_t == FLIP_FRAMES / 2) {     // the other side, where you stand (or the nearest open spot)
         static const signed char ox[9] = { 0, -1, 1, 0, 0, -1, 1, -2, 2 }, oy[9] = { 0, 0, 0, -1, 1, 1, 1, 0, 0 };
-        s32 to = cur_area == MEADOW ? MIRROR : MEADOW;
+        s32 to = cur_area == MEADOW ? MIRROR : MEADOW, x0 = px, y0 = py;
+        static s32 hx[HIST], hy[HIST], sx[NUM_SPIRITS], sy[NUM_SPIRITS];
+        for (s32 i = 0; i < HIST; i++) { hx[i] = hist_x[i]; hy[i] = hist_y[i]; }
+        for (s32 p = 0; p < party_count; p++) { sx[p] = spirits[party[p]].x; sy[p] = spirits[party[p]].y; }
         for (s32 r = 0; r < 9; r++)
             if (enter_area(to, px + ox[r] * 16, py + oy[r] * 16)) break;
+        s32 dx = px - x0, dy = py - y0;      // the spirits keep their places behind you (enter_area stacks them on you)
+        for (s32 i = 0; i < HIST; i++) { hist_x[i] = hx[i] + dx; hist_y[i] = hy[i] + dy; }
+        for (s32 p = 0; p < party_count; p++) { spirits[party[p]].x = sx[p] + dx; spirits[party[p]].y = sy[p] + dy; }
     }
     if (!flip_t) { REG_MOSAIC = 0; REG_BG1CNT &= ~(1 << 6); }
 }
@@ -4587,7 +4593,8 @@ static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE S
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
-        if (!told_full[a] && restorable[a] && life_percent_of(a) >= 100) {
+        if (!told_full[a] && restorable[a] && area_full[a][0] && life_percent_of(a) >= 100) {   // (the reflection
+                                                                       // starts alive: it has no line)
             told_full[a] = 1;
             sfx_play(SFX_QUEST);
             queue_message(area_full[a]);
@@ -5972,6 +5979,8 @@ static void dev_start(void) {
             revive_world();
         }
         dev_flip = j == J_MEADOW;            // v0.21: flip at the meadow's pools before Glimmer exists
+        if (j >= J_HEALED)                   // v0.21: what the jump made fully alive is not news
+            for (s32 a = 0; a < NUM_AREAS; a++) if (restorable[a] && life_percent_of(a) >= 100) told_full[a] = 1;
         if (j >= J_LILY) {                   // v0.18: the first six Leafen home
             leafen_setup();
             for (s32 k = 0; k < FIRST_LEAFEN; k++) leafen_state[k] = LS_HOME;
