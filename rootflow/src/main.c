@@ -36,6 +36,7 @@ typedef signed int     s32;
 #define REG_WIN1H     REG16(0x04000042)
 #define REG_WIN1V     REG16(0x04000046)
 #define REG_BLDY      REG16(0x04000054)
+#define REG_MOSAIC    REG16(0x0400004C)
 #define REG_BLDCNT    REG16(0x04000050)
 #define REG_BLDALPHA  REG16(0x04000052)
 #define REG_KEYINPUT  REG16(0x04000130)
@@ -117,7 +118,11 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE, DC_SPOT,
        // v0.20.4 the grove redone (Caleb): moss trails (walkable, they stay trails), giant mushrooms' stems (solid);
        // their 3x2 caps are never on a map: BG3 draws them over you (grove_caps)
-       MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE, CAP_RED, CAP_BLUE = CAP_RED + 6 };
+       MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE, CAP_RED, CAP_BLUE = CAP_RED + 6,
+       // v0.21 the Mirror Meadow's own: standing stones on grass, the arch (pillars, the way under it, rubble), the
+       // rune stone (sealed; glowing in the reflection), where the star fell, night flowers (shut, open)
+       MENHIR_GRASS = CAP_BLUE + 6, ARCH_L, ARCH_R, ARCH_OPEN, ARCH_RUBBLE, SEAL_STONE, SEAL_GLOW, CRATER, FALLEN_STAR,
+       BUD_CLOSED, BUD_OPEN };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -129,6 +134,10 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define ORCHARD 6     // the burnt orchard, north-west (v0.19)
 #define GROVE 7       // the mushroom grove, south-east (v0.20): in from the steppe's south and Stone Hollow's east
 #define INTERIOR 8    // inside a Leafen home (v0.20): rebuilt from a layout each time you walk in (not saved)
+#define MEADOW 9      // the Mirror Meadow, north of the steppe (v0.21)
+#define MIRROR 10     // its reflection: the same place at night, before Vael (v0.21); a pool flips you between them
+static int is_meadow_piece(u8 t) { return t >= MENHIR_GRASS && t <= BUD_OPEN; }
+static int meadow_walkable(u8 t) { return t == ARCH_OPEN || t == CRATER || t == BUD_OPEN; }
 // v0.20 the fairy ring by Bark's village: a sprite (the Great Tree's tiles leave no room for ring tiles there),
 // in the way south that is always kept clear
 #define WEST_RING_X (15 * 16 + 8)
@@ -288,7 +297,8 @@ static void music_tick(void) {
 // Three areas, each a 32x32 map kept in memory so restored land stays restored.
 // cur_area is where the player is (and what the screen shows). work_area is the map the tile
 // functions act on; it differs from cur_area only while a home in another area pulses.
-static u8 maps[NUM_AREAS][MAP_W * MAP_H];
+#define EWRAM __attribute__((section(".ewram")))   // v0.21: in the 256K work RAM (the 32K fast RAM is full)
+EWRAM static u8 maps[NUM_AREAS][MAP_W * MAP_H];
 static u8 *world = maps[0];
 static s32 cur_area, work_area;
 static u32 restorable[NUM_AREAS];   // tiles that can become living, per area
@@ -369,7 +379,8 @@ static int is_solid(u8 t) {
            t == MUSH_LAMP || t == LEAF_SWING || t == ACORN_BENCH || t == FLOWER_ARCH || t == DEW_POND ||
            t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
            is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE ||
-           is_orchard_piece(t) || is_grove_piece(t) || (is_room_piece(t) && !room_walkable(t));
+           is_orchard_piece(t) || is_grove_piece(t) || (is_room_piece(t) && !room_walkable(t)) ||
+           (is_meadow_piece(t) && !meadow_walkable(t));
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -388,7 +399,8 @@ static int is_restorable(u8 t) {
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
              is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE ||
-             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || t == MOSS_TRAIL || is_room_piece(t));
+             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || t == MOSS_TRAIL || is_room_piece(t) ||
+             is_meadow_piece(t));
 }
 
 static void draw_area(void) {
@@ -437,6 +449,8 @@ static const u16 ground_pal[NUM_AREAS][3] = {
     { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) },  // the orchard: grey ash (v0.19)
     { RGB5(40, 46, 40), RGB5(58, 66, 52), RGB5(82, 90, 70) },     // the grove: dim, damp earth (v0.20)
     { RGB5(120, 82, 52), RGB5(160, 112, 72), RGB5(196, 148, 100) },   // inside a home: wood (each layout sets its own)
+    { RGB5(118, 112, 100), RGB5(146, 140, 124), RGB5(176, 170, 150) },   // the meadow: pale, cut ground (v0.21)
+    { RGB5(34, 40, 66), RGB5(50, 58, 90), RGB5(72, 82, 116) },          // the reflection: night ground
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -450,6 +464,8 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(74, 94, 58), RGB5(104, 124, 76), RGB5(146, 158, 104) },  // the orchard: a dull, ashy green (v0.19.7, Caleb)
     { RGB5(52, 96, 78), RGB5(78, 132, 100), RGB5(120, 176, 130) },  // the grove: a deep blue-green moss (v0.20)
     { RGB5(60, 120, 60), RGB5(100, 170, 80), RGB5(160, 210, 110) },   // inside a home: leaves and plants
+    { RGB5(96, 124, 100), RGB5(146, 170, 138), RGB5(200, 216, 182) },   // the meadow: silvery sage (v0.21)
+    { RGB5(30, 74, 78), RGB5(44, 108, 96), RGB5(86, 156, 124) },        // the reflection: lush night green
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -497,9 +513,17 @@ static void set_ground_palette(s32 a) {
     for (s32 i = 0; i < 3; i++)                   // v0.18.1: in the marsh the river's water turns a murky teal
         PAL_BG[9 + i] = a == MARSH ? (i == 0 ? RGB5(36, 86, 90) : i == 1 ? RGB5(64, 128, 120) : RGB5(140, 190, 176))
                       : a == GROVE ? (i == 0 ? RGB5(40, 120, 130) : i == 1 ? RGB5(80, 180, 180) : RGB5(170, 240, 230))
-                                   : bg_pal[9 + i];   // v0.20.4: and in the grove its pools glow
-    for (s32 i = 0; i < 2; i++)                   // v0.20.4: the grove's earth (and shores) a damp, mossy brown
-        PAL_BG[4 + i] = a == GROVE ? (i == 0 ? RGB5(62, 54, 40) : RGB5(96, 84, 60)) : bg_pal[4 + i];
+                      : a == MEADOW ? (i == 0 ? RGB5(118, 138, 160) : i == 1 ? RGB5(176, 196, 214) : RGB5(232, 240, 248))
+                      : a == MIRROR ? (i == 0 ? RGB5(22, 38, 90) : i == 1 ? RGB5(44, 72, 146) : RGB5(150, 194, 244))
+                                   : bg_pal[9 + i];   // v0.20.4: in the grove its pools glow; v0.21: the meadow's are
+                                                      // still silver mirrors, the reflection's starry night water
+    static const u16 dirt_of[3][2] = { { RGB5(62, 54, 40), RGB5(96, 84, 60) }, { RGB5(138, 122, 98), RGB5(172, 156, 124) },
+                                       { RGB5(58, 54, 84), RGB5(84, 80, 110) } };   // the grove's, meadow's, reflection's
+    s32 dk = a == GROVE ? 0 : a == MEADOW ? 1 : a == MIRROR ? 2 : -1;
+    for (s32 i = 0; i < 2; i++) PAL_BG[4 + i] = dk >= 0 ? dirt_of[dk][i] : bg_pal[4 + i];
+    for (s32 i = 0; i < 3; i++)                   // v0.21: at night the flowers are lilac and the cream glows pale
+        PAL_BG[12 + i] = a == MIRROR ? (i == 0 ? RGB5(70, 52, 60) : i == 1 ? RGB5(214, 160, 230) : RGB5(232, 236, 255))
+                                     : bg_pal[12 + i];
     static const u16 mud[2][3] = { { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh's
                                    { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) } };  // the orchard's
     for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == ORCHARD][i];   // under pipes and stacks
@@ -566,7 +590,7 @@ static void update_message(void) {
 }
 
 static void draw_life(void) {
-    if (cur_area == INTERIOR) { for (s32 c = 0; c < 11; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' '); return; }   // v0.20
+    if (cur_area == INTERIOR || cur_area == MIRROR) { for (s32 c = 0; c < 11; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' '); return; }   // v0.20
     char buf[12] = "LIFE    % ";
     u32 p = life_percent();
     buf[5] = p >= 100 ? '1' : ' ';
@@ -1373,11 +1397,18 @@ static void grove_light(s32 lx, s32 ly, s32 r) {
             if (lv < grove_lv(i)) grove_lv4[i >> 2] = (grove_lv4[i >> 2] & ~(3 << ((i & 3) * 2))) | (lv << ((i & 3) * 2));
         }
 }
-static void grove_lights(void) {
+static void grove_lights(s32 a) {                 // v0.21: the reflection's night too
     for (s32 i = 0; i < 64 * 64 / 4; i++) grove_lv4[i] = 0xFF;
     for (s32 i = 0; i < MAP_W * MAP_H; i++) {
-        u8 t = maps[GROVE][i];
+        u8 t = maps[a][i];
         s32 x = (i % MAP_W) * 16 + 8, y = (i / MAP_W) * 16 + 8;
+        if (a == MIRROR) {                           // starry water, the glowing rune, the star, the flowers
+            if (t == WATER) grove_light(x, y, 22);
+            else if (t == SEAL_GLOW) grove_light(x, y, 46);
+            else if (t == FALLEN_STAR) grove_light(x, y, 60);
+            else if (t == BUD_OPEN) grove_light(x, y, 34);
+            continue;
+        }
         if (t == GLOWCAPS) grove_light(x, y, 30);
         else if (t == GIANT_STEM_BLUE) grove_light(x, y - 18, 46);   // its cap, above the stem
         else if (t == FAIRY_RING) grove_light(x, y, 38);
@@ -1386,7 +1417,7 @@ static void grove_lights(void) {
 }
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
-    if (cur_area == GROVE) return MIN(grove_lv(cy * 64 + cx), dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
+    if (cur_area == GROVE || cur_area == MIRROR) return MIN(grove_lv(cy * 64 + cx), dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
     s32 lv = wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // past the trunk: daylight, with a smoky haze (Caleb)
     if (lv) { s32 sd = stack_dark(wx, wy); lv = MIN(lv, sd ? sd : 1); }   // Caleb (option B): a light fog always stays
     if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));   // your own light clears the haze too
@@ -1399,17 +1430,17 @@ static void dark_put(s32 cx, s32 cy) {
         (meta_vram(DARKNESS) * 4 + 3 - dark_cell(cx, cy)) | (TREE_BANK << 12);
 }
 static void dark_enter(s32 a) {
-    dark_on = a == ORCHARD || a == GROVE;
+    dark_on = a == ORCHARD || a == GROVE || a == MIRROR;
     if (dark_on && !(flick_flags & 1) && spirits[KIND_FLICK].state == SP_ASLEEP)   // v0.19.7: the trunk was cut
         for (s32 x = 0; x < MAP_W; x++)                                          // before the ember existed
             if (maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_LOG && maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_TREE) {
                 flick_flags |= 1; break;                 // (v0.19.0 saves): you have it anyway
             }
-    REG_BLDALPHA = a == GROVE ? 16 | (9 << 8) : dark_on ? 16 | (2 << 8) : 12 | (4 << 8);   // the dark lets an eighth
+    REG_BLDALPHA = a == GROVE ? 16 | (9 << 8) : a == MIRROR ? 16 | (11 << 8) : dark_on ? 16 | (2 << 8) : 12 | (4 << 8);
     if (!dark_on) return;                                          // through, the grove's dim 9/16; branches 12/4
-    if (a == GROVE) {
-        grove_lights();
-        PAL_BG[TREE_BANK * 16 + 1] = RGB5(8, 8, 24);   // a cool blue dusk
+    if (a == GROVE || a == MIRROR) {
+        grove_lights(a);
+        PAL_BG[TREE_BANK * 16 + 1] = a == MIRROR ? RGB5(10, 12, 44) : RGB5(8, 8, 24);   // a cool blue dusk / night
         for (s32 cy = 0; cy < 64; cy++)
             for (s32 cx = 0; cx < 64; cx++) dark_put(cx, cy);
         REG_DISPCNT |= 1 << 10;
@@ -1433,13 +1464,13 @@ static void dark_update(void) {                    // each frame: the cells roun
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1, -1 },
-                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1, -1 };
-static const signed char area_north[NUM_AREAS] = { -1, -1, 0, ORCHARD, -1, WEST, -1, 1, -1 };
+static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1, -1, -1, -1 },
+                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2, -1, -1, -1 };
+static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1, -1, 1, -1 };
+static const signed char area_north[NUM_AREAS] = { -1, MEADOW, 0, ORCHARD, -1, WEST, -1, 1, -1, -1, -1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
                                             "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD",
-                                            "THE MUSHROOM GROVE", "" };
+                                            "THE MUSHROOM GROVE", "", "THE MIRROR MEADOW", "THE REFLECTION" };
 // Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
 // A scene may set its own (scene_song; -1 = silence).
 #define NO_SCENE_SONG (-2)
@@ -1526,7 +1557,7 @@ static void check_exits(void) {
     else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 &&
              ((area_south[cur_area] != MARSH && area_south[cur_area] != GROVE) || open))
         cross_to(area_south[cur_area], SIDE_NORTH, px + 8);
-    else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0)
+    else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0 && (area_north[cur_area] != MEADOW || open))
         cross_to(area_north[cur_area], SIDE_SOUTH, px + 8);
     else if (cur_area == 0 && ((HELD(KEY_UP) && py <= 0) || (HELD(KEY_LEFT) && px <= 0)))
         region_hint();
@@ -2911,6 +2942,30 @@ static void draw_picker(void) {
     oam_shadow[OAM_CURSOR * 4 + 2] &= ~(3 << 10);
 }
 
+// v0.21 the Mirror Meadow: A at a pool flips you between the meadow and its reflection (Glimmer's power, step 2;
+// for now the dev jump allows it). A shimmer: the map breaks into blocks (mosaic), the side changes, it clears.
+static u32 dev_flip;
+static s32 flip_t;                       // counts down FLIP_FRAMES..0; the side changes halfway
+#define FLIP_FRAMES 24
+static void start_flip(void) {
+    flip_t = FLIP_FRAMES;
+    REG_BG1CNT |= 1 << 6;                // mosaic on the map layer
+    sfx_play(SFX_WAKE);
+}
+static void update_flip(void) {
+    if (!flip_t) return;
+    flip_t--;
+    s32 m = flip_t > FLIP_FRAMES / 2 ? FLIP_FRAMES - flip_t : flip_t, k = m / 2;
+    REG_MOSAIC = k | (k << 4);
+    if (flip_t == FLIP_FRAMES / 2) {     // the other side, where you stand (or the nearest open spot)
+        static const signed char ox[9] = { 0, -1, 1, 0, 0, -1, 1, -2, 2 }, oy[9] = { 0, 0, 0, -1, 1, 1, 1, 0, 0 };
+        s32 to = cur_area == MEADOW ? MIRROR : MEADOW;
+        for (s32 r = 0; r < 9; r++)
+            if (enter_area(to, px + ox[r] * 16, py + oy[r] * 16)) break;
+    }
+    if (!flip_t) { REG_MOSAIC = 0; REG_BG1CNT &= ~(1 << 6); }
+}
+
 static int leafen_talk(s32 fmx, s32 fmy);
 static void use_ability(void) {
     s32 fx = px + 8, fy = py + 12;
@@ -2924,6 +2979,10 @@ static void use_ability(void) {
     int light_first = party_count && spirits[party[active]].kind == KIND_FLICK && (ahead == LANTERN_COLD || ahead == CAMPFIRE_COLD);
     if (party_count && can_fight(spirits[party[active]].kind) && enemy_ahead() && !light_first && !shrunk) {
         if (!atk_cooldown) start_attack(spirits[party[active]].kind);
+        return;
+    }
+    if ((cur_area == MEADOW || cur_area == MIRROR) && ahead == WATER && dev_flip && !shrunk) {   // v0.21: a pool
+        if (!flip_t) start_flip();
         return;
     }
     int cap_ring = party_count && spirits[party[active]].kind == KIND_CAP && at_fairy_ring();   // v0.20: before any
@@ -3236,6 +3295,7 @@ static int home_protects(s32 a, s32 x, s32 y) {
 static int is_grassy(u8 t) { return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS; }
 
 static int spawn_pump(s32 a) {
+    if (a == MEADOW || a == MIRROR) return 0;      // v0.21: not yet (the meadow's own trouble is Vael's survey)
     if ((a == WEST || a == HOLLOW_IN) && tree_alive) return 0;   // v0.19.7 (Caleb): the healed Great Tree is left in peace
     use_area(a);
     for (s32 tries = 0; tries < 80; tries++) {
@@ -3647,7 +3707,8 @@ static void update_gloom_intro(void) {
 // once healed; the fight is gloomfight.
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
-                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW, SONG_HEARTWOOD };   // marsh, orchard,
+                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW, SONG_HEARTWOOD,
+                                           SONG_STEPPE, SONG_HOLLOW };   // marsh, orchard, meadow, its reflection,
                                                                     // grove: for now (music later); a home: the tree's
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
@@ -4522,7 +4583,7 @@ static void update_music(void) {
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "",
                                             "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!",
-                                            "THE GROVE IS FULLY ALIVE!", "" };
+                                            "THE GROVE IS FULLY ALIVE!", "", "THE MEADOW IS FULLY ALIVE!", "" };
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -5005,7 +5066,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x48534652u   // "RFSH" (v0.20.6: Bark gives Lily and Cap)
+#define SAVE_MAGIC 0x49534652u   // "RFSI" (v0.21: the Mirror Meadow)
+#define SAVE_MAGIC_V206 0x48534652u   // "RFSH": v0.20.6 saves still load
 #define SAVE_MAGIC_V200 0x47534652u   // "RFSG": v0.20.0-5 saves still load
 #define SAVE_MAGIC_V198 0x46534652u   // "RFSF": v0.19.4-8 saves still load
 #define SAVE_MAGIC_V193 0x45534652u   // "RFSE": v0.19.3 saves still load
@@ -5073,9 +5135,13 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &out_x, 4 }, { &out_y, 4 }, { decor_have, 4 }, { home_decor, 13 }, { &decor_done, 4 },
     // v0.20.6: which region sent you to Bark
     { &bark_hint, 4 },
+    // v0.21: the Mirror Meadow and its reflection
+    { maps[MEADOW], sizeof(maps[0]) }, { maps[MIRROR], sizeof(maps[0]) }, { &restorable[MEADOW], 4 },
+    { picked[MEADOW], sizeof(picked[0]) }, { &told_full[MEADOW], 1 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V200_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V206_FIELDS (NUM_SAVE_FIELDS - 5)
+#define NUM_V200_FIELDS (NUM_V206_FIELDS - 1)
 #define NUM_V198_FIELDS (NUM_V200_FIELDS - 23)
 #define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
@@ -5137,6 +5203,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V193) nf = NUM_V193_FIELDS;
     else if (magic == SAVE_MAGIC_V198) nf = NUM_V198_FIELDS;
     else if (magic == SAVE_MAGIC_V200) nf = NUM_V200_FIELDS;
+    else if (magic == SAVE_MAGIC_V206) nf = NUM_V206_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -5157,7 +5224,18 @@ static int load_game(void) {
         pump_on[WEST] = 0; pump_drain[WEST] = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) bark_hint = 0;            // before v0.20.6
+    if (nf < NUM_V206_FIELDS) bark_hint = 0;            // before v0.20.6
+    if (nf < NUM_SAVE_FIELDS)                            // before v0.21: a fresh meadow and reflection
+        for (s32 a = MEADOW; a <= MIRROR; a++) {
+            restorable[a] = 0;
+            for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+                u8 t = start_maps[a * MAP_W * MAP_H + i];
+                maps[a][i] = t;
+                if (is_restorable(t)) restorable[a]++;
+                if (i < MAP_W * MAP_H / 8) picked[a][i] = 0;
+            }
+            told_full[a] = 0;
+        }
     if (nf < NUM_V200_FIELDS) {                          // before v0.20: a fresh grove, Cap under its fallen cap
         restorable[GROVE] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
@@ -5773,11 +5851,11 @@ static void update_menu(void) {
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
 enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
 enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_GLOOM, J_HEALED, J_LILY, J_CAP, J_BOTH,
-       NUM_JUMPS };
+       J_MEADOW, NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
                                                "BARK JOINED", "AT THE TREE", "TREE TASKS DONE",
                                                "4 BOSSES BEATEN", "GLOOMHEART BEATEN", "TREE HEALED", "LILY JOINED",
-                                               "CAP JOINED", "LILY AND CAP" };
+                                               "CAP JOINED", "LILY AND CAP", "MIRROR MEADOW" };
 static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
@@ -5893,11 +5971,12 @@ static void dev_start(void) {
             pouch_on = 1;
             revive_world();
         }
+        dev_flip = j == J_MEADOW;            // v0.21: flip at the meadow's pools before Glimmer exists
         if (j >= J_LILY) {                   // v0.18: the first six Leafen home
             leafen_setup();
             for (s32 k = 0; k < FIRST_LEAFEN; k++) leafen_state[k] = LS_HOME;
         }
-        if (j == J_LILY || j == J_BOTH) {    // Lily joined (v0.20.6: Bark's first or second gift)
+        if (j == J_LILY || j >= J_BOTH) {    // Lily joined (v0.20.6: Bark's first or second gift)
             Spirit *s = &spirits[KIND_LILY];
             s->energy = 3; s->state = SP_JOINED;
             party[party_count++] = KIND_LILY;    // dev: carried even past the limit (tests pick her by her slot)
@@ -5905,7 +5984,7 @@ static void dev_start(void) {
             lily_step = LILY_SCENE_LEN + 1;
             bark_hint |= 1;
         }
-        if (j == J_CAP || j == J_BOTH) {     // v0.20.6 Cap joined, the grove seen (its rings show)
+        if (j == J_CAP || j >= J_BOTH) {     // v0.20.6 Cap joined, the grove seen (its rings show)
             Spirit *s = &spirits[KIND_CAP];
             s->energy = 3; s->state = SP_JOINED;
             party[party_count++] = KIND_CAP;     // dev: carried even past the limit, like Lily
@@ -5922,6 +6001,7 @@ static void dev_start(void) {
             revive_step = 1;
             revive_wait = 30;
         }
+        else if (j == J_MEADOW) enter_area(MEADOW, 15 * 16, 29 * 16 - 6);   // v0.21: the meadow's way in; pools flip
         else if (j >= J_LILY) enter_area(WEST, 15 * 16, 29 * 16 - 6);   // at the way south (and the village's ring)
         else enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
     }
@@ -6137,8 +6217,9 @@ int main(void) {
 
         // v0.16.3 (Caleb): during a scene nothing moves: not you, the enemies, the bosses, or the pumps
         if (iris_phase) scene_on = 1;           // v0.20: nothing moves while the circle runs
-        if (!scene_on) { update_player(); check_home_doors(); update_bark_hints(); } else pstep = 0;
+        if (!scene_on && !flip_t) { update_player(); check_home_doors(); update_bark_hints(); } else pstep = 0;
         update_iris();
+        update_flip();
         update_spirits();
         if (!scene_on) handle_action();
         check_spring();

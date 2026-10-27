@@ -31,5 +31,12 @@ SECTIONS {
         __bss_end = .;
     } > iwram
 
+    .ewram (NOLOAD) : {                 /* v0.21: big tables in the 256K work RAM (crt0 zeroes them) */
+        __ewram_start = .;
+        *(.ewram*)
+        . = ALIGN(4);
+        __ewram_end = .;
+    } > ewram
+
     /DISCARD/ : { *(.ARM.exidx*) *(.ARM.attributes) *(.comment) }
 }

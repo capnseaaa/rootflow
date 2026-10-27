@@ -113,6 +113,12 @@ META += INTERIOR_META
 GROVE2_META = ["moss_trail", "giant_stem", "giant_stem_blue"] + [f"cap_r_{k}" for k in range(6)] + \
               [f"cap_b_{k}" for k in range(6)]
 META += GROVE2_META
+# v0.21 the Mirror Meadow (north-east, step 1): standing stones on grass, a stone arch (pillars, an open way under
+# its top, or blocked by rubble), the sealed rune stone (dark, or glowing in the reflection), where the star fell
+# (a crater; the fallen star in the reflection), night flowers (shut, open). Stone in the ground colors 1-3.
+MEADOW_META = ["menhir_grass", "arch_l", "arch_r", "arch_open", "arch_rubble", "seal_stone", "seal_glow", "crater",
+               "fallen_star", "bud_closed", "bud_open"]
+META += MEADOW_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -989,6 +995,95 @@ def room_tile(rng, name):
     return px
 
 
+def _stone_disc(px, cx, cy, rx, ry):
+    """A rounded stone in the ground colors, lit from the top left, outlined."""
+    pts = {(x, y) for y in range(16) for x in range(16) if ((x + .5 - cx) / rx) ** 2 + ((y + .5 - cy) / ry) ** 2 < 1}
+    for (x, y) in pts:
+        edge = any((x + a, y + b) not in pts for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        px[y][x] = 15 if edge else 3 if (x, y - 1) not in pts or (x - 1, y) not in pts else 1 if y > cy + ry * .3 else 2
+    return pts
+
+
+def meadow_tile(rng, name):
+    """v0.21 the Mirror Meadow's own pieces (MEADOW_META), drawn on grass."""
+    px = grass(rng, tufts=2)
+    if name == "menhir_grass":                        # a standing stone (Caleb: on grass)
+        for y in range(0, 15):
+            for x in range(2, 14):
+                d = abs(x - 7.5) - (5.5 if y > 3 else y + 2)
+                if d < 0:
+                    px[y][x] = 3 if x < 8 else 2
+                if -1 <= d < 0 or y == 14:
+                    px[y][x] = 15
+        px[3][6] = px[4][6] = px[5][5] = 14
+        px[10][6] = px[10][7] = px[11][6] = 6
+    elif name in ("arch_l", "arch_r"):                # a pillar; the arch springs toward the middle
+        x0 = 5 if name == "arch_l" else 4
+        for y in range(1, 16):
+            for x in range(x0, x0 + 7):
+                px[y][x] = 15 if x in (x0, x0 + 6) or y == 1 else 3 if x == x0 + 1 else 1 if x == x0 + 5 else 2
+        for y in (5, 10):                             # the blocks' joints
+            for x in range(x0 + 1, x0 + 6):
+                px[y][x] = 1
+        inner = range(x0 + 7, 16) if name == "arch_l" else range(0, x0)
+        for x in inner:                               # the start of the arch's curve
+            px[1][x] = 15; px[2][x] = 3; px[3][x] = 2; px[4][x] = 15
+    elif name == "arch_open":                         # the way under the arch's top
+        for y in range(0, 5):
+            for x in range(16):
+                px[y][x] = 15 if y in (0, 4) else 3 if y == 1 else 2
+        px[1][7] = px[1][8] = px[2][7] = px[2][8] = 11   # the keystone's rune
+        for x in range(16):
+            px[5][x] = 7 if px[5][x] == 8 else px[5][x]
+    elif name == "arch_rubble":                       # fallen stones block the way
+        for (cx, cy, r) in ((5, 11, 3.6), (11, 12, 3.2), (8, 6.5, 2.8), (12.5, 5.5, 2.0), (3, 5, 1.8)):
+            _stone_disc(px, cx, cy, r, r * .8)
+    elif name in ("seal_stone", "seal_glow"):         # a flat round stone with a rune: sealed
+        _stone_disc(px, 8, 8, 6.6, 5.6)
+        rune = 11 if name == "seal_glow" else 1
+        for k in range(5, 12):
+            px[k][8] = rune; px[8][k] = rune
+        for (x, y) in ((6, 6), (10, 6), (6, 10), (10, 10)):
+            px[y][x] = rune
+    elif name in ("crater", "fallen_star"):           # where the star came down
+        for y in range(16):
+            for x in range(16):
+                d = ((x + .5 - 8) / 6.4) ** 2 + ((y + .5 - 9) / 4.6) ** 2
+                if d < 1:
+                    px[y][x] = 4 if d < .45 else 1 if d > .8 else 5
+        if name == "fallen_star":                     # five points, a white-hot middle
+            for (x, y) in ((8, 3), (8, 4), (7, 5), (8, 5), (9, 5), (3, 6), (4, 6), (5, 6), (6, 6), (7, 6), (8, 6), (9, 6),
+                           (10, 6), (11, 6), (12, 6), (5, 7), (6, 7), (7, 7), (8, 7), (9, 7), (10, 7), (11, 7), (6, 8),
+                           (7, 8), (9, 8), (10, 8), (5, 9), (6, 9), (10, 9), (11, 9), (4, 10), (5, 10), (11, 10), (12, 10)):
+                px[y][x] = 14
+            for (x, y) in ((8, 5), (7, 6), (8, 6), (9, 6), (8, 7)):
+                px[y][x] = 11
+    elif name == "bud_closed":                        # a night flower, shut tight
+        for y in range(8, 15):
+            px[y][8] = 6
+        px[11][9] = px[10][10] = 7
+        for y in range(3, 9):
+            for x in range(6, 11):
+                if abs(x - 8) <= (y - 2) // 2 and y < 8 or (y == 8 and 7 <= x <= 9):
+                    px[y][x] = 13
+        px[3][8] = 15
+        for y in range(4, 9):
+            px[y][6 if y > 5 else 7] = 15; px[y][10 if y > 5 else 9] = 15
+    elif name == "bud_open":                          # open: wide glowing petals you could stand on
+        pts = {(x, y) for y in range(16) for x in range(16) if ((x + .5 - 8) / 7.2) ** 2 + ((y + .5 - 9) / 4.6) ** 2 < 1}
+        for (x, y) in pts:
+            edge = any((x + a, y + b) not in pts for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+            px[y][x] = 15 if edge else 13
+        for (x, y) in pts:
+            if ((x + .5 - 8) / 3.6) ** 2 + ((y + .5 - 9) / 2.2) ** 2 < 1:
+                px[y][x] = 14
+        for a in (-1, 1):                             # petal lines
+            for k in range(2, 6):
+                px[9][8 + a * k] = 15 if k == 5 else 13
+        px[9][8] = px[9][7] = 11
+    return px
+
+
 def moss_trail(rng):
     """v0.20.4 a soft trail through the grove: pale trodden moss with a few leaves (walkable, it blooms)."""
     px = blank(3)
@@ -1818,6 +1913,7 @@ def make_terrain():
         for k in range(6):
             cx, cy = (k % 3) * 16, (k // 3) * 16
             tiles.append([row[cx:cx + 16] for row in caps[blue][cy:cy + 16]])
+    tiles += [meadow_tile(rng, n) for n in MEADOW_META]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])

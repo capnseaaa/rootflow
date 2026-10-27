@@ -1,0 +1,35 @@
+# v0.21 the Mirror Meadow (step 1): the dev jump puts you at its way in; a pool flips you to the reflection and back
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=13
+1 1
+1 0
+200 0
+0 0 @$cur_area,$dev_flip
+20 0 md0.ppm
+# beside the first pool (x 7-12 on row 27), facing it: A flips to the reflection
+0 0 !$px=208,$py=432,$pdir=2
+1 0
+1 1
+1 0
+6 0 md_flip.ppm
+40 0 md1.ppm
+0 0 @$cur_area,$px,$py,$flip_t
+# the stone circle in the reflection
+0 0 !$px=208,$py=290,$pdir=1
+40 0 md2.ppm
+# and back at the pool
+0 0 !$px=208,$py=432,$pdir=2
+1 0
+1 1
+1 0
+40 0 md3.ppm
+0 0 @$cur_area,$flip_t
+# up the steppe-side way out: the meadow's south edge leads to the steppe
+0 0 !$px=240,$py=494
+40 128
+0 0 @$cur_area

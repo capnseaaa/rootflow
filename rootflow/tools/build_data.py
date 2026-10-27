@@ -34,6 +34,8 @@ SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tre
  TINY_CHEST_OPEN) = range(140, 149)
 ROOM_VOID = 149                                     # v0.20 the Leafen homes' insides start here (main.c lists them)
 MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove redone; caps 183-194 (BG3, in-game)
+(MENHIR_GRASS, ARCH_L, ARCH_R, ARCH_OPEN, ARCH_RUBBLE, SEAL_STONE, SEAL_GLOW, CRATER, FALLEN_STAR, BUD_CLOSED,
+ BUD_OPEN) = range(195, 206)                        # v0.21 the Mirror Meadow's own
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -55,7 +57,8 @@ BREEZE_POCKET = (2, 25, 5, 28)   # interior rectangle; walled by rocks
 THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
 VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE, INTERIOR = 0, 1, 2, 3, 4, 5, 6, 7, 8
-NUM_AREAS = 9                      # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+MEADOW, MIRROR = 9, 10             # v0.21 the Mirror Meadow (north of the steppe) and its reflection
+NUM_AREAS = 11                     # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
                                    # 6: the burnt orchard (v0.19), north of the Great Tree
 # v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
@@ -1053,7 +1056,8 @@ ROOM_BANK = 8                      # v0.20.5: the first of the Leafen homes' BG 
 
 
 WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
-            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING, MOSS_TRAIL}
+            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING, MOSS_TRAIL,
+            ARCH_OPEN, CRATER, BUD_OPEN}
 
 
 def reach_count(m, start):
@@ -1133,9 +1137,131 @@ def add_campfires(maps):
         assert reach_count(m, start) >= before - 3, f"the campfire at {a} {x},{y} cuts the way"
 
 
+def make_meadow():
+    """v0.21 the Mirror Meadow (step 1) and its reflection, the same place twice. The real meadow: silvery grass,
+    Vael's cut clearings full of stumps, a dry riverbed (one bridge), still pools, a ring of standing stones round a
+    sealed rune stone, Silver's nook behind a broken arch, a crater where a star fell, shut night flowers. The
+    reflection: the same at night before Vael: woods where the stumps are, the river flowing (an old bridge
+    further up instead), the arch whole, the fallen star, the flowers open."""
+    import math
+    rng = random.Random(4242)
+    def noise(seed, scale):
+        r = random.Random(seed)
+        g = [[r.random() for _ in range(MAP_W // scale + 2)] for _ in range(MAP_H // scale + 2)]
+        def f(x, y):
+            gx, gy = x / scale, y / scale
+            x0, y0 = int(gx), int(gy)
+            tx, ty = gx - x0, gy - y0
+            tx, ty = tx * tx * (3 - 2 * tx), ty * ty * (3 - 2 * ty)
+            a = g[y0][x0] * (1 - tx) + g[y0][x0 + 1] * tx
+            c = g[y0 + 1][x0] * (1 - tx) + g[y0 + 1][x0 + 1] * tx
+            return a * (1 - ty) + c * ty
+        return f
+    n1, n2 = noise(1, 6), noise(2, 3)
+    real = [[0] * MAP_W for _ in range(MAP_H)]
+    mirr = [[0] * MAP_W for _ in range(MAP_H)]
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            v = n1(x, y) * 0.7 + n2(x, y) * 0.3
+            real[y][x] = FLOWERS if v > 0.74 and rng.random() < 0.4 else GRASS_TUFT if v < 0.4 else GRASS
+            mirr[y][x] = FLOWERS if v > 0.68 and rng.random() < 0.5 else GRASS_TUFT if v < 0.35 else GRASS
+    def blob(cx, cy, rx, ry, wob, seed):
+        r = random.Random(seed); ph = r.uniform(0, 6.3)
+        out = []
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                k = 1 + wob * math.sin(3 * math.atan2(y - cy, x - cx) + ph)
+                if ((x - cx) / (rx * k)) ** 2 + ((y - cy) / (ry * k)) ** 2 < 1:
+                    out.append((x, y))
+        return out
+    river = set()
+    for t in range(400):
+        y = t / 400 * (MAP_H + 2) - 1
+        x = 20 + 3.2 * math.sin(y * 0.22 + 0.6)
+        for dx in (-1, 0, 1):
+            xi, yi = int(round(x + dx)), int(round(y))
+            if 0 <= xi < MAP_W and 0 <= yi < MAP_H:
+                river.add((xi, yi))
+    for (cx, cy, r) in ((5, 6, 4.4), (27, 22, 4.0), (6, 25, 3.4), (12, 10, 2.6), (2, 15, 2.2)):
+        for (x, y) in blob(cx, cy, r, r * 0.85, 0.15, int(cx * 7 + cy)):
+            if (x, y) in river:
+                continue
+            real[y][x] = DEAD if rng.random() < 0.7 else DIRT          # Vael's cut clearing
+            if rng.random() < 0.78:
+                mirr[y][x] = TREE
+                real[y][x] = STUMP if rng.random() < 0.8 else DEAD_TREE
+    for (x, y) in river:
+        real[y][x] = DRY_RIVER; mirr[y][x] = WATER
+    for (x, y) in river:
+        if y == 27: real[y][x] = DRY_BRIDGE
+        if y == 9: mirr[y][x] = BRIDGE
+    pools = [(10, 27, 3.0, 2.0), (4, 19, 2.4, 1.8), (13, 4, 2.6, 1.8), (27, 13, 2.6, 2.2), (15, 22, 2.0, 1.4)]
+    for i, (cx, cy, rx, ry) in enumerate(pools):
+        for (x, y) in blob(cx, cy, rx, ry, 0.18, i + 5):
+            if (x, y) not in river:
+                real[y][x] = WATER; mirr[y][x] = WATER
+    cx, cy = MEADOW_SEAL
+    for (x, y) in blob(cx, cy, 2.8, 2.2, 0, 0):
+        real[y][x] = DIRT; mirr[y][x] = FLOWERS
+    for k in range(10):
+        a = 2 * math.pi * k / 10
+        x, y = round(cx + 3.2 * math.cos(a)), round(cy + 2.6 * math.sin(a))
+        real[y][x] = MENHIR_GRASS; mirr[y][x] = MENHIR_GRASS
+    real[cy][cx] = SEAL_STONE; mirr[cy][cx] = SEAL_GLOW
+    # Silver's nook (north-east): a wall, its way in an arch, broken (real) or whole (reflection); a pool inside
+    for x in range(24, MAP_W):
+        real[8][x] = ROCK; mirr[8][x] = TREE
+    for y in range(0, 8):
+        real[y][24] = ROCK; mirr[y][24] = TREE
+    ax = MEADOW_ARCH[0]
+    real[8][ax - 1], real[8][ax], real[8][ax + 1] = ARCH_L, ARCH_RUBBLE, ARCH_R
+    mirr[8][ax - 1], mirr[8][ax], mirr[8][ax + 1] = ARCH_L, ARCH_OPEN, ARCH_R
+    for y in range(0, 8):
+        for x in range(25, MAP_W):
+            real[y][x] = GRASS if (x + y) % 3 else GRASS_TUFT; mirr[y][x] = GRASS if (x + y) % 3 else FLOWERS
+    for (x, y) in blob(29, 4, 1.6, 1.3, 0, 9):
+        real[y][x] = WATER; mirr[y][x] = WATER
+    sx, sy = MEADOW_STAR
+    real[sy][sx] = CRATER; mirr[sy][sx] = FALLEN_STAR
+    for (x, y) in MEADOW_BUDS:
+        real[y][x] = BUD_CLOSED; mirr[y][x] = BUD_OPEN
+    for x in range(13, 19):                           # the way in from the steppe (south)
+        for y in range(28, MAP_H):
+            real[y][x] = GRASS; mirr[y][x] = GRASS
+    for y in range(13, 20):                           # the way west (to Vael's HQ, later): shut
+        real[y][0] = ROCK; mirr[y][0] = TREE
+    for y in range(MAP_H):                            # the reflection has no way out but the pools
+        for x in (0, MAP_W - 1):
+            if mirr[y][x] in (GRASS, GRASS_TUFT, FLOWERS): mirr[y][x] = TREE
+    for x in range(MAP_W):
+        for y in (0, MAP_H - 1):
+            if mirr[y][x] in (GRASS, GRASS_TUFT, FLOWERS): mirr[y][x] = TREE
+    # every pool reachable on the real side from the way in (cut a way through stumps if needed)
+    walk = WALKABLE | {WATER}
+    from collections import deque
+    seen = {(15, MAP_H - 1)}; q = deque(seen)
+    while q:
+        x, y = q.popleft()
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            n_ = (x + dx, y + dy)
+            if 0 <= n_[0] < MAP_W and 0 <= n_[1] < MAP_H and n_ not in seen and real[n_[1]][n_[0]] in walk:
+                seen.add(n_); q.append(n_)
+    for (pcx, pcy, _, _) in pools[:5]:
+        assert (round(pcx), round(pcy)) in seen, f"pool at {pcx},{pcy} cut off"
+    return real, mirr
+
+
+MEADOW_SEAL = (13, 16)                 # v0.21 the sealed rune stone in the ring of standing stones
+MEADOW_ARCH = (27, 8)                  # the arch into Silver's nook (broken on the real side)
+MEADOW_STAR = (2, 4)                   # the fallen star (the reflection), a crater (real)
+MEADOW_BUDS = [(29, 29), (27, 30), (30, 27), (28, 28)]
+
+
 def make_maps():
+    meadow, mirror = make_meadow()
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
-            make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)]]   # 8: inside a Leafen home (built in-game)
+            make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)],   # 8: inside a Leafen home (built in-game)
+            meadow, mirror]
     add_campfires(maps)
     add_nooks(maps)
     return [v for m in maps for row in m for v in row]
