@@ -108,6 +108,11 @@ INTERIOR_META = ["room_void", "wall_gills", "wall_roots", "wall_planks", "room_f
                  "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar",
                  "dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle", "dc_spot"]
 META += INTERIOR_META
+# v0.20.4 the grove redone (Caleb: it looked weak): a lighter moss trail, giant mushroom stems (on the map), and
+# their caps in 3x2 pieces (on the layer above you: you walk under them). Caps are drawn with see-through gaps.
+GROVE2_META = ["moss_trail", "giant_stem", "giant_stem_blue"] + [f"cap_r_{k}" for k in range(6)] + \
+              [f"cap_b_{k}" for k in range(6)]
+META += GROVE2_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -984,6 +989,71 @@ def room_tile(rng, name):
     return px
 
 
+def moss_trail(rng):
+    """v0.20.4 a soft trail through the grove: pale trodden moss with a few leaves (walkable, it blooms)."""
+    px = blank(3)
+    for _ in range(34):
+        px[rng.randrange(16)][rng.randrange(16)] = rng.choice((2, 7, 2))
+    for _ in range(3):
+        x, y = rng.randrange(1, 14), rng.randrange(1, 14)
+        px[y][x] = 13; px[y][x + 1] = 12               # a fallen leaf
+    return px
+
+
+def giant_stem(rng, blue):
+    """v0.20.4 the foot of a giant mushroom (solid): a thick pale stem flaring into the moss, roots spreading; its
+    cap is drawn above you on its own layer (giant_cap), so you walk under it."""
+    px = moss(rng)
+    for y in range(16):
+        w = 4 if y < 9 else 4 + (y - 8) // 2
+        for x in range(8 - w, 8 + w):
+            edge = x in (8 - w, 7 + w)
+            px[y][x] = 15 if edge else 5 if x >= 9 + (y > 11) else 14
+    for x in range(4, 12):
+        px[0][x] = 15 if x in (4, 11) else (9 if blue else 12)   # the cap's shadow on the stem
+    for (x, y) in ((1, 15), (2, 14), (14, 15), (13, 14)):
+        px[y][x] = 15                                  # roots
+    if blue:
+        for (x, y) in ((6, 5), (6, 9), (7, 13)):
+            px[y][x] = 10                             # a faint glow running down it
+    return px
+
+
+def giant_cap(blue):
+    """v0.20.4 a giant mushroom's cap, 48x32 (3 x 2 metatiles), seen from a little above: a tall dome lit from the
+    top left, spots, and under its rim a dark band of gills; the stem goes in under the middle. 0 = see-through."""
+    W, H = 48, 32
+    px = [[0] * W for _ in range(H)]
+    cx, cy, rx, ry = 23.5, 19.0, 23.0, 17.5
+    hi, mid, lo = (11, 10, 9) if blue else (14, 13, 12)
+    dome = {(x, y) for y in range(H) for x in range(W) if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 < 1 and y <= 25}
+    gills = {(x, y) for y in range(23, 30) for x in range(W) if ((x - cx) / (rx - 3)) ** 2 + ((y - 23) / 6.0) ** 2 < 1}
+    shape = dome | gills
+    for (x, y) in shape:
+        edge = any((x + a, y + b) not in shape for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
+        if edge:
+            px[y][x] = 15
+        elif (x, y) in gills and (x, y) not in dome:
+            px[y][x] = 12 if not blue else 9          # the dark gills under the rim
+            if x % 3 == 0:
+                px[y][x] = 15
+        else:
+            u, v = (x - cx) / rx, (y - cy) / ry
+            light = -0.55 * u - 0.85 * v
+            px[y][x] = hi if light > 0.62 else mid if light > -0.25 else lo
+    for x in range(W):                                 # a line where the rim turns under
+        for y in range(23, 27):
+            if (x, y) in dome and (x, y + 1) in gills and (x, y + 1) not in dome:
+                px[y][x] = 15
+    spots = ((14, 10, 2.8), (28, 7, 3.2), (37, 14, 2.4), (21, 16, 2.2), (8, 17, 2.0), (31, 18, 1.8))
+    for (sx, sy, sr) in spots:
+        for y in range(H):
+            for x in range(W):
+                if (x - sx) ** 2 + (y - sy) ** 2 < sr * sr and (x, y) in dome and px[y][x] not in (15,):
+                    px[y][x] = 14 if not blue else 11
+    return px
+
+
 def darkness():
     """v0.19 the dark (never on the map; BG2 draws its quarters): full, half (a checker), a quarter, none.
     Color 1 only (the orchard sets it smoky black in the Great Tree's bank)."""
@@ -1742,6 +1812,12 @@ def make_terrain():
     tiles += [giant_mush(rng, False), giant_mush(rng, True), glowcaps(rng), fairy_ring(rng), hollow_log(rng),
               cracked_rock(rng), fallen_cap(rng), tiny_chest(rng, False), tiny_chest(rng, True)]
     tiles += [room_tile(rng, n) for n in INTERIOR_META]
+    caps = {False: giant_cap(False), True: giant_cap(True)}
+    tiles += [moss_trail(rng), giant_stem(rng, False), giant_stem(rng, True)]
+    for blue in (False, True):
+        for k in range(6):
+            cx, cy = (k % 3) * 16, (k // 3) * 16
+            tiles.append([row[cx:cx + 16] for row in caps[blue][cy:cy + 16]])
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])

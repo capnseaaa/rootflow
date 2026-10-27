@@ -33,6 +33,7 @@ SWAMP_TOP, SWAMP_TOP_ALIVE = 95, 96                # the crown above a swamp tre
 (GIANT_MUSH, GIANT_MUSH_BLUE, GLOWCAPS, FAIRY_RING, HOLLOW_LOG, CRACKED_ROCK, FALLEN_CAP, TINY_CHEST,
  TINY_CHEST_OPEN) = range(140, 149)
 ROOM_VOID = 149                                     # v0.20 the Leafen homes' insides start here (main.c lists them)
+MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove redone; caps 183-194 (BG3, in-game)
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -837,42 +838,97 @@ def make_orchard():
 
 
 def make_grove():
-    """The mushroom grove (v0.20): dim mossy ground under giant red and glowing blue mushrooms, glowcaps
-    everywhere, three fairy rings, a clearing with the fallen cap Cap is under, a nook of giant mushrooms you
-    can only enter through a hollow log (Tuft waits inside), and a cracked rock hiding a tiny chest."""
-    rng = random.Random(9090)
-    m = [[MOSS if rng.random() < 0.7 else DEAD for _ in range(MAP_W)] for _ in range(MAP_H)]
+    """The mushroom grove (v0.20.4, redone: Caleb found the first one weak). Giant mushrooms on a loose grid, their
+    caps drawn above you in-game (you walk under them), red and glowing blue; soft moss trails winding between
+    them to everything that matters; glowing pools with mossy shores; glowcaps, mushroom clusters and logs; a
+    clearing with the fallen cap Cap is under; Tuft's nook walled by a tight clump, its way in a hollow log;
+    three fairy rings; a cracked rock hiding a tiny chest."""
+    import math
+    from collections import deque
+    rng = random.Random(9191)
+    m = [[MOSS if rng.random() < 0.8 else DEAD for _ in range(MAP_W)] for _ in range(MAP_H)]
     keep = set()
     def clear(x, y, r=1):
         for yy in range(y - r, y + r + 1):
             for xx in range(x - r, x + r + 1):
                 if 0 <= xx < MAP_W and 0 <= yy < MAP_H:
                     keep.add((xx, yy))
-    clear(*GROVE_CAP, r=2)
+    tx, ty = GROVE_LEAFEN[0]
+    lx, ly = GROVE_LOG
+    nx, ny = GROVE_NOOK
+    trail = set()
+    def walk(x0, y0, x1, y1):                         # a soft trail, wandering a little
+        n = max(abs(x1 - x0), abs(y1 - y0), 1)
+        ph = rng.uniform(0, 6.3)
+        last = None
+        for k in range(n + 1):
+            x = round(x0 + (x1 - x0) * k / n); y = round(y0 + (y1 - y0) * k / n)
+            w = round(1.2 * math.sin(k * 0.4 + ph)) if 2 < k < n - 2 else 0
+            if abs(x1 - x0) >= abs(y1 - y0): y += w
+            else: x += w
+            x = max(0, min(MAP_W - 1, x)); y = max(0, min(MAP_H - 1, y))
+            if last and last[0] != x and last[1] != y:
+                trail.add((x, last[1]))
+            trail.add((x, y)); last = (x, y)
+    cx, cy = GROVE_CAP
+    walk(16, 0, cx, cy - 2); walk(0, 16, cx - 2, cy); walk(cx + 2, cy, lx, ly + 1)
+    walk(cx, cy + 2, GROVE_LEAFEN[1][0] + 1, GROVE_LEAFEN[1][1]); walk(cx + 2, cy + 2, nx, ny - 2)
+    for (rx_, ry_) in GROVE_RINGS:
+        walk(cx, cy, rx_, ry_)
+    walk(5, 0, 8, 8); walk(26, 0, 22, 6); walk(0, 5, 8, 8); walk(0, 26, 12, 26)
+    for (x, y) in trail:
+        keep.add((x, y))
+    clear(cx, cy, 2)
     for p_ in GROVE_RINGS:
         clear(*p_)
     clear(*GROVE_LEAFEN[1], r=2)
-    for t in (5, 16, 26):                             # the ways in: open ground in each third of both edges
-        for k in range(3):
-            clear(t, k); clear(k, t)
-    # giant mushrooms: clumps, and a wall of them along the east and south edges
-    for _ in range(26):
-        cx, cy = rng.randrange(2, 30), rng.randrange(2, 30)
-        for y in range(cy - 1, cy + 2):
-            for x in range(cx - 1, cx + 2):
-                if 0 <= x < MAP_W and 0 <= y < MAP_H and (x, y) not in keep and rng.random() < 0.6:
-                    m[y][x] = GIANT_MUSH_BLUE if rng.random() < 0.4 else GIANT_MUSH
+    for yy in range(ty - 3, ty + 5):
+        for xx in range(tx - 3, tx + 4):
+            keep.add((xx, yy))
+    for yy in range(ny - 3, ny + 2):
+        for xx in range(nx - 2, nx + 3):
+            keep.add((xx, yy))
+    # glowing pools (water with mossy shores, lit in-game)
+    for (px_, py_, rx, ry) in ((10, 12, 3.4, 2.2), (20, 26, 3.6, 2.0), (27, 13, 2.6, 2.4)):
+        for y in range(MAP_H):
+            for x in range(MAP_W):
+                if ((x - px_) / rx) ** 2 + ((y - py_) / ry) ** 2 < 1 and (x, y) not in keep:
+                    m[y][x] = WATER
+    # giant mushrooms on a loose grid: a stem every 4 tiles across, 3 down (their 3x2 caps never collide)
+    for j in range(11):
+        for i in range(8):
+            x = 1 + i * 4 + rng.randrange(3) - (j % 2) * 2   # a looser grid: rows shifted, each one jittered
+            y = 2 + j * 3 + rng.randrange(2) * (i % 2)
+            if not (0 < x < MAP_W - 1 and 2 <= y < MAP_H):
+                continue
+            cap_cells = [(x + dx, y + dy) for dx in (-1, 0, 1) for dy in (-2, -1)]
+            if (x, y) in keep or m[y][x] == WATER or rng.random() < 0.25:
+                continue
+            m[y][x] = GIANT_STEM_BLUE if rng.random() < 0.4 else GIANT_STEM
+    for y in range(MAP_H):                            # the east and south edges: a wall of them
+        for x in range(MAP_W):
+            if (x == MAP_W - 1 and y % 2 == 0) or (y == MAP_H - 1 and x % 2 == 0):
+                m[y][x] = GIANT_STEM_BLUE if (x + y) % 3 == 0 else GIANT_STEM
+            elif x == MAP_W - 1 or y == MAP_H - 1:
+                m[y][x] = ROCK
+    # dressing: trails, glowcaps, mushroom clusters, a few logs
+    for (x, y) in trail:
+        if m[y][x] in (MOSS, DEAD):
+            m[y][x] = MOSS_TRAIL
     for y in range(MAP_H):
         for x in range(MAP_W):
-            edge_e, edge_s = MAP_W - 1 - x, MAP_H - 1 - y
-            if (x, y) in keep:
+            if m[y][x] not in (MOSS, DEAD) or (x, y) in keep:
                 continue
-            if edge_e == 0 or edge_s == 0 or ((edge_e == 1 or edge_s == 1) and rng.random() < 0.6):
-                m[y][x] = GIANT_MUSH_BLUE if (x + y) % 3 == 0 else GIANT_MUSH
-            elif m[y][x] in (MOSS, DEAD) and rng.random() < 0.12:
+            r_ = rng.random()
+            if r_ < 0.10:
                 m[y][x] = GLOWCAPS
-    # the clearing and the fallen cap
-    cx, cy = GROVE_CAP
+            elif r_ < 0.14:
+                m[y][x] = MUSHROOMS
+            elif r_ < 0.16:
+                m[y][x] = LOG
+            elif r_ < 0.19:
+                m[y][x] = GIANT_MUSH if rng.random() < 0.6 else GIANT_MUSH_BLUE   # small ones among the giants
+    # the clearing and the fallen cap, the rings
     for y in range(cy - 2, cy + 3):
         for x in range(cx - 2, cx + 3):
             m[y][x] = MOSS
@@ -880,37 +936,39 @@ def make_grove():
     for (x, y) in GROVE_RINGS:
         for yy in range(y - 1, y + 2):
             for xx in range(x - 1, x + 2):
-                m[yy][xx] = MOSS
+                if m[yy][xx] not in (MOSS_TRAIL,):
+                    m[yy][xx] = MOSS
         m[y][x] = FAIRY_RING
-    # Tuft's nook: a ring of giant mushrooms, its only way in a hollow log
-    tx, ty = GROVE_LEAFEN[0]
+    # Tuft's nook: a tight clump of giant mushrooms, its only way in a hollow log
     for y in range(ty - 2, ty + 4):
         for x in range(tx - 2, tx + 3):
             inside = ty - 1 <= y <= ty + 2 and tx - 1 <= x <= tx + 1
-            m[y][x] = MOSS if inside else (GIANT_MUSH if (x + y) % 2 else GIANT_MUSH_BLUE)
-    lx, ly = GROVE_LOG
+            if inside:
+                m[y][x] = MOSS
+            elif y == ty - 2 and x in (tx - 2, tx + 2):   # v0.20.4 (Caleb): only two giants, at the back corners
+                m[y][x] = GIANT_STEM if x < tx else GIANT_STEM_BLUE
+            else:                                         # the rest small mushrooms (no stacked caps)
+                m[y][x] = GIANT_MUSH if (x + y) % 2 else GIANT_MUSH_BLUE
     m[ly][lx] = HOLLOW_LOG
-    m[ly + 1][lx] = MOSS
+    m[ly + 1][lx] = MOSS_TRAIL
     # the tiny chest's nook: rocks round it, a cracked one the way in
-    nx, ny = GROVE_NOOK
     for y in range(ny - 1, ny + 2):
         for x in range(nx - 1, nx + 2):
             m[y][x] = ROCK
     m[ny][nx] = TINY_CHEST
     m[ny - 1][nx] = CRACKED_ROCK
-    m[ny - 2][nx] = MOSS
+    m[ny - 2][nx] = MOSS_TRAIL
     m[GROVE_LEAFEN[1][1]][GROVE_LEAFEN[1][0]] = MOSS
     # everything that matters can be reached at full size from both ways in
-    from collections import deque
-    walk = {MOSS, DEAD, GLOWCAPS, FAIRY_RING}
+    walkset = {MOSS, DEAD, GLOWCAPS, FAIRY_RING, MOSS_TRAIL, MUSHROOMS}
     def reach():
         seen = {(16, 0), (0, 16)}; q = deque(seen)
         while q:
             x, y = q.popleft()
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                n = (x + dx, y + dy)
-                if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in seen and m[n[1]][n[0]] in walk:
-                    seen.add(n); q.append(n)
+                n_ = (x + dx, y + dy)
+                if 0 <= n_[0] < MAP_W and 0 <= n_[1] < MAP_H and n_ not in seen and m[n_[1]][n_[0]] in walkset:
+                    seen.add(n_); q.append(n_)
         return seen
     targets = [(cx, cy + 1), (lx, ly + 1), (nx, ny - 2), GROVE_LEAFEN[1], (5, 0), (26, 0), (0, 5), (0, 26)]
     targets += list(GROVE_RINGS)
@@ -923,16 +981,17 @@ def make_grove():
             c = q.popleft()
             if c in seen:
                 while c is not None:
-                    if m[c[1]][c[0]] not in walk:
-                        m[c[1]][c[0]] = MOSS
+                    if m[c[1]][c[0]] not in walkset:
+                        m[c[1]][c[0]] = MOSS_TRAIL
                     c = prev[c]
                 break
             for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
-                n = (c[0] + dx, c[1] + dy)
-                if 0 <= n[0] < MAP_W and 0 <= n[1] < MAP_H and n not in prev and \
-                        m[n[1]][n[0]] not in (HOLLOW_LOG, CRACKED_ROCK, TINY_CHEST, FALLEN_CAP, ROCK) and \
-                        not (tx - 2 <= n[0] <= tx + 2 and ty - 2 <= n[1] <= ty + 3):   # never into Tuft's nook
-                    prev[n] = c; q.append(n)
+                n_ = (c[0] + dx, c[1] + dy)
+                if 0 <= n_[0] < MAP_W - 1 and 0 <= n_[1] < MAP_H - 1 and n_ not in prev and \
+                        m[n_[1]][n_[0]] not in (HOLLOW_LOG, CRACKED_ROCK, TINY_CHEST, FALLEN_CAP) and \
+                        not (tx - 2 <= n_[0] <= tx + 2 and ty - 2 <= n_[1] <= ty + 3) and \
+                        not (nx - 1 <= n_[0] <= nx + 1 and ny - 1 <= n_[1] <= ny + 1):
+                    prev[n_] = c; q.append(n_)
     return m
 
 
@@ -992,7 +1051,7 @@ TREE_BANK = 4                      # BG palette bank of both tree layers
 
 
 WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
-            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING}
+            MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING, MOSS_TRAIL}
 
 
 def reach_count(m, start):

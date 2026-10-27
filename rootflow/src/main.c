@@ -114,7 +114,10 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        ROOM_VOID, WALL_GILLS, WALL_ROOTS, WALL_PLANKS, ROOM_FLOOR, DOOR_MAT,
        STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT, RUG,
        SP_FIRST, SP_LAST = SP_FIRST + 12,
-       DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE, DC_SPOT };
+       DC_FLOWERPOT, DC_PAINTING, DC_BUNTING, DC_CANDLE, DC_SPOT,
+       // v0.20.4 the grove redone (Caleb): moss trails (walkable, they stay trails), giant mushrooms' stems (solid);
+       // their 3x2 caps are never on a map: BG3 draws them over you (grove_caps)
+       MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE, CAP_RED, CAP_BLUE = CAP_RED + 6 };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -132,7 +135,8 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define WEST_RING_Y (29 * 16 + 8)
 static int is_room_piece(u8 t) { return t >= ROOM_VOID && t <= DC_SPOT; }   // solid but the floor, the mat, rugs
 static int room_walkable(u8 t) { return t == ROOM_FLOOR || t == DOOR_MAT || t == RUG; }
-static int is_grove_piece(u8 t) { return t == GIANT_MUSH || t == GIANT_MUSH_BLUE || (t >= HOLLOW_LOG && t <= TINY_CHEST_OPEN); }
+static int is_grove_piece(u8 t) { return t == GIANT_MUSH || t == GIANT_MUSH_BLUE || (t >= HOLLOW_LOG && t <= TINY_CHEST_OPEN) ||
+                                         t == GIANT_STEM || t == GIANT_STEM_BLUE; }
 #define ORCHARD_WALL_ROW 27   // the fallen burnt trunk across its way in (only YOU clears it)
 static int is_orchard_piece(u8 t) { return t >= BURNT_TREE && t <= BURNT_FENCE; }   // all solid
 // none restorable but the burnt trees, which grow back (v0.19.4)
@@ -377,7 +381,7 @@ static int is_restorable(u8 t) {
              t == LEVER_PULLED || t == LOST_STONE || is_tree_part(t) ||
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
              is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE ||
-             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || is_room_piece(t));
+             is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || t == MOSS_TRAIL || is_room_piece(t));
 }
 
 static void draw_area(void) {
@@ -469,6 +473,9 @@ static void pool_clear(void);    // v0.19 the shared sprite slots (below)
 static void smoke_fade(void);    // v0.19.4 (below)
 static int under_root(s32 x, s32 y);   // v0.19.8 (below)
 static int at_fairy_ring(void);        // v0.20 (below)
+static void grove_caps(void);     // v0.20.4 (below)
+#define CAP_NONE (meta_vram(DARKNESS) * 4 + 3)   // a clear 8x8 tile (the darkness's empty quarter); tile 0 is ground
+static void win_normal(s32 a);   // v0.20.4 (below)
 static void set_ground_palette(s32 a) {
     load_region_sprites(a);   // and, once the tree is healed, Flick's colors
     pool_clear();                                      // a new region: its own things take the shared slots
@@ -481,10 +488,17 @@ static void set_ground_palette(s32 a) {
     if (a != WEST && a != HOLLOW_IN) load_tileset(TS_EXTRA);   // every area without the Great Tree's own tiles
     for (s32 i = 0; i < 3; i++)                   // v0.18.1: in the marsh the river's water turns a murky teal
         PAL_BG[9 + i] = a == MARSH ? (i == 0 ? RGB5(36, 86, 90) : i == 1 ? RGB5(64, 128, 120) : RGB5(140, 190, 176))
-                                   : bg_pal[9 + i];
+                      : a == GROVE ? (i == 0 ? RGB5(40, 120, 130) : i == 1 ? RGB5(80, 180, 180) : RGB5(170, 240, 230))
+                                   : bg_pal[9 + i];   // v0.20.4: and in the grove its pools glow
+    for (s32 i = 0; i < 2; i++)                   // v0.20.4: the grove's earth (and shores) a damp, mossy brown
+        PAL_BG[4 + i] = a == GROVE ? (i == 0 ? RGB5(62, 54, 40) : RGB5(96, 84, 60)) : bg_pal[4 + i];
     static const u16 mud[2][3] = { { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh's
                                    { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) } };  // the orchard's
     for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == ORCHARD][i];   // under pipes and stacks
+    // v0.20.4: in the grove BG3 holds the giant mushrooms' caps, over you (priority 0); elsewhere the tree's trunk
+    REG_BG3CNT = (a == GROVE ? 0 : 2) | (0 << 2) | (TRUNK_SB << 8) | (3 << 14);
+    if (a == GROVE) { grove_caps(); REG_DISPCNT |= 1 << 11; }
+    win_normal(a);
     dark_enter(a);
     if (a == INTERIOR) room_palette();   // v0.20: the home's own floor colors
 }
@@ -1329,8 +1343,34 @@ static s32 stack_dark(s32 wx, s32 wy) {
     if (maps[ORCHARD][stack_y[best] * MAP_W + stack_x[best]] != SMOKE_STACK) return 0;
     return cd < bd + 2600 ? 2 : 3;                       // about a tile from the line between the two parts
 }
+// v0.20.4 the grove's dim (Caleb): softer than the orchard's dark, with pools of light round its glowing things
+// (glowcaps, the blue mushrooms' caps, the fairy rings, the pools). They never move, so each cell's light is
+// worked out once on the way in (grove_lv); only yours is added each frame.
+static u8 grove_lv4[64 * 64 / 4];   // 2 bits a cell (the fast memory is full)
+static s32 grove_lv(s32 i) { return (grove_lv4[i >> 2] >> ((i & 3) * 2)) & 3; }
+static void grove_light(s32 lx, s32 ly, s32 r) {
+    for (s32 cy = (ly - r) >> 3; cy <= (ly + r) >> 3; cy++)
+        for (s32 cx = (lx - r) >> 3; cx <= (lx + r) >> 3; cx++) {
+            if (cx < 0 || cy < 0 || cx >= 64 || cy >= 64) continue;
+            s32 lv = dark_lv(cx * 8 + 4 - lx, cy * 8 + 4 - ly, r);
+            s32 i = cy * 64 + cx;
+            if (lv < grove_lv(i)) grove_lv4[i >> 2] = (grove_lv4[i >> 2] & ~(3 << ((i & 3) * 2))) | (lv << ((i & 3) * 2));
+        }
+}
+static void grove_lights(void) {
+    for (s32 i = 0; i < 64 * 64 / 4; i++) grove_lv4[i] = 0xFF;
+    for (s32 i = 0; i < MAP_W * MAP_H; i++) {
+        u8 t = maps[GROVE][i];
+        s32 x = (i % MAP_W) * 16 + 8, y = (i / MAP_W) * 16 + 8;
+        if (t == GLOWCAPS) grove_light(x, y, 30);
+        else if (t == GIANT_STEM_BLUE) grove_light(x, y - 18, 46);   // its cap, above the stem
+        else if (t == FAIRY_RING) grove_light(x, y, 38);
+        else if (t == WATER) grove_light(x, y, 26);
+    }
+}
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
+    if (cur_area == GROVE) return MIN(grove_lv(cy * 64 + cx), dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
     s32 lv = wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // past the trunk: daylight, with a smoky haze (Caleb)
     if (lv) { s32 sd = stack_dark(wx, wy); lv = MIN(lv, sd ? sd : 1); }   // Caleb (option B): a light fog always stays
     if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));   // your own light clears the haze too
@@ -1343,14 +1383,22 @@ static void dark_put(s32 cx, s32 cy) {
         (meta_vram(DARKNESS) * 4 + 3 - dark_cell(cx, cy)) | (TREE_BANK << 12);
 }
 static void dark_enter(s32 a) {
-    dark_on = a == ORCHARD;
+    dark_on = a == ORCHARD || a == GROVE;
     if (dark_on && !(flick_flags & 1) && spirits[KIND_FLICK].state == SP_ASLEEP)   // v0.19.7: the trunk was cut
         for (s32 x = 0; x < MAP_W; x++)                                          // before the ember existed
             if (maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_LOG && maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_TREE) {
                 flick_flags |= 1; break;                 // (v0.19.0 saves): you have it anyway
             }
-    REG_BLDALPHA = dark_on ? 16 | (2 << 8) : 12 | (4 << 8);   // the dark lets an eighth through; branches 12/4
-    if (!dark_on) return;
+    REG_BLDALPHA = a == GROVE ? 16 | (9 << 8) : dark_on ? 16 | (2 << 8) : 12 | (4 << 8);   // the dark lets an eighth
+    if (!dark_on) return;                                          // through, the grove's dim 9/16; branches 12/4
+    if (a == GROVE) {
+        grove_lights();
+        PAL_BG[TREE_BANK * 16 + 1] = RGB5(8, 8, 24);   // a cool blue dusk
+        for (s32 cy = 0; cy < 64; cy++)
+            for (s32 cx = 0; cx < 64; cx++) dark_put(cx, cy);
+        REG_DISPCNT |= 1 << 10;
+        return;
+    }
     light_n = 0;                                    // the lit ones on this map
     for (s32 i = 0; i < MAP_W * MAP_H && light_n < 24; i++)
         if (maps[ORCHARD][i] == LANTERN_LIT || maps[ORCHARD][i] == CAMPFIRE_LIT) {
@@ -4328,7 +4376,7 @@ static void apply_white(void) {
         white_mode = 0;
         REG_BLDY = 0;
         REG_BLDCNT = BLD_NORMAL;
-        if (cur_area == WEST) REG_DISPCNT |= 1 << 13;
+        win_normal(cur_area);
     }
 }
 
@@ -4505,6 +4553,14 @@ static void clear_box(void) {
     if (y2 > SCREEN_H) y2 = SCREEN_H;
     REG_WIN0H = (x1 << 8) | x2;
     REG_WIN0V = (y1 << 8) | y2;
+    if (cur_area != GROVE) return;
+    // v0.20.4: in the grove, only while a cap covers you (else the box would cut holes in the caps round you)
+    int under = 0;
+    for (s32 ty = (py - 16) >> 3; ty <= (py + 15) >> 3 && !under; ty++)
+        for (s32 tx = px >> 3; tx <= (px + 15) >> 3; tx++)
+            if (tx >= 0 && ty >= 0 && tx < 64 && ty < 64 &&
+                SCREENBLOCK(TRUNK_SB + (tx >= 32) + (ty >= 32) * 2)[(ty & 31) * 32 + (tx & 31)] != CAP_NONE) { under = 1; break; }
+    if (under) REG_DISPCNT |= 1 << 13; else REG_DISPCNT &= ~(1 << 13);
 }
 
 // v0.19.8 (Caleb): in the Great Tree's region you go under its roots, so nothing of you shows there (not over
@@ -4514,6 +4570,32 @@ static int under_root(s32 x, s32 y) {
     if ((x >> 4) >= DOOR_X && (x >> 4) <= DOOR_X + 1 && (y >> 4) >= DOOR_Y - 1 && (y >> 4) <= DOOR_Y + 2) return 0;
     s32 i = (y >> 3) * 64 + (x >> 3);
     return ((tree_alive ? root_mask_alive : root_mask_dead)[i >> 3] >> (i & 7)) & 1;
+}
+// v0.20.4: the giant mushrooms' caps, 3x2 tiles above each stem, on BG3 over the sprites (you walk under them)
+static void grove_caps(void) {
+    for (u32 i = 0; i < 4096; i++) SCREENBLOCK(TRUNK_SB)[i] = CAP_NONE;
+    for (s32 my = 0; my < MAP_H; my++)
+        for (s32 mx = 0; mx < MAP_W; mx++) {
+            u8 t = maps[GROVE][my * MAP_W + mx];
+            if (t != GIANT_STEM && t != GIANT_STEM_BLUE) continue;
+            for (s32 k = 0; k < 6; k++) {
+                s32 cx = mx - 1 + k % 3, cy = my - 2 + k / 3;
+                if (cx < 0 || cy < 0 || cx >= MAP_W) continue;
+                u16 base = meta_vram((t == GIANT_STEM ? CAP_RED : CAP_BLUE) + k) * 4;
+                for (s32 q = 0; q < 4; q++) {
+                    s32 tx = cx * 2 + (q & 1), ty = cy * 2 + (q >> 1);
+                    SCREENBLOCK(TRUNK_SB + (tx >= 32) + (ty >= 32) * 2)[(ty & 31) * 32 + (tx & 31)] = base + q;
+                }
+            }
+        }
+}
+// Window 0, the clear box round the wizard: the Great Tree's branches (BG2) are not drawn in it; in the grove
+// the caps (BG3) are not, and the dim is (with its blending)
+static void win_normal(s32 a) {
+    REG_DISPCNT &= ~(1 << 13);
+    REG_WININ = a == GROVE ? (1 << 0) | (1 << 1) | (1 << 2) | (1 << 4) | (1 << 5) : (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);
+    REG_WINOUT = 0x3F;
+    if (a == WEST || a == GROVE) REG_DISPCNT |= 1 << 13;
 }
 // ---------- v0.20 inside the Leafen homes (step 3) ----------
 // A tiny wizard walks into a Leafen's door in Bark's village: a circle closes on him and opens inside, where he is
@@ -4652,10 +4734,7 @@ static void update_iris(void) {
         if (iris_r >= 160) {                  // done: the window back as it was (the Great Tree's clear box)
             iris_phase = 0;
             REG_DMA0CNT = 0;
-            REG_DISPCNT &= ~(1 << 13);
-            REG_WININ = (1 << 0) | (1 << 1) | (1 << 3) | (1 << 4);
-            REG_WINOUT = 0x3F;
-            if (cur_area == WEST) REG_DISPCNT |= 1 << 13;
+            win_normal(cur_area);
             return;
         }
     }
