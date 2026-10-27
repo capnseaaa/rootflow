@@ -85,6 +85,7 @@ WEST_GATE_ROWS = (12, 13, 14)      # valley x=0 <-> the Great Tree's region x=31
 # The Great Tree (west): Bark's quest pieces, placed on the roots drawn by make_art.py (v0.14).
 # Clamps are sprites sitting on the side roots (pixel spots); under each, a solid CLAMP cell.
 import make_art as _art  # noqa: E402
+import rooms  # noqa: E402
 CLAMP_PX = [(x, y) for x, y, _band in _art.ALL_CLAMPS]   # one 32x32 sprite each, in this order
 CLAMPS = [(x // 16, y // 16) for x, y in CLAMP_PX]
 ROOT_TIPS = []                                       # one cell past each root that ends pointing down
@@ -1048,6 +1049,7 @@ def tile_set(base, files):
 
 
 TREE_BANK = 4                      # BG palette bank of both tree layers
+ROOM_BANK = 8                      # v0.20.5: the first of the Leafen homes' BG banks (8-15)
 
 
 WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
@@ -1137,6 +1139,45 @@ def make_maps():
     add_campfires(maps)
     add_nooks(maps)
     return [v for m in maps for row in m for v in row]
+
+
+def leafen_big_sheet():
+    """v0.20.5 the Leafen at home, 125%: each look standing, then mid-hop (32x32 frames, the Leafen's colors)."""
+    im = Image.new("P", (32 * 10, 32))
+    im.putpalette([c for rgb in _art.LEAFEN_PAL for c in rgb])
+    for i, look in enumerate(rooms.LEAFEN_LOOKS):
+        for f, pose in enumerate(("stand", "step")):
+            px = _art.leafen_big(look, pose)
+            for y in range(32):
+                for x in range(32):
+                    im.putpixel(((i * 2 + f) * 32 + x, y), px[y][x])
+    return im
+
+
+def room_data(tile_base):
+    """v0.20.5 the Leafen homes' insides (tools/rooms.py): each home's tiles, screen, colors, map, owner's cell and
+    decoration spots, loaded when you walk in."""
+    ids = {n: _art.META.index(n) for n in _art.INTERIOR_META}
+    ids["sp_first"] = ids["sp_lilypool"]
+    tiles, off, cnt, scr, dec, pal, logic = [], [], [], [], [], [], []
+    for k in range(13):
+        w, e, d, p, n = rooms.pack(k, tile_base, ROOM_BANK)
+        off.append(len(tiles) // 8); cnt.append(n)
+        tiles += w; scr += e; dec += d; pal += p
+        logic += rooms.logic(k, ids)
+    L = [rooms.LAYOUTS[rooms.HOME_LAYOUT[k]] for k in range(13)]
+    out = [f"#define ROOM_BANK {ROOM_BANK}\n#define ROOM_BANKS {rooms.ROOM_BANKS}"]
+    out.append(c_array("unsigned int", "room_tiles", tiles))
+    out.append(c_array("unsigned short", "room_tile_off", off, fmt="{}"))
+    out.append(c_array("unsigned short", "room_tile_n", cnt, fmt="{}"))
+    out.append(c_array("unsigned short", "room_scr", scr, fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "room_dec", dec, fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "room_pal", pal, fmt="0x{:04X}"))
+    out.append(c_array("unsigned char", "room_logic", logic, per_line=15, fmt="{}"))
+    for nm, key, i in (("room_owner_x", "O", 0), ("room_owner_y", "O", 1), ("room_spot_ax", "a", 0),
+                       ("room_spot_ay", "a", 1), ("room_spot_bx", "b", 0), ("room_spot_by", "b", 1)):
+        out.append(c_array("unsigned char", nm, [l[key][i] for l in L], fmt="{}"))
+    return out
 
 
 def c_array(ctype, name, values, per_line=8, fmt="0x{:08X}"):
@@ -1236,7 +1277,8 @@ def main():
     tile_defs.append(f"#define TILE_REGION {region_base}")
     region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)]),   # the Great Tree and its hollow
                    ("ORCH", [("SMOKE", orch, 16)]),                           # v0.19 the burnt orchard
-                   ("GROVE", [("PUFF", grove, 16)])]                          # v0.20 the mushroom grove
+                   ("GROVE", [("PUFF", grove, 16)]),                          # v0.20 the mushroom grove
+                   ("ROOM", [("LFBIG", leafen_big_sheet(), 32)])]             # v0.20.5 the Leafen at home
     region_words = {}
     for set_name, set_sheets in region_sets:
         words = []
@@ -1326,6 +1368,7 @@ def main():
         out.append(c_array("signed char", nm, [n[i] for n in NOOKS], fmt="{}"))
     # tree tiles follow the map's tiles in charblock 0; the 9 home animation frames are not loaded there
     base = (MARSH_META_FIRST - 9) * 4                 # the marsh's own metatiles load into the tree slots
+    out += room_data(base)
     out.append(f"#define MARSH_META_FIRST {MARSH_META_FIRST}")
     out.append(f"#define TREE_BANK {TREE_BANK}\n#define TREE_TILE_BASE {base}")
     # Tile sets loaded into the same slots by area: the dead tree, the hollow, the living tree.

@@ -24,8 +24,8 @@
 6 0 hm0.ppm
 30 0 hm1.ppm
 0 0 @$cur_area,$home_k,$shrunk,$px,$py,$iris_phase
-# Pip, standing at (144,80): talk
-0 0 !$px=128,$py=62,$pdir=3
+# Pip, standing at (128,64) (v0.20.5 rooms): talk from its left
+0 0 !$px=112,$py=64,$pdir=3
 2 0
 1 1
 1 0

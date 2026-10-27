@@ -3129,6 +3129,69 @@ def leafen(px, look, pose):
             px[15][x] = 13 if x % 2 else 14
 
 
+def leafen_big(look, pose):
+    """v0.20.5 a Leafen at home (Caleb: 125% of the small one, drawn at that size, not stretched): a 32x32 cell,
+    standing or mid-hop ("step"), the same face and looks, a little more detail (a shaded head, two-pixel eyes)."""
+    px = _canvas(32)
+    bob = 1 if pose == "step" else 0
+    cx, hy = 15.5, 21 - bob                           # head center
+    for y in range(hy + 5, hy + 8):                   # body
+        for x in range(13, 19):
+            px[y][x] = 1 if x in (13, 18) or y == hy + 7 else 3 if x in (14, 15) else 2
+    for x in ((13, 14, 17, 18) if not bob else (12, 13, 18, 19)):   # feet (apart mid-hop)
+        px[hy + 8][x] = 1
+    px[hy + 5][12] = px[hy + 5][19] = 3               # little arms
+    px[hy + 5][11] = px[hy + 5][20] = px[hy + 6][12] = px[hy + 6][19] = 1
+    for y in range(32):                               # the head, shaded on its lower right
+        for x in range(32):
+            d = ((x + 0.5 - cx - 0.5) / 5.9) ** 2 + ((y + 0.5 - hy - 0.5) / 4.8) ** 2
+            if d < 1:
+                px[y][x] = 1 if d > 0.74 else 2 if (x >= 19 and y >= hy) or y >= hy + 4 else 3
+    px[hy - 3][13] = px[hy - 3][14] = 9 if look != "dew" else 4   # a shine on top of the head
+    for y in range(32):                               # a pale face
+        for x in range(32):
+            if ((x + 0.5 - cx - 0.5) / 3.9) ** 2 + ((y + 0.5 - hy - 1.5) / 2.6) ** 2 < 1:
+                px[y][x] = 4
+    for ex in (13, 18):                               # eyes: two pixels tall, a white shine on top
+        px[hy][ex] = 6; px[hy + 1][ex] = 5; px[hy + 2][ex] = 5
+    px[hy + 3][12] = px[hy + 3][19] = 7               # cheeks
+    px[hy + 3][15] = px[hy + 3][16] = 2               # a small smile
+    px[hy + 2][14] = px[hy + 2][17] = 2
+    top = hy - 5
+    if look == "sprout":                              # two round leaves on a stem
+        px[top][15] = px[top][16] = px[top - 1][15] = px[top - 1][16] = 8
+        for (x, y, c) in ((14, top - 2, 9), (13, top - 2, 9), (12, top - 3, 9), (13, top - 3, 9), (11, top - 3, 8),
+                          (12, top - 4, 8), (17, top - 2, 9), (18, top - 2, 9), (18, top - 3, 9), (19, top - 3, 9),
+                          (20, top - 3, 8), (19, top - 4, 8), (14, top - 1, 8), (17, top - 1, 8)):
+            px[y][x] = c
+    elif look == "leaf":                              # one tall leaf
+        px[top][15] = px[top - 1][15] = 8
+        for y, xs in ((top - 2, (15, 16)), (top - 3, (15, 16, 17)), (top - 4, (16, 17, 18)), (top - 5, (17, 18))):
+            for x in xs:
+                px[y][x] = 9
+        px[top - 3][17] = px[top - 4][18] = 8; px[top - 6][18] = 8
+    elif look == "bud":                               # a yellow flower
+        px[top][15] = px[top - 1][15] = 8; px[top - 1][16] = 8
+        for (x, y) in ((14, top - 3), (16, top - 3), (15, top - 2), (15, top - 4), (14, top - 2), (16, top - 4),
+                       (14, top - 4), (16, top - 2)):
+            px[y][x] = 12
+        px[top - 3][15] = 11
+    elif look == "acorn":                             # an acorn cap with a stalk
+        for x in range(11, 21):
+            px[top + 1][x] = 10
+        for x in range(12, 20):
+            px[top][x] = 11
+        for x in range(13, 19):
+            px[top - 1][x] = 11 if x % 2 else 10
+        px[top - 2][16] = px[top - 3][16] = 10
+    else:                                             # dew: a little drop
+        px[top - 3][15] = 13
+        px[top - 2][14] = 13; px[top - 2][15] = 6; px[top - 2][16] = 14
+        px[top - 1][14] = 13; px[top - 1][15] = 14; px[top - 1][16] = 14
+        px[top][15] = 14
+    return px
+
+
 def leafen_home(px, kind):
     """A tiny Leafen home, smaller than a map tile: it sits at the bottom of a 16x16 cell."""
     def box(x0, y0, x1, y1, c, edge=1):

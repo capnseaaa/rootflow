@@ -45,8 +45,8 @@
 40 64
 40 0
 0 0 @$cur_area,$home_k
-# Posy's burrow: spot a at (9,2); below it, facing up
-0 0 !$px=144,$py=42,$pdir=1
+# Posy's burrow: spot a at (4,3); below it, facing up (v0.20.5 rooms)
+0 0 !$px=64,$py=64,$pdir=1
 2 0
 1 1
 1 0

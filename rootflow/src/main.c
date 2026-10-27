@@ -311,8 +311,10 @@ enum { TS_NONE, TS_DEAD, TS_HOLLOW, TS_ALIVE, TS_EXTRA };   // TS_EXTRA: the mar
 static s32 tileset_now = TS_NONE;
 #define SLUDGE_BANK 5   // v0.18: sludge draws with its own colors (BG bank 5): murky purple-gray, an oily sheen
 #define BOG_BANK 6      // v0.18.1: bog water and its lily pads (BG bank 6): dark green-black water
+static void room_cell(s32 mx, s32 my);   // v0.20.5 (below)
 static void draw_meta(s32 mx, s32 my) {
     if (work_area != cur_area) return;   // off-screen area: memory only
+    if (cur_area == INTERIOR) { room_cell(mx, my); return; }   // v0.20.5: a home is one picture
     u8 m = world[my * MAP_W + mx];
     u32 look = m == SLUDGE && cur_area == MARSH ? BOG_WATER : m;   // sludge: bog water's ripples, in sludge colors
     int shores = tileset_now == TS_EXTRA && (m == BOG_WATER || m == WATER || (m == SLUDGE && cur_area == MARSH));
@@ -485,7 +487,8 @@ static void set_ground_palette(s32 a) {
     REG_DISPCNT &= ~DISP_TREE;
     if (a == WEST) { load_tileset(tree_alive ? TS_ALIVE : TS_DEAD); REG_DISPCNT |= DISP_TREE; }
     if (a == HOLLOW_IN) { load_tileset(TS_HOLLOW); REG_DISPCNT |= 1 << 11; }   // its room only
-    if (a != WEST && a != HOLLOW_IN) load_tileset(TS_EXTRA);   // every area without the Great Tree's own tiles
+    if (a != WEST && a != HOLLOW_IN && a != INTERIOR) load_tileset(TS_EXTRA);   // every area without the Great Tree's
+                                                                // own tiles (a home loads its own: room_palette)
     for (s32 i = 0; i < 3; i++)                   // v0.18.1: in the marsh the river's water turns a murky teal
         PAL_BG[9 + i] = a == MARSH ? (i == 0 ? RGB5(36, 86, 90) : i == 1 ? RGB5(64, 128, 120) : RGB5(140, 190, 176))
                       : a == GROVE ? (i == 0 ? RGB5(40, 120, 130) : i == 1 ? RGB5(80, 180, 180) : RGB5(170, 240, 230))
@@ -500,7 +503,7 @@ static void set_ground_palette(s32 a) {
     if (a == GROVE) { grove_caps(); REG_DISPCNT |= 1 << 11; }
     win_normal(a);
     dark_enter(a);
-    if (a == INTERIOR) room_palette();   // v0.20: the home's own floor colors
+    if (a == INTERIOR) room_palette();   // v0.20.5: the home's own tiles and colors
 }
 
 // ---------- text (BG0) ----------
@@ -664,7 +667,7 @@ static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(O
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
-enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE };
+enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE, RS_ROOM };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
     if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank,
@@ -672,7 +675,8 @@ static void load_region_sprites(s32 a) {
             PAL_OBJ[PAL_FLICK * 16 + i] = obj_pal_flick[i];
             PAL_OBJ[PAL_CAP * 16 + i] = obj_pal_cap[i];
         }
-    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : a == GROVE ? RS_GROVE : RS_NONE;
+    s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : a == GROVE ? RS_GROVE :
+             a == INTERIOR ? RS_ROOM : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
     if (rs == RS_TREE) {
@@ -681,6 +685,8 @@ static void load_region_sprites(s32 a) {
     } else if (rs == RS_ORCH) {                        // v0.19 the orchard: its smoke creatures
         copy32(OBJ_TILES + TILE_REGION * 8, region_orch_tiles, sizeof(region_orch_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_orch[i];
+    } else if (rs == RS_ROOM) {                        // v0.20.5 a Leafen home: its owner, bigger (the Leafen's colors)
+        copy32(OBJ_TILES + TILE_REGION * 8, region_room_tiles, sizeof(region_room_tiles) / 4);
     } else {                                           // v0.20 the grove: its poison puffs and their clouds
         copy32(OBJ_TILES + TILE_REGION * 8, region_grove_tiles, sizeof(region_grove_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_grove[i];
@@ -3791,8 +3797,8 @@ static s32 home_k = -1;                   // whose home you are in (saved, so a 
 static const signed char decor_wish[NUM_LEAFEN] = { -1, -1, 1, 0, -1, -1, -1, -1, -1, 3, -1, -1, 2 };
 static const char *decor_ask[NUM_LEAFEN] = { 0, 0, "TWIG: A PAINTING WOULD BE NICE...", "POSY: A FLOWER POT, MAYBE?",
     0, 0, 0, 0, 0, "WICK: A CANDLE! FOR MORE LIGHT!", 0, 0, "BUTTON: SOME BUNTING! SO FESTIVE!" };
-#define OWNER_X (9 * 16)
-#define OWNER_Y (4 * 16)
+#define OWNER_X (room_owner_x[home_k] * 16)   // v0.20.5: each room's own spot
+#define OWNER_Y (room_owner_y[home_k] * 16)
 // v0.17.2 (Caleb): the Leafen at Bark's tree chatter when you press A by one; they all share these.
 static const char *leafen_chatter[] = {
     "HI! HI! HI!", "I FOUND A ROCK! IT'S A ROCK!", "BARK IS GRUMPY. WE LOVE HIM!",
@@ -4178,9 +4184,13 @@ static void draw_leafen(void) {
             for (s32 x = cam_x >> 4; x <= (cam_x + SCREEN_W) >> 4 && x < MAP_W; x++)
                 if (maps[MARSH][y * MAP_W + x] == VAEL_PIPE) add_mote(x * 16 + (s32)(rng() % 6), y * 16 - 4, 0, 6, 18);
     }
-    if (cur_area == INTERIOR && home_k >= 0)        // v0.20: the Leafen at home, with a little hop now and then
-        sprite_set(OAM_LEAFEN, OWNER_X - cam_x, OWNER_Y - cam_y - (((frame >> 4) % 6) == 0 ? 2 : 0),
-                   SPR_LEAFEN + C_LEAFEN + leafen_look[home_k] * 4 + POSE_STAND, px < OWNER_X, PAL_LEAFEN);
+    if (cur_area == INTERIOR && home_k >= 0) {      // v0.20: the Leafen at home, with a little hop now and then;
+        s32 hop = ((frame >> 4) % 6) == 0;          // v0.20.5 (Caleb): drawn bigger there (125%, 32x32)
+        u16 *o = &oam_shadow[OAM_LEAFEN * 4];
+        o[0] = (OWNER_Y - 14 - cam_y - hop * 2) & 0xFF;
+        o[1] = ((OWNER_X - 8 - cam_x) & 0x1FF) | (2 << 14) | (px < OWNER_X ? 1 << 12 : 0);
+        o[2] = (TILE_LFBIG + (leafen_look[home_k] * 2 + hop) * 16) | (1 << 10) | (PAL_LEAFEN << 12);
+    }
     if (cur_area == WEST && tree_alive)              // v0.20: the village's fairy ring (a shared slot nothing else uses here)
         sprite_set(OAM_ENEMY + 7, WEST_RING_X - 8 - cam_x, WEST_RING_Y - 8 - cam_y, SPR_LEAFEN + C_FAIRY, 0, PAL_LEAFEN);
     if (cur_area != WEST) return;
@@ -4600,27 +4610,14 @@ static void win_normal(s32 a) {
 // ---------- v0.20 inside the Leafen homes (step 3) ----------
 // A tiny wizard walks into a Leafen's door in Bark's village: a circle closes on him and opens inside, where he is
 // Leafen-sized (full size) among their furniture, the Leafen there to talk to. The mat leads back out, tiny.
-// Three shared layouts (Caleb), the home's look picks one; the six furniture places are filled differently for
-// each Leafen; S is its own special piece; a, b: places for decorations (step 4).
-static const char *room_layout[3][10] = {   // a snug room in the middle of the screen, dark round it
-    { "vvvvvvvvvvvvvvv", "vvWWWWWWWWWWWvv", "vvW1.a.S...2Wvv", "vvW.........Wvv", "vvW3...r...4Wvv",
-      "vvW.........Wvv", "vvW5..b....6Wvv", "vvW.........Wvv", "vvWWWWWDWWWWWvv", "vvvvvvvvvvvvvvv" },   // mushroom
-    { "vvvvvvvvvvvvvvv", "vvvWWWWWWWWWvvv", "vvW1..S..a.2Wvv", "vvW.........Wvv", "vvW3...r...4Wvv",
-      "vvW.........Wvv", "vvvW5.b...6Wvvv", "vvvW.......Wvvv", "vvvWWWWDWWWWvvv", "vvvvvvvvvvvvvvv" },   // burrow
-    { "vvvvvvvvvvvvvvv", "vvWWWWWWWWWWWvv", "vvW1.2.S.3.4Wvv", "vvW.........Wvv", "vvW...a.r...Wvv",
-      "vvW5.......6Wvv", "vvW...b.....Wvv", "vvW.........Wvv", "vvWWWWWDWWWWWvv", "vvvvvvvvvvvvvvv" },   // cottage
-};
-static const u8 room_wall[3] = { WALL_GILLS, WALL_ROOTS, WALL_PLANKS };
-static const u16 room_floor_pal[3][3] = { { RGB5(150, 116, 92), RGB5(184, 148, 116), RGB5(212, 180, 146) },
-                                          { RGB5(96, 66, 42), RGB5(128, 92, 60), RGB5(160, 120, 80) },
-                                          { RGB5(120, 82, 52), RGB5(160, 112, 72), RGB5(196, 148, 100) } };
-static const u8 home_layout_of[6] = { 0, 2, 2, 1, 1, 0 };   // mushroom, tent, acorn hut, pot, pebble hut, dew hut
-static const u8 room_furniture[6] = { STOOL, ACORN_TABLE, LEAF_BED, DEW_LAMP, PEBBLE_SHELF, SPROUT_POT };
-static s32 home_lay(s32 k) { return home_layout_of[village_home[k][0][2]]; }
+// v0.20.5 (Caleb liked the preview): each home is one picture made by tools/rooms.py (3/4 view: a back wall with
+// a window, walls seen from above, a plank floor, shaded furniture), its own tiles and colors loaded as you walk
+// in (room_palette), its map (room_logic: walls and furniture solid), its owner's cell and two decoration spots.
 static s32 home_kind_spot(s32 mx, s32 my) {      // which decoration spot (0 a, 1 b) is at this cell, or -1
-    if (mx < 0 || my < 0 || mx >= 15 || my >= 10) return -1;
-    char c = room_layout[home_lay(home_k)][my][mx];
-    return c == 'a' ? 0 : c == 'b' ? 1 : -1;
+    if (home_k < 0) return -1;
+    if (mx == room_spot_ax[home_k] && my == room_spot_ay[home_k]) return 0;
+    if (mx == room_spot_bx[home_k] && my == room_spot_by[home_k]) return 1;
+    return -1;
 }
 // A at an empty spot: the thing this Leafen wished for if you have it, else the first you carry.
 static int place_decor(s32 mx, s32 my) {
@@ -4645,23 +4642,36 @@ static int place_decor(s32 mx, s32 my) {
     } else show_message("HOW PRETTY!");
     return 1;
 }
-static void room_palette(void) {
+static void room_palette(void) {                 // the home's tiles (in the slots after the map's) and colors
     if (home_k < 0) return;
-    for (s32 i = 0; i < 3; i++) PAL_BG[1 + i] = room_floor_pal[home_lay(home_k)][i];
+    copy32(CHARBLOCK(0) + TREE_TILE_BASE * 8, room_tiles + room_tile_off[home_k] * 8, room_tile_n[home_k] * 8);
+    for (s32 b = 0; b < ROOM_BANKS; b++)
+        for (s32 i = 1; i < 16; i++) PAL_BG[(ROOM_BANK + b) * 16 + i] = room_pal[(home_k * ROOM_BANKS + b) * 16 + i];
+    tileset_now = TS_NONE;                       // the next area loads its own again
 }
 static void build_room(s32 k) {
     u8 *m = maps[INTERIOR];
     for (s32 i = 0; i < MAP_W * MAP_H; i++) m[i] = ROOM_VOID;
-    s32 lay = home_lay(k);
     for (s32 y = 0; y < 10; y++)
-        for (s32 x = 0; x < 15; x++) {
-            char c = room_layout[lay][y][x];
-            u8 t = c == 'W' ? room_wall[lay] : c == 'v' ? ROOM_VOID : c == 'D' ? DOOR_MAT : c == 'r' ? RUG :
-                   c == 'S' ? (u8)(SP_FIRST + k) : (c >= '1' && c <= '6') ? room_furniture[(c - '1' + k) % 6] :
-                   c == 'a' ? ((home_decor[k] & 15) ? (u8)(DC_FLOWERPOT + (home_decor[k] & 15) - 1) : DC_SPOT) :
-                   c == 'b' ? ((home_decor[k] >> 4) ? (u8)(DC_FLOWERPOT + (home_decor[k] >> 4) - 1) : DC_SPOT) : ROOM_FLOOR;
-            m[y * MAP_W + x] = t;
-        }
+        for (s32 x = 0; x < 15; x++) m[y * MAP_W + x] = room_logic[(k * 10 + y) * 15 + x];
+    if (home_decor[k] & 15) m[room_spot_ay[k] * MAP_W + room_spot_ax[k]] = (u8)(DC_FLOWERPOT + (home_decor[k] & 15) - 1);
+    if (home_decor[k] >> 4) m[room_spot_by[k] * MAP_W + room_spot_bx[k]] = (u8)(DC_FLOWERPOT + (home_decor[k] >> 4) - 1);
+    m[room_owner_y[k] * MAP_W + room_owner_x[k]] = ROOM_VOID;   // v0.20.5 (Caleb): you can't walk through the owner
+}
+// One cell of the home's picture (draw_meta inside): a decoration spot shows what is on it.
+static void room_cell(s32 mx, s32 my) {
+    s32 s = home_kind_spot(mx, my);
+    for (s32 q = 0; q < 4; q++) {
+        s32 tx = mx * 2 + (q & 1), ty = my * 2 + (q >> 1);
+        u16 e;
+        if (home_k < 0 || mx >= 15 || my >= 10) e = home_k < 0 ? 0 : room_scr[home_k * 600];   // its dark corner
+        else if (s >= 0) {
+            u8 t = world[my * MAP_W + mx];
+            s32 v = t == DC_SPOT ? 0 : t - DC_FLOWERPOT + 1;
+            e = room_dec[((home_k * 2 + s) * 5 + v) * 4 + q];
+        } else e = room_scr[home_k * 600 + ty * 30 + tx];
+        SCREENBLOCK(MAP_SB + (tx >= 32) + (ty >= 32) * 2)[(ty & 31) * 32 + (tx & 31)] = e;
+    }
 }
 // the owner stands here, inside (pixels)
 
