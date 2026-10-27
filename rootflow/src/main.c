@@ -312,11 +312,16 @@ static s32 tileset_now = TS_NONE;
 #define SLUDGE_BANK 5   // v0.18: sludge draws with its own colors (BG bank 5): murky purple-gray, an oily sheen
 #define BOG_BANK 6      // v0.18.1: bog water and its lily pads (BG bank 6): dark green-black water
 static void room_cell(s32 mx, s32 my);   // v0.20.5 (below)
+static u32 grove_seen;                   // v0.20 (defined with the grove's state, below)
 static void draw_meta(s32 mx, s32 my) {
     if (work_area != cur_area) return;   // off-screen area: memory only
     if (cur_area == INTERIOR) { room_cell(mx, my); return; }   // v0.20.5: a home is one picture
     u8 m = world[my * MAP_W + mx];
     u32 look = m == SLUDGE && cur_area == MARSH ? BOG_WATER : m;   // sludge: bog water's ripples, in sludge colors
+    if (m == FAIRY_RING && !grove_seen) {        // v0.20.6: a ring not found yet looks like the ground beside it
+        u8 n = mx > 0 ? world[my * MAP_W + mx - 1] : DEAD;
+        look = n == GRASS || n == GRASS_TUFT || n == DIRT || n == MOSS || n == DRY_GRASS || n == ASH_LANE ? n : DEAD;
+    }
     int shores = tileset_now == TS_EXTRA && (m == BOG_WATER || m == WATER || (m == SLUDGE && cur_area == MARSH));
     if (shores) {                                 // v0.18.1: a ragged shore on each side with land
         u32 mask = 0;
@@ -921,6 +926,11 @@ enum { MEAL_NONE, MEAL_HEART, MEAL_LIGHT };
 static u32 meal_kind, meal_timer, mushrooms;
 static u32 shrunk;                  // v0.20 Cap shrank you at a fairy ring (saved)
 static u32 grove_seen;              // v0.20 you have been in the grove (its Leafen count from then on; saved)
+// v0.20.6 (Caleb): Bark gives Lily and Cap when you talk to him (the first at 6 Leafen home, the second at 10).
+// bark_hint: the marsh's sludge (1) or a grove ring (2) sent you to him; he gives that one, else either (saved).
+static u32 bark_hint;
+#define BARK_GIFT_FIRST 6
+#define BARK_GIFT_SECOND 10
 // v0.20 (step 4) decorations for the Leafen homes, from tiny chests: how many of each you carry (flower pot,
 // painting, bunting, candle), what stands in each home's two spots (+1, low and high nibble), requests met
 static u8 decor_have[4], home_decor[13];
@@ -950,7 +960,7 @@ static u32 lily_step;
 static u32 flick_step, flick_flags;   // v0.19 Flick's wake-up scene; flags: 1 the warm ember, 2 the chirp told,
                                       // 4 its first shiver heard
 #define FLICK_SCENE_LEN 8
-static u32 cap_step;                    // v0.20 Cap's scene, once YOU heaves the fallen cap away (saved)
+static u32 cap_step;                    // v0.20.6 Cap's scene: Bark calls Cap (saved)
 #define CAP_SCENE_LEN 8
 static u32 swim_step;                                 // v0.18.1: Ripple's swimming lesson (saved; swim_skill after)
 enum { LS_NONE, LS_WAIT, LS_MET, LS_FREE, LS_HOME };   // FREE: on the way to the tree; HOME: welcomed
@@ -1094,7 +1104,7 @@ static void reset_game(void) {
     flick_step = flick_flags = 0;
     spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);   // v0.20: squashed under the fallen cap
     spirits[KIND_CAP].area = GROVE;
-    cap_step = 0;
+    cap_step = 0; bark_hint = 0;
     lily_step = 0; swim_skill = swim_step = 0; in_water = 0; pouch_on = 0; shrunk = 0; shrink_t = 0;
     bark_step = bark_wait = bark_fall = bark_line = 0;
     tree_step = tree_wait = tree_done = 0;
@@ -1506,14 +1516,15 @@ static void cross_to(s32 a, s32 side, s32 along) {
 }
 
 static void check_exits(void) {
-    int lily = lily_step > LILY_SCENE_LEN;                 // the marsh opens once Lily has joined (v0.18)
-    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0)
+    int open = tree_alive;                    // v0.20.6 (Caleb): the marsh and the grove open once Bark is restored
+    if (HELD(KEY_RIGHT) && px >= WORLD_PX - 16 && area_east[cur_area] >= 0 && (area_east[cur_area] != GROVE || open))
         cross_to(area_east[cur_area], SIDE_WEST, py + 8);
     else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
              (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive) &&
-             (cur_area != 2 || lily))                         // the west opens with Bark
+             (cur_area != 2 || open))                         // the west opens with Bark
         cross_to(area_west[cur_area], SIDE_EAST, py + 8);
-    else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 && (cur_area != WEST || lily))
+    else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 &&
+             ((area_south[cur_area] != MARSH && area_south[cur_area] != GROVE) || open))
         cross_to(area_south[cur_area], SIDE_NORTH, px + 8);
     else if (HELD(KEY_UP) && py <= 0 && area_north[cur_area] >= 0)
         cross_to(area_north[cur_area], SIDE_SOUTH, px + 8);
@@ -1652,6 +1663,29 @@ static void bark_grumble(s32 kind_of) {
     queue_message(lines[i][1]);
 }
 
+// v0.20.6 (Caleb): talking to Bark with enough Leafen home, he calls Lily or Cap: the one whose region sent you
+// to him, else either of the two you lack. Short of Leafen, after a hint, he says how many more.
+static char *fmt_num(char *p, u32 v);
+static void str_cat(char **p, const char *s);
+static int bark_gift(void) {
+    int lily = lily_step > 0, cap = cap_step > 0;
+    if (lily && cap) return 0;
+    u32 n = leafen_home_count(), need = lily || cap ? BARK_GIFT_SECOND : BARK_GIFT_FIRST;
+    int hinted = ((bark_hint & 1) && !lily) || ((bark_hint & 2) && !cap);
+    if (n < need) {
+        if (!hinted) return 0;
+        static char t[32];
+        char *p = t; str_cat(&p, "FREE "); p = fmt_num(p, need - n); str_cat(&p, " MORE LEAFEN"); *p = 0;
+        show_message("BARK: HMPH. I KNOW SOMEONE.");
+        queue_message(t);
+        queue_message("THEN COME BACK. I'LL CALL.");
+        return 1;
+    }
+    int give_cap = (bark_hint & 2) && !cap ? 1 : (bark_hint & 1) && !lily ? 0 : lily ? 1 : cap ? 0 : (int)(rng() & 1);
+    if (give_cap) cap_step = 1; else lily_step = 1;
+    return 1;
+}
+
 // Returns 1 if the power did something (and so costs a charge).
 // v0.18: is the sludge pool at (mx, my) still fed by a Vael pipe? (A pipe touching any of its cells.)
 static u8 sludge_seen[MAP_W * MAP_H / 8];
@@ -1776,9 +1810,14 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         else if (t == LOG) { set_tile(mx, my, MOSS); restorable[work_area]++; wood++; show_message("+1 WOOD"); }
         else if (t == BURNT_LOG && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
         else if (t == FALLEN_CAP && !tree_alive) { show_message("BARK: HMPH. TOO BIG FOR ME."); return 0; }
-        else if (t == FALLEN_CAP) {                     // v0.20: YOU heaves the fallen cap away: Cap is under it
+        else if (t == FALLEN_CAP && !in_party(KIND_CAP)) {   // v0.20.6 (Caleb, c): Cap's old spot, opened with Cap
+            show_message("A BIG FALLEN CAP. IT SMELLS"); queue_message("LIKE SPORES. HMM..."); return 0;
+        }
+        else if (t == FALLEN_CAP) {                     // YOU heaves it away: Cap's old stash under it
             set_tile(mx, my, MOSS); restorable[work_area]++;
-            if (!cap_step) cap_step = 1;
+            mushrooms += 3; seeds += 3;
+            show_message("CAP: MY OLD SPOT! MY STASH!");
+            queue_message("+3 MUSHROOMS +3 SEEDS");
         }
         else if (t == BURNT_LOG || t == BURNT_TREE) {   // v0.19: the orchard's fallen trunk (YOU) and burnt trees
             set_tile(mx, my, DEAD); restorable[work_area]++; wood++; show_message("+1 WOOD");
@@ -1962,6 +2001,7 @@ static int interact(s32 mx, s32 my) {
         return 1;
     }
     if (tree_alive && cur_area == WEST && is_trunk(t)) {   // talk to Bark, in his tree
+        if (bark_gift()) return 1;
         static const char *tree_talk[][2] = {
             { "BARK: STILL HERE. STILL HUGE.", "DON'T GET USED TO NICE ME." },
             { "BARK: MIND MY ROOTS, WIZARD.", "THEY TICKLE." },
@@ -3761,7 +3801,7 @@ static int leafen_ready(s32 k) {
 static int leafen_waiting(s32 k) { return leafen_state[k] == LS_WAIT || leafen_state[k] == LS_MET; }
 // How many Leafen you know of: the first six, the marsh's once Lily has joined, the orchard's once you are in it.
 static s32 leafen_total(void) {
-    return FIRST_LEAFEN + (lily_step > LILY_SCENE_LEN ? FIRST_ORCH_LEAFEN - FIRST_LEAFEN : 0) +
+    return FIRST_LEAFEN + (lily_step > LILY_SCENE_LEN || (bark_hint & 1) ? FIRST_ORCH_LEAFEN - FIRST_LEAFEN : 0) +
            ((flick_flags & 2) || spirits[KIND_FLICK].state != SP_ASLEEP ? FIRST_GROVE_LEAFEN - FIRST_ORCH_LEAFEN : 0) +
            (grove_seen ? NUM_LEAFEN - FIRST_GROVE_LEAFEN : 0);
 }
@@ -4011,18 +4051,19 @@ static void update_leafen(void) {
             show_message(d >= 5 ? from[k] : (close_n++ & 1) ? "BRRRRR..." : "IT'S RIGHT AROUND HERE...");
         }
     }
-    // v0.20 Cap, squashed under the fallen cap, pops up
+    // v0.20.6 (Caleb): Bark calls Cap, who pops up beside you
     if (cap_step && cap_step <= CAP_SCENE_LEN) {
         scene_on = 1;
-        if (msg_timer || msgq_len) return;
+        if (msg_timer || msgq_len || leaf_timer > 60) return;
         static const char *lines[CAP_SCENE_LEN] = {
-            "THE BIG CAP ROLLS AWAY...", "CAP: PHEW! I WAS SQUASHED FLAT!", "CAP: I'M CAP! THANK YOU!",
-            "I CAN MAKE YOU TINY! TEENY!", "CAP JOINED! TEENY!", "STAND IN A FAIRY RING, PICK",
+            "BARK: HMPH. THOSE RINGS?", "AN OLD FRIEND MADE THEM.", "HOLD ON. I'LL CALL CAP...",
+            "CAP: TEENY HELLO! I'M CAP!", "CAP JOINED! TEENY!", "STAND IN A FAIRY RING, PICK",
             "ME, AND PRESS A TO SHRINK.", "PRESS A THERE AGAIN TO GROW.",
         };
         Spirit *s = &spirits[KIND_CAP];
-        if (cap_step == 2) {                                     // it pops up out of the moss
-            s->x = GROVE_CAP_X * 16; s->y = GROVE_CAP_Y * 16; s->area = GROVE; s->state = SP_AWAKE;
+        if (cap_step == 3) { leaf_timer = 150; sfx_play(SFX_QUEST); }   // leaves swirl: Bark calls
+        if (cap_step == 4) {                                     // Cap pops up beside you
+            s->x = px + 18; s->y = py; s->area = cur_area; s->state = SP_AWAKE;
             for (s32 k = 0; k < 8; k++) add_mote_c(s->x + 4, s->y, dir16[k * 2] >> 1, DIR16_Y(k * 2) >> 1, 24, C_GLINT);
             sfx_play(SFX_WAKE);
         }
@@ -4059,11 +4100,6 @@ static void update_leafen(void) {
         } else show_message(lines[lily_step - 1]);
         lily_step++;
         return;
-    }
-    if (cur_area == WEST && !scene_on && !msg_timer && !msgq_len && !welcome_step && !lily_step) {
-        u32 home6 = 0;
-        for (s32 k = 0; k < FIRST_LEAFEN; k++) home6 += leafen_state[k] == LS_HOME;
-        if (home6 == FIRST_LEAFEN) { lily_step = 1; return; }
     }
     if (cur_area == WEST && !scene_on && !msg_timer && !msgq_len) {
         s32 any = 0;
@@ -4191,7 +4227,7 @@ static void draw_leafen(void) {
         o[1] = ((OWNER_X - 8 - cam_x) & 0x1FF) | (2 << 14) | (px < OWNER_X ? 1 << 12 : 0);
         o[2] = (TILE_LFBIG + (leafen_look[home_k] * 2 + hop) * 16) | (1 << 10) | (PAL_LEAFEN << 12);
     }
-    if (cur_area == WEST && tree_alive)              // v0.20: the village's fairy ring (a shared slot nothing else uses here)
+    if (cur_area == WEST && tree_alive && grove_seen)   // v0.20: the village's fairy ring (a shared slot nothing else uses here)
         sprite_set(OAM_ENEMY + 7, WEST_RING_X - 8 - cam_x, WEST_RING_Y - 8 - cam_y, SPR_LEAFEN + C_FAIRY, 0, PAL_LEAFEN);
     if (cur_area != WEST) return;
     s32 fslot = 0;
@@ -4765,11 +4801,41 @@ static void check_home_doors(void) {
     }
 }
 static int at_fairy_ring(void) {
+    if (!grove_seen) return 0;                   // v0.20.6 (Caleb): the rings show once you have been in the grove
     if (cur_area == WEST && tree_alive) {
         s32 dx = px + 8 - WEST_RING_X, dy = py + 12 - WEST_RING_Y;
         if (dx * dx + dy * dy < 8 * 8) return 1;
     }
     return tile_at((px + 8) >> 4, (py + 12) >> 4) == FAIRY_RING;
+}
+
+// v0.20.6 (Caleb): before Bark has called its spirit, the marsh's sludge and the grove's rings send you to him:
+// the first time a line or two, later a short reminder (at most every 30 s), each time you come up to one.
+static void update_bark_hints(void) {
+    static s32 was_near;
+    static u32 last;
+    if (scene_on || msg_timer > 60 || msgq_len) return;
+    s32 kind = 0;
+    if (cur_area == GROVE && !cap_step && at_fairy_ring()) kind = 2;
+    if (cur_area == MARSH && !lily_step) {
+        s32 cx = (px + 8) >> 4, cy = (py + 12) >> 4;
+        for (s32 y = cy - 2; y <= cy + 2 && !kind; y++)
+            for (s32 x = cx - 2; x <= cx + 2; x++)
+                if (tile_at(x, y) == SLUDGE) { kind = 1; break; }
+    }
+    if (kind && !was_near) {
+        if (!(bark_hint & kind)) {
+            bark_hint |= kind;
+            show_message(kind == 2 ? "THE RING HUMS SOFTLY..." : "PURPLE SLUDGE... YUCK.");
+            queue_message(kind == 2 ? "BARK MIGHT KNOW ABOUT THIS." : "BARK MIGHT KNOW WHAT TO DO.");
+            sfx_play(SFX_GIFT);
+            last = frame;
+        } else if (frame - last > 30 * 60) {
+            show_message(kind == 2 ? "THE RING HUMS. ASK BARK." : "THE SLUDGE... ASK BARK.");
+            last = frame;
+        }
+    }
+    was_near = kind != 0;
 }
 
 static void draw_sprites(void) {
@@ -4939,7 +5005,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x47534652u   // "RFSG" (v0.20: the mushroom grove and Cap)
+#define SAVE_MAGIC 0x48534652u   // "RFSH" (v0.20.6: Bark gives Lily and Cap)
+#define SAVE_MAGIC_V200 0x47534652u   // "RFSG": v0.20.0-5 saves still load
 #define SAVE_MAGIC_V198 0x46534652u   // "RFSF": v0.19.4-8 saves still load
 #define SAVE_MAGIC_V193 0x45534652u   // "RFSE": v0.19.3 saves still load
 #define SAVE_MAGIC_V191 0x44534652u   // "RFSD": v0.19.1-2 saves still load
@@ -5004,9 +5071,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
     { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 }, { &home_k, 4 },
     { &out_x, 4 }, { &out_y, 4 }, { decor_have, 4 }, { home_decor, 13 }, { &decor_done, 4 },
+    // v0.20.6: which region sent you to Bark
+    { &bark_hint, 4 },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V198_FIELDS (NUM_SAVE_FIELDS - 23)
+#define NUM_V200_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V198_FIELDS (NUM_V200_FIELDS - 23)
 #define NUM_V193_FIELDS (NUM_V198_FIELDS - 1)
 #define NUM_V191_FIELDS (NUM_V193_FIELDS - 1)
 #define NUM_V190_FIELDS (NUM_V191_FIELDS - 7)
@@ -5066,6 +5136,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V191) nf = NUM_V191_FIELDS;
     else if (magic == SAVE_MAGIC_V193) nf = NUM_V193_FIELDS;
     else if (magic == SAVE_MAGIC_V198) nf = NUM_V198_FIELDS;
+    else if (magic == SAVE_MAGIC_V200) nf = NUM_V200_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -5086,7 +5157,8 @@ static int load_game(void) {
         pump_on[WEST] = 0; pump_drain[WEST] = 0;
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.20: a fresh grove, Cap under its fallen cap
+    if (nf < NUM_SAVE_FIELDS) bark_hint = 0;            // before v0.20.6
+    if (nf < NUM_V200_FIELDS) {                          // before v0.20: a fresh grove, Cap under its fallen cap
         restorable[GROVE] = 0;
         for (s32 i = 0; i < MAP_W * MAP_H; i++) {
             u8 t = start_maps[GROVE * MAP_W * MAP_H + i];
@@ -5700,10 +5772,12 @@ static void update_menu(void) {
 // L + R + B together while playing opens the DEV MODE window (the game pauses). Up/Down pick a
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
 enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
-enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_GLOOM, J_HEALED, J_LILY, NUM_JUMPS };
+enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_GLOOM, J_HEALED, J_LILY, J_CAP, J_BOTH,
+       NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
                                                "BARK JOINED", "AT THE TREE", "TREE TASKS DONE",
-                                               "4 BOSSES BEATEN", "GLOOMHEART BEATEN", "TREE HEALED", "LILY JOINED" };
+                                               "4 BOSSES BEATEN", "GLOOMHEART BEATEN", "TREE HEALED", "LILY JOINED",
+                                               "CAP JOINED", "LILY AND CAP" };
 static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
@@ -5819,14 +5893,25 @@ static void dev_start(void) {
             pouch_on = 1;
             revive_world();
         }
-        if (j >= J_LILY) {                   // v0.18: the first six Leafen home, Lily joined, the marsh open
+        if (j >= J_LILY) {                   // v0.18: the first six Leafen home
             leafen_setup();
             for (s32 k = 0; k < FIRST_LEAFEN; k++) leafen_state[k] = LS_HOME;
+        }
+        if (j == J_LILY || j == J_BOTH) {    // Lily joined (v0.20.6: Bark's first or second gift)
             Spirit *s = &spirits[KIND_LILY];
             s->energy = 3; s->state = SP_JOINED;
             party[party_count++] = KIND_LILY;    // dev: carried even past the limit (tests pick her by her slot)
             active = party_count - 1;
             lily_step = LILY_SCENE_LEN + 1;
+            bark_hint |= 1;
+        }
+        if (j == J_CAP || j == J_BOTH) {     // v0.20.6 Cap joined, the grove seen (its rings show)
+            Spirit *s = &spirits[KIND_CAP];
+            s->energy = 3; s->state = SP_JOINED;
+            party[party_count++] = KIND_CAP;     // dev: carried even past the limit, like Lily
+            active = party_count - 1;
+            cap_step = CAP_SCENE_LEN + 1;
+            grove_seen = 1; bark_hint |= 2;
         }
         if (j == J_BOSSES) enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 3) * 16 - 6);   // at the opening
         else if (j == J_GLOOM) {             // in the hollow, the Gloomheart just beaten: the revival starts
@@ -5837,7 +5922,7 @@ static void dev_start(void) {
             revive_step = 1;
             revive_wait = 30;
         }
-        else if (j == J_LILY) enter_area(WEST, 15 * 16, 29 * 16 - 6);   // at the way south, to the marsh
+        else if (j >= J_LILY) enter_area(WEST, 15 * 16, 29 * 16 - 6);   // at the way south (and the village's ring)
         else enter_area(WEST, WORLD_PX - 18, 13 * 16 - 6);   // at the way in from the valley
     }
     dev_stuff = dev_val[DEV_STUFF];
@@ -6052,7 +6137,7 @@ int main(void) {
 
         // v0.16.3 (Caleb): during a scene nothing moves: not you, the enemies, the bosses, or the pumps
         if (iris_phase) scene_on = 1;           // v0.20: nothing moves while the circle runs
-        if (!scene_on) { update_player(); check_home_doors(); } else pstep = 0;
+        if (!scene_on) { update_player(); check_home_doors(); update_bark_hints(); } else pstep = 0;
         update_iris();
         update_spirits();
         if (!scene_on) handle_action();

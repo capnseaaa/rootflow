@@ -19,16 +19,8 @@
 40 128
 0 0 @$cur_area,$px,$py,$grove_seen
 20 0 gr0.ppm
-# YOU (slot 4) below the fallen cap at (16,16), facing up; the puffs gone
-0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
-0 0 !$px=256,$py=266,$pdir=1,$active=4
-1 0
-1 1
-1 0
-2000 0 gr1.ppm
-0 0 @$cap_step,$spirits+204,$party_count
 # Cap swapped in for Breeze (test setup), standing in the ring at (8,8)
-0 0 !$spirits+92=5,$spirits+204=2,$party+12=7,$active=3,$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$spirits+92=5,$spirits+204=2,$party+12=7,$active=3,$cap_step=9,$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
 0 0 !$px=128,$py=124,$pdir=0
 2 0
 1 1

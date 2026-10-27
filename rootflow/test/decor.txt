@@ -11,7 +11,7 @@
 1 0
 200 0
 # Cap joins (test setup) in Breeze's place; into the grove from the steppe
-0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3
+0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3,$cap_step=9
 0 0 !$px=494,$py=202
 40 16
 0 0 !$px=494,$py=202

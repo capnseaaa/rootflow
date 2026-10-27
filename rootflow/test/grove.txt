@@ -1,5 +1,5 @@
-# v0.20 the mushroom grove: in from the steppe's south edge; YOU heaves the fallen cap away and Cap joins (into the
-# pouch: you carry four); Cap's spore puff on a poison puff, and the cloud it leaves finishes it
+# v0.20.6 the mushroom grove: in from the steppe's south edge; a fairy ring sends you to Bark; the fallen cap
+# won't move without Cap; with six Leafen home Bark calls Cap; back in the grove, Cap's spore puff on a poison puff
 10 0
 1 8
 30 0
@@ -19,14 +19,41 @@
 40 128
 0 0 @$cur_area,$px,$py,$grove_seen
 20 0 gr0.ppm
-# YOU (slot 4) below the fallen cap at (16,16), facing up; the puffs gone
+# a fairy ring at (8,8): it hums, go see Bark; the puffs gone
 0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0,$enemies+236=0
+0 0 !$px=128,$py=124,$pdir=0
+160 0 gr_hint.ppm
+0 0 @$bark_hint
+# YOU (slot 4) below the fallen cap at (16,16), facing up: it won't move without Cap
 0 0 !$px=256,$py=266,$pdir=1,$active=4
 1 0
 1 1
 1 0
+200 0
+0 0 @$cap_step,$maps+7696
+# six Leafen home (test setup); back to Bark's tree (steppe, valley, the Great Tree)
+0 0 !$leafen_state=67372036,$leafen_state+4=1028,$px=240,$py=2
+40 64
+0 0 !$px=2,$py=202
+40 32
+0 0 !$px=2,$py=202
+40 32
+0 0 @$cur_area
+# below Bark's trunk at (11,20), facing up: A, and he calls Cap
+0 0 !$px=176,$py=336,$pdir=1
+1 0
+1 1
+1 0
 2000 0 gr1.ppm
-0 0 @$cap_step,$spirits+204,$party_count
+0 0 @$cap_step,$spirits+204,$spirits+200
+# back to the grove (valley, steppe, south)
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=494,$py=202
+40 16
+0 0 !$px=240,$py=494
+40 128
+0 0 @$cur_area
 # Cap swapped in for Breeze (test setup); a poison puff right of you
 0 0 !$spirits+92=5,$spirits+204=2,$party+12=7,$active=3
 0 0 !$px=256,$py=266,$pdir=3,$enemies=3,$enemies+4=300,$enemies+8=266,$enemies+12=2,$enemies+32=0,$enemies+36=1,$hurt_timer=300
@@ -38,3 +65,10 @@
 0 0 !$enemies+4=300,$enemies+8=266
 40 0 gr3.ppm
 0 0 @$enemies+12,$enemies+36
+# Cap carried: YOU heaves the fallen cap, Cap's old stash under it
+0 0 !$px=256,$py=266,$pdir=1,$active=4,$mushrooms=0
+1 0
+1 1
+1 0
+200 0
+0 0 @$mushrooms,$maps+7696

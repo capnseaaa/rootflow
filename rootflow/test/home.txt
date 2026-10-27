@@ -11,7 +11,7 @@
 1 0
 200 0
 # Cap joins (test setup) in Breeze's place; in the ring by the way south
-0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3,$px=240,$py=460,$pdir=0
+0 0 !$spirits+92=5,$spirits+204=2,$spirits+212=3,$party+12=7,$active=3,$cap_step=9,$grove_seen=1,$px=240,$py=460,$pdir=0
 2 0
 1 1
 1 0
