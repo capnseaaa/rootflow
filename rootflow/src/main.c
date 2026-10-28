@@ -962,9 +962,10 @@ static u32 decor_done;
 static const char *decor_name[4] = { "FLOWER POT", "PAINTING", "BUNTING", "CANDLE" };
 static s32 shrink_t, shrink_dir;    // v0.20 the shrink (or grow) under way: frames left, +1 shrinking, -1 growing
 #define SHRINK_FRAMES 30
+static s32 area_song(s32 a);       // v0.21 (below)
 static void update_shrink(void) {
     if (!shrink_t) return;
-    if (--shrink_t == 0) shrunk = shrink_dir > 0;
+    if (--shrink_t == 0) { shrunk = shrink_dir > 0; music_play(area_song(cur_area)); }   // v0.21: its own tune
 }      // mushrooms: picked in the marsh (saved); the meal is not saved
 static u32 hearts_max(void) { return MAX_HEARTS + (meal_kind == MEAL_HEART); }
 static u32 revive_step, revive_wait, shake_timer;   // the Great Tree coming back (v0.16; steps saved)
@@ -3713,14 +3714,15 @@ static void update_gloom_intro(void) {
 // once healed; the fight is gloomfight.
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
-                                           SONG_WITHERED, SONG_WITHERED, SONG_HOLLOW, SONG_HEARTWOOD,
-                                           SONG_STEPPE, SONG_HOLLOW };   // marsh, orchard, meadow, its reflection,
-                                                                    // grove: for now (music later); a home: the tree's
+                                           SONG_MARSH, SONG_ORCHARD, SONG_GROVE, SONG_HEARTWOOD,
+                                           SONG_MEADOW, SONG_MEADOW };   // v0.21 Caleb's picks for the corners (the
+                                                                    // reflection shares the meadow's); a home: the tree's
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
         return tree_alive ? SONG_HEARTWOOD : boss_beaten == (1 << NUM_BOSSES) - 1 ? SONG_UNEASY :
                tree_done == 15 ? SONG_ROOTWARD : SONG_WITHERED;
     if (a == HOLLOW_IN) return boss.alive && !gloom_intro ? SONG_GLOOMFIGHT : SONG_UNEASY;
+    if (shrunk && a != INTERIOR) return SONG_TINY;   // v0.21 (Caleb): "Teeny Tiny" while you are shrunk
     return song_of[a];
 }
 // ---------- the Leafen (v0.17): where they wait, what they need, the rescue, the welcome ----------
@@ -4830,6 +4832,7 @@ static void leave_home(void) {
     home_k = -1;
     enter_area(WEST, out_x, out_y + 6);
     shrunk = 1;                           // back out, tiny again
+    music_play(area_song(cur_area));
     pdir = DIR_DOWN;
 }
 static void update_iris(void) {

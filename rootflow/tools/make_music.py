@@ -160,9 +160,55 @@ SONGS = {
         "bass": "D2 8 A1 8 E2 8 A1 8  D2 8 A1 8 E2 8 D2 8",
         "harmony": "F#4 8 E4 8 G#4 8 E4 8 F#4 8 E4 8 G#4 8 F#4 8",
     },
+    # ---- v0.21 the corner regions (Caleb's picks from the proposals, 2026-10-28) ----
+    # The Drowned Marsh: "Sludge Waltz", a lopsided waltz in E minor, wading through the mud in threes.
+    "marsh": {
+        "frames_per_step": 16, "mel": (50, 8, 3), "bass_vol": 50,
+        "melody": """E5 2 G5 1 F#5 1 E5 2  B4 4 r 2  C5 2 E5 1 D5 1 C5 2  B4 6
+                     A4 2 C5 1 B4 1 A4 2  G4 2 A4 2 B4 2  E4 6  r 6
+                     E5 2 G5 1 A5 1 B5 2  A5 4 G5 2  F#5 2 E5 1 D#5 1 F#5 2  E5 6""",
+        "bass": """E2 2 B2 2 B2 2  E2 2 B2 2 B2 2  A2 2 E3 2 E3 2  G2 2 D3 2 D3 2
+                   A2 2 E3 2 E3 2  D2 2 A2 2 A2 2  E2 2 B2 2 B2 2  E2 2 B2 2 B2 2
+                   C3 2 G3 2 G3 2  A2 2 E3 2 E3 2  B2 2 F#3 2 F#3 2  E2 2 B2 2 E3 2""",
+    },
+    # The Burnt Orchard: "Ember Hymn", slow and solemn in A minor; a thin, glowing lead that climbs toward hope.
+    "orchard": {
+        "frames_per_step": 24, "mel": (12, 9, 0), "har": (50, 3, 0), "bass_vol": 25,
+        "melody": """A4 4 C5 4 B4 4 E4 4  F4 4 A4 4 G4 6 r 2
+                     A4 4 C5 4 D5 4 E5 4  F5 3 E5 1 D5 4 E5 6 r 2""",
+        "bass": "A2 8 E2 8 F2 8 C3 8  A2 8 G2 8 D3 8 E2 8",
+        "harmony": "C4 8 B3 8 A3 8 G3 8  C4 8 B3 8 A3 8 G#3 8",
+    },
+    # The Mushroom Grove: "Spore Dance", whimsical and bouncy, A with a raised fourth (lydian).
+    "grove": {
+        "frames_per_step": 14, "mel": (25, 10, 3), "bass_vol": 50,
+        "melody": """A4 1 C#5 1 E5 1 D#5 1 E5 2 C#5 2  B4 1 D#5 1 F#5 1 E5 1 D#5 2 B4 2
+                     A4 1 C#5 1 E5 1 A5 1 G#5 2 E5 2  F#5 4 E5 4
+                     A4 1 C#5 1 E5 1 D#5 1 E5 2 A5 2  B5 2 A5 1 G#5 1 F#5 2 D#5 2
+                     E5 1 F#5 1 G#5 1 A5 1 B5 2 G#5 2  A5 6 r 2""",
+        "bass": "BOUNCE A2 B2 A2 D3 A2 B2 E2 A2",
+    },
+    # Shrunk (anywhere but inside a home; Caleb's note): "Teeny Tiny", high, quick and playful, C major.
+    "tiny": {
+        "frames_per_step": 12, "mel": (12, 9, 1), "bass_vol": 50,
+        "melody": """G5 1 r 1 G5 1 A5 1 G5 1 r 1 E5 2  F5 1 r 1 F5 1 G5 1 F5 1 r 1 D5 2
+                     E5 1 F5 1 G5 1 C6 1 B5 1 A5 1 G5 2  A5 2 G5 2 C5 4
+                     G5 1 r 1 G5 1 A5 1 G5 1 r 1 E5 2  F5 1 r 1 F5 1 G5 1 A5 1 r 1 B5 2
+                     C6 1 B5 1 A5 1 G5 1 F5 1 E5 1 D5 2  C5 6 r 2""",
+        "bass": "BOUNCE C3 G2 C3 G2 C3 G2 G2 C3",
+    },
+    # The Mirror Meadow and its reflection: "Mirror Song", D dorian; the second half is the first played backwards.
+    "meadow": {
+        "frames_per_step": 18, "mel": (50, 9, 5), "har": (25, 3, 0), "bass_vol": 50,
+        "melody": """D5 2 F5 2 A5 4  G5 2 E5 2 C5 2 D5 2  F5 2 A5 2 C6 2 A5 2  G5 4 E5 4
+                     E5 4 G5 4  A5 2 C6 2 A5 2 F5 2  D5 2 C5 2 E5 2 G5 2  A5 4 F5 2 D5 2""",
+        "bass": "D3 8 C3 8 F2 8 C3 8  C3 8 F2 8 C3 8 D3 8",
+        "harmony": "F4 8 E4 8 A4 8 G4 8  G4 8 A4 8 E4 8 F4 8",
+    },
 }
 SONG_ORDER = ["title", "valley", "steppe", "hollow", "withered", "rootward", "omen", "uneasy", "gloomfight",
-              "win_warm", "wholetone", "reveal_grand", "heartwood", "win_bright", "reveal_rising", "canopy"]
+              "win_warm", "wholetone", "reveal_grand", "heartwood", "win_bright", "reveal_rising", "canopy",
+              "marsh", "orchard", "grove", "tiny", "meadow"]
 
 NOTE_INDEX = {"C": 0, "C#": 1, "D": 2, "D#": 3, "E": 4, "F": 5, "F#": 6, "G": 7, "G#": 8, "A": 9, "A#": 10, "B": 11}
 
