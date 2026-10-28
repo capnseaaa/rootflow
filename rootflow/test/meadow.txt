@@ -1,15 +1,15 @@
-# v0.21 the Mirror Meadow (step 1): the dev jump puts you at its way in; a pool flips you to the reflection and back
+# v0.21 the Mirror Meadow: with Glimmer chosen (the dev jump), a pool flips you to the reflection and back
 10 0
 1 8
 30 0
 1 770
 1 0
 5 0
-0 0 !$dev_val=13
+0 0 !$dev_val=14
 1 1
 1 0
 200 0
-0 0 @$cur_area,$dev_flip
+0 0 @$cur_area,$active
 20 0 md0.ppm
 # beside the first pool (x 7-12 on row 27), facing it: A flips to the reflection
 0 0 !$px=208,$py=432,$pdir=2

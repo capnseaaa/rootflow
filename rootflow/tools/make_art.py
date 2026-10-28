@@ -2934,6 +2934,7 @@ LEAFEN_ORDER += [f"mini_{k}" for k in range(6)]  # v0.18.4: a spirit in the pouc
 LEAFEN_ORDER += ["orb_6", "mini_6"]   # v0.19 Flick's (after the others: main.c maps them)
 LEAFEN_ORDER += ["orb_7", "mini_7"]   # v0.20 Cap's
 LEAFEN_ORDER += ["fairyring"]   # v0.20 the fairy ring by Bark's village (a sprite: the tree's tiles fill that area)
+LEAFEN_ORDER += ["orb_8", "mini_8"]   # v0.21 Glimmer's (after the ring: main.c maps them)
 LEAFEN_PAL = [                     # their own palette (OBJ bank 11, the clamps' once the tree is healed)
     (255, 0, 255),    # 0 clear
     (34, 46, 30),     # 1 outline
@@ -3087,7 +3088,8 @@ def leafen_cell(name):
     elif name.startswith("lh_"):
         leafen_home(px, name[3:])
     elif name.startswith("orb_"):              # a spirit as an orb: its color, a bright spot, a soft halo
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10)][int(name[4:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10),
+                             (13, 6, 15)][int(name[4:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -3097,7 +3099,8 @@ def leafen_cell(name):
                     px[y][x] = halo
         px[6][7] = px[7][6] = light
     elif name.startswith("mini_"):             # a pouch spirit: smaller than a swim orb (Caleb), 3 px with a soft rim
-        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10)][int(name[5:])]
+        core, light, halo = [(3, 4, 2), (13, 6, 14), (15, 6, 1), (6, 6, 13), (11, 12, 10), (7, 6, 1), (12, 6, 11), (7, 6, 10),
+                             (13, 6, 15)][int(name[5:])]
         for y in range(16):
             for x in range(16):
                 d = ((x - 7.5) ** 2 + (y - 7.5) ** 2) ** 0.5
@@ -3692,7 +3695,8 @@ def make_pouch():
 
 # v0.18.4 each spirit as a little ball, for the pouch (Caleb's reference): its body colors (light, main,
 # shade, in its own palette's indices), a face, and a tiny mark so you can tell them apart.
-BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6), (6, 7, 8), (4, 3, 2)]   # Sprout..Cap
+BALL_COLORS = [(9, 10, 11), (2, 3, 4), (2, 3, 4), (2, 3, 4), (2, 3, 4), (5, 5, 6), (6, 7, 8), (4, 3, 2),
+               (7, 6, 8)]   # Sprout..Cap, Glimmer (v0.21)
 def ball_cell(kind):
     px = _canvas()
     lt, mid, sh = BALL_COLORS[kind]
@@ -3721,6 +3725,9 @@ def ball_cell(kind):
         px[6][9] = px[8][5] = px[5][6] = 4
     if kind == 6:                                        # Flick: a little flame crest
         px[2][7] = 5; px[3][6] = px[3][7] = px[3][8] = 3; px[2][8] = 4
+    if kind == 8:                                        # Glimmer: two glassy wings at its sides
+        for (x, y, c) in ((2, 6, 2), (3, 5, 3), (2, 7, 2), (13, 6, 2), (12, 5, 3), (13, 7, 2)):
+            px[y][x] = c
     if kind == 5:                                        # Lily: a tiny white bloom with a yellow heart
         px[2][7] = px[2][8] = 4; px[3][6] = px[3][9] = 4; px[3][7] = px[3][8] = 7
     return px
@@ -3942,6 +3949,83 @@ def make_cap():
     return img
 
 
+GLIMMER_PAL = [                    # v0.21 Glimmer, the glassy dragonfly (OBJ bank 2: Ripple's sleeping gray, free by then)
+    (255, 0, 255), (30, 30, 46), (120, 200, 220), (200, 244, 250), (214, 150, 230), (150, 236, 190), (176, 184, 204),
+    (234, 238, 248), (112, 118, 140), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (0, 0, 0), (246, 150, 170), (20, 20, 30),
+]
+
+
+def _rell(cx, cy, rx, ry, deg):
+    import math as _m
+    a = _m.radians(deg); c, sn = _m.cos(a), _m.sin(a)
+    out = set()
+    for y in range(16):
+        for x in range(16):
+            dx, dy = x + 0.5 - cx, y + 0.5 - cy
+            u, v = dx * c + dy * sn, -dx * sn + dy * c
+            if (u / rx) ** 2 + (v / ry) ** 2 < 1:
+                out.add((x, y))
+    return out
+
+
+def glimmer_cell(frame):
+    """Glimmer (Caleb's pick A): a little dragonfly with a big round head and a face, four slim glassy wings
+    whose tips flash pink and mint, a short silver tail. 0, 1: flying (wings up, down); 2: its glint, darting."""
+    px = _canvas()
+    def outline(shape):
+        for (x, y) in shape:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                    px[ny][nx] = 1
+    if frame == 2:                                    # a four-pointed glint
+        for k in range(-5, 6):
+            for (x, y) in ((7 + k, 7), (7, 7 + k), (8 + k, 8), (8, 8 + k)):
+                if 0 <= x < 16 and 0 <= y < 16 and abs(k) < 6:
+                    px[y][x] = 3 if abs(k) > 2 else 7
+        for (x, y) in ((6, 6), (9, 6), (6, 9), (9, 9)):
+            px[y][x] = 2
+        px[7][7] = px[8][8] = px[7][8] = px[8][7] = 7
+        return px
+    lift = -8 if frame == 0 else 6
+    wings = []
+    for side in (-1, 1):
+        wings.append(_rell(7.5 + side * 4.3, 7.2 - (1 if frame == 0 else 0), 3.7, 1.5, side * lift - side * 12))
+        wings.append(_rell(7.5 + side * 4.0, 10.0, 3.2, 1.3, side * 18 + side * lift * 0.5))
+    allw = set().union(*wings)
+    for (x, y) in allw:
+        px[y][x] = 2
+    outline(allw)
+    for w in wings:
+        for (x, y) in w:
+            if (x, y - 1) not in w:
+                px[y][x] = 3
+    for (x, y) in allw:
+        if x <= 1 or x >= 14:
+            px[y][x] = 4 if (y + frame) % 2 else 5
+    tail = {(7, y) for y in range(10, 15)} | {(8, y) for y in range(10, 14)}
+    for (x, y) in tail:
+        px[y][x] = 8 if y % 2 == 0 else 6
+    head = _ellset(7.5, 6.6, 3.1, 2.9)
+    for (x, y) in head:
+        px[y][x] = 7 if y <= 5 else 6 if x < 9 else 8
+    outline(tail | head)
+    px[6][6] = px[6][9] = px[7][6] = px[7][9] = 15
+    px[6][5] = 3
+    px[8][5] = px[8][10] = 14
+    return px
+
+
+def make_glimmer():
+    img = Image.new("P", (48, 16), 0)
+    img.putpalette([c for rgb in GLIMMER_PAL for c in rgb])
+    for f in range(3):
+        for y, row in enumerate(glimmer_cell(f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * f + x, y), c)
+    return img
+
+
 GROVE_PAL = [                      # v0.20 the grove's own sprites (its region set; OBJ bank 13 while you are there)
     (255, 0, 255), (30, 20, 36), (96, 60, 120), (146, 98, 168), (196, 156, 210), (120, 176, 70), (176, 220, 110),
     (236, 220, 240),
@@ -4146,7 +4230,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("glimmer_sprite.png", make_glimmer), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

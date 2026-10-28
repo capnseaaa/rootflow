@@ -1,0 +1,32 @@
+# v0.21.3 Glimmer: it skims the first pool; each time you come close it darts to the next; at the last (by the stone
+# circle) it lets you catch up, its scene plays, it joins (into the pouch: you carry four)
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=13
+1 1
+1 0
+200 0
+0 0 @$cur_area,$glimmer_pool,$glimmer_step
+# right by it, over each pool in turn (it darts off each time)
+0 0 !$px=160,$py=420
+10 0 gl0.ppm
+0 0 @$glimmer_pool,$gl_fly
+50 0
+0 0 !$px=64,$py=292
+50 0
+0 0 @$glimmer_pool
+0 0 !$px=208,$py=52
+50 0
+0 0 @$glimmer_pool
+0 0 !$px=432,$py=196
+50 0
+0 0 @$glimmer_pool
+# the last pool: it waits, and joins
+0 0 !$px=240,$py=340
+20 0 gl1.ppm
+1500 0 gl2.ppm
+0 0 @$glimmer_step,$spirits+232,$party_count

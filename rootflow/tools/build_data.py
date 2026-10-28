@@ -1195,7 +1195,7 @@ def make_meadow():
     for (x, y) in river:
         if y == 27: real[y][x] = DRY_BRIDGE
         if y == 9: mirr[y][x] = BRIDGE
-    pools = [(10, 27, 3.0, 2.0), (4, 19, 2.4, 1.8), (13, 4, 2.6, 1.8), (27, 13, 2.6, 2.2), (15, 22, 2.0, 1.4)]
+    pools = MEADOW_POOLS
     for i, (cx, cy, rx, ry) in enumerate(pools):
         for (x, y) in blob(cx, cy, rx, ry, 0.18, i + 5):
             if (x, y) not in river:
@@ -1252,6 +1252,8 @@ def make_meadow():
 
 
 MEADOW_SEAL = (13, 16)                 # v0.21 the sealed rune stone in the ring of standing stones
+# the pools (centre x, y, radii), in the order Glimmer leads you: from the way in to beside the stone ring
+MEADOW_POOLS = [(10, 27, 3.0, 2.0), (4, 19, 2.4, 1.8), (13, 4, 2.6, 1.8), (27, 13, 2.6, 2.2), (15, 22, 2.0, 1.4)]
 MEADOW_ARCH = (27, 8)                  # the arch into Silver's nook (broken on the real side)
 MEADOW_STAR = (2, 4)                   # the fallen star (the reflection), a crater (real)
 MEADOW_BUDS = [(29, 29), (27, 30), (30, 27), (28, 28)]
@@ -1366,6 +1368,7 @@ def main():
     flick = Image.open(os.path.join(ART, "flick_sprite.png"))   # v0.19: Flick (awake x2, cold, ember, shivering)
     orch = Image.open(os.path.join(ART, "orch_sprite.png"))     # v0.19: the orchard's region set (smoke creatures)
     cap = Image.open(os.path.join(ART, "cap_sprite.png"))       # v0.20: Cap (idle x2, its puff, the lingering cloud x2)
+    glimmer = Image.open(os.path.join(ART, "glimmer_sprite.png"))   # v0.21: Glimmer (flying x2, its glint)
     grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
     tiny = Image.open(os.path.join(ART, "tiny_sprite.png"))     # v0.20: the wizard shrunk (12 frames, 8x16)
     for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove, tiny):
@@ -1376,7 +1379,8 @@ def main():
     sheets = [("PLAYER", player, 32), ("SPROUT", sprout, 16), ("FX", fx, 16),
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
-              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16), ("CAP", cap, 16)]
+              ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16), ("CAP", cap, 16),
+              ("GLIMMER", glimmer, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -1478,6 +1482,10 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_flick", palette_of(flick), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_orch", palette_of(orch), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_cap", palette_of(cap), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_glimmer", palette_of(glimmer), fmt="0x{:04X}"))
+    out.append(f"#define NUM_MEADOW_POOLS {len(MEADOW_POOLS)}")   # v0.21 Glimmer's trail, pool to pool
+    out.append(c_array("unsigned char", "meadow_pool_x", [round(p[0]) for p in MEADOW_POOLS], fmt="{}"))
+    out.append(c_array("unsigned char", "meadow_pool_y", [round(p[1]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned short", "obj_pal_grove", palette_of(grove), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
