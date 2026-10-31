@@ -1,0 +1,60 @@
+# v0.21.4 Nox's night over the meadow: A (Nox chosen) brings night: the moonlight over the dry river, the flowers open;
+# at the ring, light the five starred stones (one wrong one puts them out first) and the rune stone opens
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=15
+1 1
+1 0
+200 0
+0 0 @$cur_area,$active,$meadow_night
+0 0 !$px=240,$py=460,$pdir=1
+1 0
+1 1
+1 0
+60 0 nt0.ppm
+0 0 @$meadow_night,$maps+9745,$maps+9680
+# stone 0 (16,16) from its left, facing it
+0 0 !$px=240,$py=252,$pdir=3
+1 0
+1 1
+1 0
+60 0
+0 0 @$ring_lit
+# stone 1 (16,18), not part of the star: they go out
+0 0 !$px=256,$py=268,$pdir=0
+1 0
+1 1
+1 0
+200 0
+0 0 @$ring_lit
+# the five: 0 (16,16), 2 (14,18), 4 (10,18), 6 (10,14), 8 (14,14)
+0 0 !$px=240,$py=252,$pdir=3
+1 0
+1 1
+1 0
+60 0
+0 0 !$px=224,$py=268,$pdir=0
+1 0
+1 1
+1 0
+60 0
+0 0 !$px=160,$py=268,$pdir=0
+1 0
+1 1
+1 0
+60 0
+0 0 !$px=160,$py=236,$pdir=1
+1 0
+1 1
+1 0
+60 0
+0 0 !$px=224,$py=236,$pdir=1
+1 0
+1 1
+1 0
+60 0 nt1.ppm
+0 0 @$ring_lit,$seal_open,$maps+9741

@@ -1,0 +1,24 @@
+# v0.21.4 Nox: with Glimmer, through a pool to the reflection; north of its fallen star (2,4), facing it: A wakes it
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=14
+1 1
+1 0
+200 0
+0 0 !$px=208,$py=432,$pdir=2
+1 0
+1 1
+1 0
+40 0
+0 0 @$cur_area
+0 0 !$px=32,$py=44,$pdir=0
+20 0 nx0.ppm
+1 0
+1 1
+1 0
+1500 0 nx1.ppm
+0 0 @$nox_step,$spirits+260,$maps+10370

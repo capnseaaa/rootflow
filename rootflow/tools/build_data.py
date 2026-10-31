@@ -36,6 +36,7 @@ ROOM_VOID = 149                                     # v0.20 the Leafen homes' in
 MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove redone; caps 183-194 (BG3, in-game)
 (MENHIR_GRASS, ARCH_L, ARCH_R, ARCH_OPEN, ARCH_RUBBLE, SEAL_STONE, SEAL_GLOW, CRATER, FALLEN_STAR, BUD_CLOSED,
  BUD_OPEN) = range(195, 206)                        # v0.21 the Mirror Meadow's own
+MOON_PATH, MENHIR_LIT = 206, 207                    # v0.21.4 Nox's night: moonlight over the dry river, a lit stone
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -1057,7 +1058,7 @@ ROOM_BANK = 8                      # v0.20.5: the first of the Leafen homes' BG 
 
 WALKABLE = {DEAD, DEAD_CRACK, DIRT, GRASS, GRASS_TUFT, FLOWERS, DRY_GRASS, PEBBLES, PATH, BRIDGE, DRY_BRIDGE,
             MOSS, MUSHROOMS, LILY_PAD, BOG_PAD, ASH_LANE, CHARRED_BRUSH, GLOWCAPS, FAIRY_RING, MOSS_TRAIL,
-            ARCH_OPEN, CRATER, BUD_OPEN}
+            ARCH_OPEN, CRATER, BUD_OPEN, MOON_PATH}
 
 
 def reach_count(m, start):
@@ -1203,10 +1204,12 @@ def make_meadow():
     cx, cy = MEADOW_SEAL
     for (x, y) in blob(cx, cy, 2.8, 2.2, 0, 0):
         real[y][x] = DIRT; mirr[y][x] = FLOWERS
+    MEADOW_RING.clear()
     for k in range(10):
         a = 2 * math.pi * k / 10
         x, y = round(cx + 3.2 * math.cos(a)), round(cy + 2.6 * math.sin(a))
-        real[y][x] = MENHIR_GRASS; mirr[y][x] = MENHIR_GRASS
+        real[y][x] = MENHIR_GRASS; mirr[y][x] = MENHIR_LIT if k % 2 == 0 else MENHIR_GRASS   # the shape, in the reflection
+        MEADOW_RING.append((x, y))
     real[cy][cx] = SEAL_STONE; mirr[cy][cx] = SEAL_GLOW
     # Silver's nook (north-east): a wall, its way in an arch, broken (real) or whole (reflection); a pool inside
     for x in range(24, MAP_W):
@@ -1223,6 +1226,7 @@ def make_meadow():
         real[y][x] = WATER; mirr[y][x] = WATER
     sx, sy = MEADOW_STAR
     real[sy][sx] = CRATER; mirr[sy][sx] = FALLEN_STAR
+    mirr[sy - 1][sx] = GRASS                          # v0.21.4: a way into the star through the reflection's wood
     for (x, y) in MEADOW_BUDS:
         real[y][x] = BUD_CLOSED; mirr[y][x] = BUD_OPEN
     for x in range(13, 19):                           # the way in from the steppe (south)
@@ -1248,6 +1252,12 @@ def make_meadow():
                 seen.add(n_); q.append(n_)
     for (pcx, pcy, _, _) in pools[:5]:
         assert (round(pcx), round(pcy)) in seen, f"pool at {pcx},{pcy} cut off"
+    MEADOW_MOON.clear()                               # v0.21.4: at night moonlight crosses the dry river by the ring
+    for y in (cy - 1, cy, cy + 1):
+        for x in range(MAP_W):
+            if real[y][x] == DRY_RIVER:
+                MEADOW_MOON.append((x, y))
+    assert MEADOW_MOON, "no dry river by the ring"
     return real, mirr
 
 
@@ -1257,6 +1267,8 @@ MEADOW_POOLS = [(10, 27, 3.0, 2.0), (4, 19, 2.4, 1.8), (13, 4, 2.6, 1.8), (27, 1
 MEADOW_ARCH = (27, 8)                  # the arch into Silver's nook (broken on the real side)
 MEADOW_STAR = (2, 4)                   # the fallen star (the reflection), a crater (real)
 MEADOW_BUDS = [(29, 29), (27, 30), (30, 27), (28, 28)]
+MEADOW_RING = []                       # the ten standing stones (make_meadow fills it); the even ones make the star
+MEADOW_MOON = []                       # dry river cells the moonlight crosses at night (make_meadow fills it)
 
 
 def make_maps():
@@ -1369,6 +1381,7 @@ def main():
     orch = Image.open(os.path.join(ART, "orch_sprite.png"))     # v0.19: the orchard's region set (smoke creatures)
     cap = Image.open(os.path.join(ART, "cap_sprite.png"))       # v0.20: Cap (idle x2, its puff, the lingering cloud x2)
     glimmer = Image.open(os.path.join(ART, "glimmer_sprite.png"))   # v0.21: Glimmer (flying x2, its glint)
+    nox = Image.open(os.path.join(ART, "nox_sprite.png"))       # v0.21.4: Nox (flying x2, its starlight, asleep; Glimmer's colors)
     grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
     tiny = Image.open(os.path.join(ART, "tiny_sprite.png"))     # v0.20: the wizard shrunk (12 frames, 8x16)
     for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove, tiny):
@@ -1380,7 +1393,7 @@ def main():
               ("RIPPLE", ripple, 16), ("PEBBLE", pebble, 16), ("BREEZE", breeze, 16),
               ("PEEK", sprout_peek(terrain, sprout), 16), ("BARK", bark, 16), ("COMBAT", combat, 16),
               ("LEAFEN", leafen, 16), ("LILY", lily, 16), ("SWIM", swim, 16), ("BALL", ball, 16), ("FLICK", flick, 16), ("CAP", cap, 16),
-              ("GLIMMER", glimmer, 16)]
+              ("GLIMMER", glimmer, 16), ("NOX", nox, 16)]
     sprite_words, tile_defs = [], []
     for name, img, cell_h in sheets:
         tile_defs.append(f"#define TILE_{name} {len(sprite_words) // 8}")
@@ -1484,6 +1497,8 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_cap", palette_of(cap), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_glimmer", palette_of(glimmer), fmt="0x{:04X}"))
     out.append(f"#define NUM_MEADOW_POOLS {len(MEADOW_POOLS)}")   # v0.21 Glimmer's trail, pool to pool
+    out.append(f"#define MEADOW_STAR_X {MEADOW_STAR[0]}\n#define MEADOW_STAR_Y {MEADOW_STAR[1]}")
+    out.append(f"#define MEADOW_SEAL_X {MEADOW_SEAL[0]}\n#define MEADOW_SEAL_Y {MEADOW_SEAL[1]}")
     out.append(c_array("unsigned char", "meadow_pool_x", [round(p[0]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned char", "meadow_pool_y", [round(p[1]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned short", "obj_pal_grove", palette_of(grove), fmt="0x{:04X}"))
@@ -1497,6 +1512,11 @@ def main():
     out.append(f"#define BANNER_W {2 * len(BANNER_TEXT)}   // tiles wide; 3 tiles tall")
     out.append(c_array("unsigned int", "banner_tiles", banner_words()))
     out.append(c_array("unsigned char", "start_maps", make_maps(), per_line=32, fmt="{}"))
+    out.append(c_array("unsigned char", "meadow_ring_x", [p[0] for p in MEADOW_RING], fmt="{}"))   # v0.21.4 (after start_maps: make_meadow fills them)
+    out.append(c_array("unsigned char", "meadow_ring_y", [p[1] for p in MEADOW_RING], fmt="{}"))
+    out.append(f"#define NUM_MEADOW_MOON {len(MEADOW_MOON)}")
+    out.append(c_array("unsigned char", "meadow_moon_x", [p[0] for p in MEADOW_MOON], fmt="{}"))
+    out.append(c_array("unsigned char", "meadow_moon_y", [p[1] for p in MEADOW_MOON], fmt="{}"))
     out.append(f"#define NUM_NOOKS {len(NOOKS)}")
     for i, nm in enumerate(("nook_area", "nook_x", "nook_y", "nook_kind", "nook_ring_x", "nook_ring_y")):
         out.append(c_array("signed char", nm, [n[i] for n in NOOKS], fmt="{}"))
