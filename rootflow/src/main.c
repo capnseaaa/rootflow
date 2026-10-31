@@ -685,9 +685,9 @@ static void oam_flush(void) {
 #define OAM_CLAMP   (OAM_POOL + 8)   //   +8..14: Vael clamps on the Great Tree's roots (its region, before the heal)
 #define OAM_RING    (OAM_POOL + 8)   //   +8..23: the Gloomheart's rot ring (inside the tree)
 #define OAM_FIREFLY (OAM_POOL + 8)   //   +8..11: the marsh's fireflies
-#define OAM_LHOME   (OAM_POOL + 8)   //   +8..27: the Leafen's tiny homes (the Great Tree's region, healed)
-#define OAM_FOLK    (OAM_POOL + 28)  //   +28..60: the Leafen living round Bark's tree on screen (v0.20: by slot)
-#define FOLK_SLOTS  33
+#define OAM_LHOME   (OAM_POOL + 8)   //   +8..28: the Leafen's tiny homes (the Great Tree's region, healed; 21 since v0.21.5)
+#define OAM_FOLK    (OAM_POOL + 29)  //   +29..60: the Leafen living round Bark's tree on screen (v0.20: by slot)
+#define FOLK_SLOTS  32
 #define POOL_SIZE   61
 #define OAM_SWIMHANDS 125 // swimming, front to back: ripples (slot 0), his hands, him, his wake
 #define OAM_SWIMRING 126  // (named for the ring's old slot: now his head and shoulders while he swims)
@@ -969,7 +969,7 @@ static u32 bark_hint;
 #define BARK_GIFT_SECOND 10
 // v0.20 (step 4) decorations for the Leafen homes, from tiny chests: how many of each you carry (flower pot,
 // painting, bunting, candle), what stands in each home's two spots (+1, low and high nibble), requests met
-static u8 decor_have[4], home_decor[13];
+static u8 decor_have[4], home_decor[15];   // by Leafen (NUM_LEAFEN, defined below)
 static u32 decor_done;
 static const char *decor_name[4] = { "FLOWER POT", "PAINTING", "BUNTING", "CANDLE" };
 static s32 shrink_t, shrink_dir;    // v0.20 the shrink (or grow) under way: frames left, +1 shrinking, -1 growing
@@ -987,10 +987,12 @@ static u32 leaf_timer;                              // > 0 while leaves swirl ro
 // and it calls up two friends; they walk to Bark's tree, where they build tiny homes. Every two that
 // Bark welcomes, he teaches YOU a skill: LEAF STEP, LEAF SHIELD, SEEDFALL.
 enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_PUDDLE, LF_WICK, LF_SOOT, LF_TUFT, LF_BUTTON,
-       NUM_LEAFEN };
+       LF_SILVER, LF_DUSK, NUM_LEAFEN };
 #define FIRST_LEAFEN 6   // the valley, steppe and hollow ones; v0.18 adds three in the marsh
 #define FIRST_ORCH_LEAFEN 9   // v0.19.4: two in the burnt orchard (they need Flick's world: light, the stacks gone)
 #define FIRST_GROVE_LEAFEN 11   // v0.20: two in the mushroom grove (one only a tiny wizard can reach)
+#define FIRST_MEADOW_LEAFEN 13  // v0.21.5: two in the Mirror Meadow (one behind the broken arch, one in a night flower)
+_Static_assert(sizeof(home_decor) == NUM_LEAFEN, "home_decor needs one byte per Leafen");
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
@@ -1513,6 +1515,7 @@ static int enter_area(s32 a, s32 nx, s32 ny) {
     if (blocked_at(nx, ny)) { use_area(cur_area); return 0; }
     cur_area = a;
     if (a == GROVE) grove_seen = 1;
+    if (a == MEADOW) bark_hint |= 4;      // v0.21.5: you've been in the meadow (its Leafen count from then on)
     music_play(area_song(a));
     for (s32 i = 0; i < MAX_BLOOMS; i++) blooms[i].active = 0;   // blooms finish where they started
     sparkle_life = 0;
@@ -1590,7 +1593,7 @@ static void check_exits(void) {
     else if (cur_area == 0 && ((HELD(KEY_UP) && py <= 0) || (HELD(KEY_LEFT) && px <= 0)))
         region_hint();
     else if (cur_area == MEADOW && seal_open && HELD(KEY_LEFT) && px <= 0 && !msg_timer)   // v0.21.4: later, the HQ
-        show_message("THE ROAD TO VAEL'S WORKS. NOT YET...");
+        show_message("THE ROAD TO VAEL'S. NOT YET...");
     else if (cur_area == HOLLOW_IN && HELD(KEY_DOWN) && py >= WORLD_PX - 18)
         enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 2) * 16 - 6);   // out, below the opening
     else if (cur_area == WEST && maps[WEST][DOOR_Y * MAP_W + DOOR_X] == DRY_BRIDGE &&
@@ -1829,7 +1832,7 @@ static int use_power(s32 kind, s32 mx, s32 my) {
         stone += 2;
         sparkle_at(mx, my);
         sfx_play(SFX_PUMP_OFF);
-        show_message("THE SMOKE STACK FALLS! +2 STONE");
+        show_message("THE STACK FALLS! +2 STONE");
         s32 left = 0;
         for (s32 k = 0; k < NUM_STACKS; k++) left += maps[ORCHARD][stack_y[k] * MAP_W + stack_x[k]] == SMOKE_STACK;
         queue_message(left ? "THE SMOKE HERE THINS AWAY." : "THE LAST OF THE SMOKE CLEARS!");
@@ -3041,8 +3044,8 @@ static void open_seal(void) {                     // all five stars lit: the run
     if (cur_area == MEADOW) dark_enter(MEADOW);
     sparkle_at(MEADOW_SEAL_X, MEADOW_SEAL_Y);
     sfx_play(SFX_QUEST);
-    show_message("THE RUNE STONE BLAZES WITH LIGHT!");
-    queue_message("FAR TO THE WEST, ROCKS ROLL ASIDE.");
+    show_message("THE RUNE STONE BLAZES!");
+    queue_message("FAR WEST, ROCKS ROLL ASIDE.");
     queue_message("A ROAD TOWARD VAEL'S WORKS...");
 }
 static void nox_power(s32 mx, s32 my) {
@@ -3070,11 +3073,11 @@ static void nox_power(s32 mx, s32 my) {
         return;
     }
     u8 feet = tile_at((px + 8) >> 4, (py + 12) >> 4);
-    if (meadow_night && feet == MOON_PATH) { sfx_play(SFX_FAIL); show_message("NOX: NOT WHILE WE'RE ON THE MOONLIGHT!"); return; }
+    if (meadow_night && feet == MOON_PATH) { sfx_play(SFX_FAIL); show_message("NOX: NOT ON THE MOONLIGHT!"); return; }
     set_meadow_night(!meadow_night);
     for (s32 i = 0; i < 8; i++) add_mote_c(px + 4, py, dir16[i * 2] >> 1, DIR16_Y(i * 2) >> 1, 24, C_GLINT);
     sfx_play(SFX_WAKE);
-    show_message(meadow_night ? "NOX: NIGHT FALLS ON THE MEADOW." : "NOX: MORNING, ALREADY? YAWN.");
+    show_message(meadow_night ? "NOX: NIGHT FALLS. SHH..." : "NOX: MORNING, ALREADY? YAWN.");
     add_fp(KIND_NOX, 1);
 }
 
@@ -3144,8 +3147,8 @@ static void use_ability(void) {
     }
     if (!use_power(s->kind, fx >> 4, fy >> 4)) {
         sfx_play(SFX_FAIL);
-        if (tile_at(fx >> 4, fy >> 4) == VAEL_PIPE && !msg_timer) show_message("A VAEL PIPE! PEBBLE CAN SMASH IT.");
-        if (tile_at(fx >> 4, fy >> 4) == SMOKE_STACK && !msg_timer) show_message("A VAEL SMOKE STACK! PEBBLE CAN SMASH IT.");
+        if (tile_at(fx >> 4, fy >> 4) == VAEL_PIPE && !msg_timer) show_message("PEBBLE CAN SMASH THIS PIPE!");
+        if (tile_at(fx >> 4, fy >> 4) == SMOKE_STACK && !msg_timer) show_message("PEBBLE CAN SMASH THIS STACK!");
         return;
     }
     if (!free_use) s->energy--;                              // a bonded Sprout blooms for free
@@ -3843,13 +3846,15 @@ static s32 area_song(s32 a) {
 // ---------- the Leafen (v0.17): where they wait, what they need, the rescue, the welcome ----------
 enum { LOOK_SPROUT, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_DEW };
 enum { POSE_STAND, POSE_STEP, POSE_SWIM, POSE_CLIMB };
-static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH, ORCHARD, ORCHARD, GROVE, GROVE };
-static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7, 27, 23, 24, 6 };   // Wick: by the lantern at (26,8)
-static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12, 10, 21, 6, 20 };
+static const u8 leafen_area[NUM_LEAFEN] = { 0, 0, 1, 1, 2, 2, MARSH, MARSH, MARSH, ORCHARD, ORCHARD, GROVE, GROVE,
+                                            MEADOW, MEADOW };
+static const u8 leafen_cx[NUM_LEAFEN] = { 10, 26, 6, 20, 16, 28, 17, 26, 7, 27, 23, 24, 6, 26, 28 };   // Wick: by the lantern
+static const u8 leafen_cy[NUM_LEAFEN] = { 25, 22, 20, 28, 4, 22, 26, 26, 12, 10, 21, 6, 20, 3, 28 };   // at (26,8)
 static const u8 leafen_look[NUM_LEAFEN] = { LOOK_SPROUT, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT, LOOK_DEW,
-                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT };
+                                            LOOK_DEW, LOOK_LEAF, LOOK_BUD, LOOK_ACORN, LOOK_LEAF, LOOK_BUD, LOOK_SPROUT,
+                                            LOOK_DEW, LOOK_LEAF };
 static const char *leafen_name[NUM_LEAFEN] = { "PIP", "MOSSY", "TWIG", "POSY", "NUB", "DEWDROP", "BOG", "REEDY",
-                                               "PUDDLE", "WICK", "SOOT", "TUFT", "BUTTON" };
+                                               "PUDDLE", "WICK", "SOOT", "TUFT", "BUTTON", "SILVER", "DUSK" };
 static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you meet it (its problem, not the fix)
     { "PIP: HELP! I'M STUCK ON THIS", "LILY PAD. I CAN'T SWIM YET!" },
     { "MOSSY: SO... HUNGRY...", "SOME FRUIT? THREE, MAYBE?" },
@@ -3862,15 +3867,18 @@ static const char *leafen_ask[NUM_LEAFEN][2] = {   // what each says when you me
     { "PUDDLE: EW. EW! STINKY GOO!", "I WANT CLEAN WATER BY ME!" },
     { "WICK: IT'S SO DARK! SO SCARY!", "I WON'T MOVE TILL I CAN SEE!" },
     { "SOOT: COUGH! THE SMOKE! COUGH!", "THAT STACK WON'T STOP PUFFING!" },
-    { "TUFT: (A TINY VOICE) HELLO?", "I'M IN HERE! THE LOG IS TOO SMALL!" },
-    { "BUTTON: THOSE PUFFS! EVERYWHERE!", "THEY WON'T LET ME OUT!" },
+    { "TUFT: (A TINY VOICE) HELLO?", "IN HERE! THE LOG'S TOO SMALL!" },
+    { "BUTTON: PUFFS! EVERYWHERE!", "THEY WON'T LET ME OUT!" },
+    { "SILVER: HERE! BEHIND THE WALL!", "THE ARCH FELL IN. I'M STUCK!" },
+    { "ZZZ... (A SNORE IN THE FLOWER)", "IT'S SHUT. IT OPENS AT NIGHT." },
 };
 static const char *leafen_thanks[NUM_LEAFEN] = {
     "PIP: A BRIDGE! YOU'RE GREAT!", "MOSSY: MMM! FRUIT! THANK YOU!", "TWIG: NO MORE THORNS! YAY!",
     "POSY: FLOWERS! SO PRETTY!", "NUB: PHEW! I CAN BREATHE!", "DEWDROP: MY SHINY! THANK YOU!",
     "BOG: THE GOO'S GONE! HOP HOP!", "REEDY: FREE! I CAN WIGGLE!", "PUDDLE: AH! CLEAN! SPLASH!",
     "WICK: LIGHT! I CAN SEE YOU!", "SOOT: FRESH AIR! AAH! YAY!",
-    "TUFT: YOU'RE TINY TOO! LET'S GO!", "BUTTON: THE PUFFS ARE GONE! PHEW!",
+    "TUFT: YOU'RE TINY TOO! YAY!", "BUTTON: PUFFS GONE! PHEW!",
+    "SILVER: YOU CAME BY THE POOL!", "DUSK: YAWN... NIGHT? HELLO!",
 };
 static const char *leafen_gift[NUM_LEAFEN] = {
     "NEW BUILD: DEW POND", "NEW BUILD: ACORN BENCH", "NEW BUILD: LEAF SWING",
@@ -3878,6 +3886,7 @@ static const char *leafen_gift[NUM_LEAFEN] = {
     "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT", "+5 SEEDS +3 FRUIT",   // the marsh Leafen give a little haul
     "+3 FRUIT +2 MUSHROOMS", "+3 FRUIT +2 MUSHROOMS",                    // the orchard's: things to cook
     "+5 SEEDS +2 MUSHROOMS", "+5 SEEDS +2 MUSHROOMS",                    // the grove's
+    "+4 SEEDS +4 FRUIT", "+4 SEEDS +4 FRUIT",                            // v0.21.5 the meadow's
 };
 #define SHINY_X 2    // Dewdrop's shiny pebble lies in the valley, far west
 #define SHINY_Y 15
@@ -3973,6 +3982,8 @@ static int leafen_ready(s32 k) {
         }
         return cur_area == GROVE;
     }
+    case LF_SILVER: return cur_area == MEADOW && px >= 25 * 16 - 8 && py < 8 * 16;   // you are in its nook (the pool)
+    case LF_DUSK: return cur_area == MEADOW && meadow_night;   // its night flower open
     default: {                                              // Reedy: no reeds round; Puddle: no sludge round
         u8 bad = k == LF_REEDY ? REEDS : SLUDGE;
         for (s32 dy = -1; dy <= 1; dy++)
@@ -3987,7 +3998,8 @@ static int leafen_waiting(s32 k) { return leafen_state[k] == LS_WAIT || leafen_s
 static s32 leafen_total(void) {
     return FIRST_LEAFEN + (lily_step > LILY_SCENE_LEN || (bark_hint & 1) ? FIRST_ORCH_LEAFEN - FIRST_LEAFEN : 0) +
            ((flick_flags & 2) || spirits[KIND_FLICK].state != SP_ASLEEP ? FIRST_GROVE_LEAFEN - FIRST_ORCH_LEAFEN : 0) +
-           (grove_seen ? NUM_LEAFEN - FIRST_GROVE_LEAFEN : 0);
+           (grove_seen ? FIRST_MEADOW_LEAFEN - FIRST_GROVE_LEAFEN : 0) +
+           ((bark_hint & 4) ? NUM_LEAFEN - FIRST_MEADOW_LEAFEN : 0);   // v0.21.5: once you've been in the meadow
 }
 static int near_leafen(s32 k, s32 r) {
     s32 dx = px + 8 - (leafen_x(k) * 16 + 8), dy = py + 8 - (leafen_y(k) * 16 + 8);
@@ -4013,14 +4025,14 @@ static const char *home_owner_line[NUM_LEAFEN] = {
     "PIP: MY OWN LITTLE POOL!", "MOSSY: SNACK? I HAVE FRUIT!", "TWIG: I MADE THAT. FROM TWIGS!",
     "POSY: SMELL MY FLOWERS!", "NUB: MY ROCKS! DON'T TOUCH!", "DEWDROP: SEE MY SHINY? SHINY!",
     "BOG: MUD BATH. VERY RELAXING.", "REEDY: I WEAVE BASKETS NOW!", "PUDDLE: CLEAN WATER! ALL MINE!",
-    "WICK: MY LANTERN NEVER GOES OUT.", "SOOT: TEA? THE KETTLE'S ON.", "TUFT: SOFT MOSS! TRY IT! WHEE!",
-    "BUTTON: I COLLECT BUTTONS!",
+    "WICK: MY LANTERN NEVER DIES.", "SOOT: TEA? THE KETTLE'S ON.", "TUFT: SOFT MOSS! TRY IT! WHEE!",
+    "BUTTON: I COLLECT BUTTONS!", "SILVER: LOOK! TWO OF ME!", "DUSK: MY MOON LAMP. FOR NAPS.",
 };
 static s32 home_k = -1;                   // whose home you are in (saved, so a load rebuilds it)
 // v0.20 (step 4, Caleb: some ask you to help them decorate): Posy, Twig, Wick and Button each want one thing
-static const signed char decor_wish[NUM_LEAFEN] = { -1, -1, 1, 0, -1, -1, -1, -1, -1, 3, -1, -1, 2 };
-static const char *decor_ask[NUM_LEAFEN] = { 0, 0, "TWIG: A PAINTING WOULD BE NICE...", "POSY: A FLOWER POT, MAYBE?",
-    0, 0, 0, 0, 0, "WICK: A CANDLE! FOR MORE LIGHT!", 0, 0, "BUTTON: SOME BUNTING! SO FESTIVE!" };
+static const signed char decor_wish[NUM_LEAFEN] = { -1, -1, 1, 0, -1, -1, -1, -1, -1, 3, -1, -1, 2, -1, -1 };
+static const char *decor_ask[NUM_LEAFEN] = { 0, 0, "TWIG: A PAINTING WOULD BE NICE", "POSY: A FLOWER POT, MAYBE?",
+    0, 0, 0, 0, 0, "WICK: A CANDLE! MORE LIGHT!", 0, 0, "BUTTON: BUNTING! SO FESTIVE!", 0, 0 };
 #define OWNER_X (room_owner_x[home_k] * 16)   // v0.20.5: each room's own spot
 #define OWNER_Y (room_owner_y[home_k] * 16)
 // v0.17.2 (Caleb): the Leafen at Bark's tree chatter when you press A by one; they all share these.
@@ -4103,7 +4115,8 @@ static void update_leafen(void) {
         }
         if (lf_scene == 5) {                             // walking off toward the tree
             int north = leafen_area[lf_k] == 2 || leafen_area[lf_k] == MARSH || leafen_area[lf_k] == GROVE;   // the tree is north
-            s32 dx = north || leafen_area[lf_k] == ORCHARD ? 0 : -1, dy = north ? -1 : leafen_area[lf_k] == ORCHARD ? 1 : 0;
+            int south = leafen_area[lf_k] == ORCHARD || leafen_area[lf_k] == MEADOW;      // (v0.21.5: and south of the meadow)
+            s32 dx = north || south ? 0 : -1, dy = north ? -1 : south ? 1 : 0;
             for (s32 i = 0; i < 3; i++) { lf_sx[i] += dx; lf_sy[i] += dy; }
             if (++lf_wait < 150) return;
             lf_scene = 6; lf_wait = 0;
@@ -4121,7 +4134,8 @@ static void update_leafen(void) {
         case 4: lf_scene = 5; lf_wait = 0; break;
         default: {
             leafen_state[lf_k] = LS_FREE;
-            if (lf_k >= FIRST_GROVE_LEAFEN) { seeds += 5; mushrooms += 2; }
+            if (lf_k >= FIRST_MEADOW_LEAFEN) { seeds += 4; fruit += 4; }
+            else if (lf_k >= FIRST_GROVE_LEAFEN) { seeds += 5; mushrooms += 2; }
             else if (lf_k >= FIRST_ORCH_LEAFEN) { fruit += 3; mushrooms += 2; }
             else if (lf_k >= FIRST_LEAFEN) { seeds += 5; fruit += 3; }
             u32 n = 0;
@@ -4140,7 +4154,7 @@ static void update_leafen(void) {
     if (welcome_step) {
         scene_on = 1;
         if (msg_timer || msgq_len) return;
-        static const char *lines[] = { "THE LEAFEN MADE IT HOME!", "BARK: HMPH. LOUD LITTLE THINGS.",
+        static const char *lines[] = { "THE LEAFEN MADE IT HOME!", "BARK: HMPH. LOUD LITTLE ONES.",
                                        "...GOOD TO HAVE THEM BACK." };
         if (welcome_step <= 3) { show_message(lines[welcome_step - 1]); welcome_step++; return; }
         s32 lv = (s32)skill_lv();
@@ -4313,6 +4327,17 @@ static void update_leafen(void) {
         queue_message(leafen_ask[LF_NUB][1]);
         sfx_play(SFX_GIFT);
     }
+    // v0.21.5: Silver calls from behind the nook's wall; Dusk snores in its shut flower (the first time you come by)
+    if (cur_area == MEADOW && leafen_state[LF_SILVER] == LS_WAIT && near_leafen(LF_SILVER, 112) && !leafen_ready(LF_SILVER) &&
+        !msg_timer && !msgq_len) {
+        leafen_state[LF_SILVER] = LS_MET;
+        show_message(leafen_ask[LF_SILVER][0]); queue_message(leafen_ask[LF_SILVER][1]); sfx_play(SFX_GIFT);
+    }
+    if (cur_area == MEADOW && leafen_state[LF_DUSK] == LS_WAIT && near_leafen(LF_DUSK, 56) && !meadow_night &&
+        !msg_timer && !msgq_len) {
+        leafen_state[LF_DUSK] = LS_MET;
+        show_message(leafen_ask[LF_DUSK][0]); queue_message(leafen_ask[LF_DUSK][1]);
+    }
     // a trouble fixed on the map: the Leafen notices as soon as you come close
     for (s32 k = 0; k < NUM_LEAFEN; k++)
         if (leafen_area[k] == cur_area && leafen_waiting(k) && k != LF_MOSSY && k != LF_DEW &&
@@ -4336,6 +4361,8 @@ static const short village_home[NUM_LEAFEN][2][3] = {   // x, y, home style (0 m
     { { 432, 150, 4 }, { 0, 0, 0 } },
     { { 30, 250, 3 }, { 0, 0, 0 } },    // v0.20 the grove's, west and east of the tree
     { { 466, 250, 0 }, { 0, 0, 0 } },
+    { { 80, 70, 1 }, { 0, 0, 0 } },     // v0.21.5 the meadow's, north of the tree
+    { { 400, 70, 5 }, { 0, 0, 0 } },
 };
 static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 242, 422, V_SWIM }, { 214, 470, V_WALK }, { 168, 262, V_CLIMB } },
@@ -4351,6 +4378,8 @@ static const short village_folk[NUM_LEAFEN][3][3] = {   // x, y, what it does
     { { 410, 172, V_WALK }, { 452, 186, V_WALK }, { 300, 234, V_CLIMB } },
     { { 50, 270, V_WALK }, { 28, 284, V_WALK }, { 196, 250, V_CLIMB } },
     { { 446, 270, V_WALK }, { 470, 282, V_WALK }, { 318, 260, V_CLIMB } },
+    { { 64, 92, V_WALK }, { 104, 96, V_WALK }, { 206, 214, V_CLIMB } },
+    { { 384, 92, V_WALK }, { 424, 96, V_WALK }, { 308, 218, V_CLIMB } },
 };
 static short folk_x[NUM_LEAFEN * 3], folk_y[NUM_LEAFEN * 3];
 static u8 folk_look(s32 k, s32 i) { return i == 0 ? leafen_look[k] : (u8)((leafen_look[k] + i * 2 + k) % 5); }
@@ -4360,7 +4389,7 @@ static void draw_leafen(void) {
     sprite_hide(OAM_SHINY);
     if (cur_area == WEST && tree_alive) {           // the village's slots are shared (OAM_POOL)
         for (s32 i = 0; i < FOLK_SLOTS; i++) sprite_hide(OAM_FOLK + i);
-        for (s32 i = 0; i < FIRST_LEAFEN * 2 + NUM_LEAFEN - FIRST_LEAFEN; i++) sprite_hide(OAM_LHOME + i);   // 15 homes
+        for (s32 i = 0; i < FIRST_LEAFEN * 2 + NUM_LEAFEN - FIRST_LEAFEN; i++) sprite_hide(OAM_LHOME + i);   // 21 homes
     }
     if (!tree_alive || !leafen_init) return;
     for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_LEAFEN * 16 + i] = obj_pal_leafen[i];   // the clamps' bank is free now
@@ -4379,6 +4408,7 @@ static void draw_leafen(void) {
             continue;
         }
         if (leafen_area[k] != cur_area || !leafen_waiting(k)) continue;
+        if (k == LF_DUSK && !meadow_night) continue;    // v0.21.5: asleep inside its shut flower
         s32 x = leafen_x(k) * 16, y = leafen_y(k) * 16;
         if (k == LF_NUB && is_rock(tile_at(leafen_x(k), leafen_y(k)))) {   // still buried: his leaves poke out
             sprite_set(OAM_LEAFEN + slot++, x - cam_x, y - cam_y - 9, SPR_LEAFEN + C_PEEK, (frame >> 5) & 1, PAL_LEAFEN);
@@ -4504,7 +4534,7 @@ static void update_glimmer(void) {
         scene_on = 1;
         if (msg_timer || msgq_len) return;
         static const char *lines[NOX_SCENE_LEN] = {
-            "A TINY MOTH SLEEPS IN THE STAR.", "IT STRETCHES... AND YAWNS.", "NOX: MMH... IS IT NIGHT?",
+            "A TINY MOTH SLEEPS IN THERE.", "IT STRETCHES... AND YAWNS.", "NOX: MMH... IS IT NIGHT?",
             "I'M NOX. I BRING THE NIGHT.", "NOX JOINED! ZZZ...", "PICK ME, PRESS A IN THE",
             "MEADOW, AND NIGHT FALLS THERE.", "THE MOON SHOWS WHAT DAY HIDES.",
         };
@@ -4530,7 +4560,7 @@ static void update_glimmer(void) {
     s32 dx = px - x, dy = py + 4 - y, d2 = dx * dx + dy * dy;
     if (!(gl_told & 1) && d2 < 130 * 130 && !msg_timer) {
         gl_told |= 1;
-        show_message("SOMETHING GLINTS OVER THE POOL...");
+        show_message("SOMETHING GLINTS ON THE POOL.");
     }
     int last = glimmer_pool + 1 >= NUM_MEADOW_POOLS;
     if (!last && d2 < 44 * 44) {                     // too close: off to the next pool
@@ -5282,7 +5312,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x4B534652u   // "RFSK" (v0.21.4: Nox, the meadow's night)
+#define SAVE_MAGIC 0x4C534652u   // "RFSL" (v0.21.5: the meadow's Leafen)
+#define SAVE_MAGIC_V214 0x4B534652u   // "RFSK": v0.21.4 saves still load
 #define SAVE_MAGIC_V213 0x4A534652u   // "RFSJ": v0.21.3 saves still load
 #define SAVE_MAGIC_V210 0x49534652u   // "RFSI": v0.21.0-2 saves still load
 #define SAVE_MAGIC_V206 0x48534652u   // "RFSH": v0.20.6 saves still load
@@ -5349,8 +5380,8 @@ static const struct { void *p; u32 n; } save_fields[] = {
     { &pump_on[GROVE], 1 }, { &pump_x[GROVE], 1 }, { &pump_y[GROVE], 1 }, { &pump_drain[GROVE], 4 },
     { &told_full[GROVE], 1 }, { &spirits[KIND_CAP], sizeof(Spirit) }, { &party[7], 4 }, { &fp[KIND_CAP], 1 },
     { &quest[KIND_CAP], 1 }, { &unlocked[KIND_CAP], 1 }, { &cap_step, 4 }, { &grove_seen, 4 },
-    { &leafen_state[FIRST_GROVE_LEAFEN], NUM_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 }, { &home_k, 4 },
-    { &out_x, 4 }, { &out_y, 4 }, { decor_have, 4 }, { home_decor, 13 }, { &decor_done, 4 },
+    { &leafen_state[FIRST_GROVE_LEAFEN], FIRST_MEADOW_LEAFEN - FIRST_GROVE_LEAFEN }, { &shrunk, 4 }, { &home_k, 4 },
+    { &out_x, 4 }, { &out_y, 4 }, { decor_have, 4 }, { home_decor, FIRST_MEADOW_LEAFEN }, { &decor_done, 4 },
     // v0.20.6: which region sent you to Bark
     { &bark_hint, 4 },
     // v0.21: the Mirror Meadow and its reflection
@@ -5362,9 +5393,13 @@ static const struct { void *p; u32 n; } save_fields[] = {
     // v0.21.4 (step 3): Nox, the meadow's night, the ring, the rune stone
     { &spirits[KIND_NOX], sizeof(Spirit) }, { &party[9], 4 }, { &fp[KIND_NOX], 1 }, { &quest[KIND_NOX], 1 },
     { &unlocked[KIND_NOX], 1 }, { &nox_step, 4 }, { &meadow_night, 4 }, { &ring_lit, 4 }, { &seal_open, 4 },
+    // v0.21.5 (step 4): the meadow's Leafen and their homes' decorations
+    { &leafen_state[FIRST_MEADOW_LEAFEN], NUM_LEAFEN - FIRST_MEADOW_LEAFEN },
+    { &home_decor[FIRST_MEADOW_LEAFEN], NUM_LEAFEN - FIRST_MEADOW_LEAFEN },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V213_FIELDS (NUM_SAVE_FIELDS - 9)
+#define NUM_V214_FIELDS (NUM_SAVE_FIELDS - 2)
+#define NUM_V213_FIELDS (NUM_V214_FIELDS - 9)
 #define NUM_V210_FIELDS (NUM_V213_FIELDS - 7)
 #define NUM_V206_FIELDS (NUM_V210_FIELDS - 5)
 #define NUM_V200_FIELDS (NUM_V206_FIELDS - 1)
@@ -5432,6 +5467,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V206) nf = NUM_V206_FIELDS;
     else if (magic == SAVE_MAGIC_V210) nf = NUM_V210_FIELDS;
     else if (magic == SAVE_MAGIC_V213) nf = NUM_V213_FIELDS;
+    else if (magic == SAVE_MAGIC_V214) nf = NUM_V214_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -5453,7 +5489,10 @@ static int load_game(void) {
     }
     if (nf < NUM_V184_FIELDS) pouch_on = tree_alive && revive_step > REVIVE_LEN;   // the talk is behind you
     if (nf < NUM_V206_FIELDS) bark_hint = 0;            // before v0.20.6
-    if (nf < NUM_SAVE_FIELDS) {                          // before v0.21.4: Nox asleep in its star, the meadow by day
+    if (nf < NUM_SAVE_FIELDS) {                          // before v0.21.5: the meadow's Leafen wait
+        for (s32 k = FIRST_MEADOW_LEAFEN; k < NUM_LEAFEN; k++) { leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE; home_decor[k] = 0; }
+    }
+    if (nf < NUM_V214_FIELDS) {                          // before v0.21.4: Nox asleep in its star, the meadow by day
         spirit_init(KIND_NOX, MEADOW_STAR_X, MEADOW_STAR_Y, SP_HIDDEN);
         spirits[KIND_NOX].area = MIRROR;
         party[9] = 0; fp[KIND_NOX] = quest[KIND_NOX] = unlocked[KIND_NOX] = 0;
@@ -5490,7 +5529,7 @@ static int load_game(void) {
         party[7] = 0; fp[KIND_CAP] = quest[KIND_CAP] = unlocked[KIND_CAP] = 0;
         cap_step = 0; grove_seen = 0; shrunk = 0; home_k = -1;
         for (s32 i = 0; i < 4; i++) decor_have[i] = 0;
-        for (s32 i = 0; i < 13; i++) home_decor[i] = 0;
+        for (s32 i = 0; i < NUM_LEAFEN; i++) home_decor[i] = 0;
         decor_done = 0;
         for (s32 n = 0; n < NUM_NOOKS; n++) {            // the tiny nooks in the old regions, where there is room
             s32 a = nook_area[n], x = nook_x[n], y = nook_y[n];

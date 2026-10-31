@@ -1300,12 +1300,12 @@ def room_data(tile_base):
     ids = {n: _art.META.index(n) for n in _art.INTERIOR_META}
     ids["sp_first"] = ids["sp_lilypool"]
     tiles, off, cnt, scr, dec, pal, logic = [], [], [], [], [], [], []
-    for k in range(13):
+    for k in range(rooms.NUM_HOMES):
         w, e, d, p, n = rooms.pack(k, tile_base, ROOM_BANK)
         off.append(len(tiles) // 8); cnt.append(n)
         tiles += w; scr += e; dec += d; pal += p
         logic += rooms.logic(k, ids)
-    L = [rooms.LAYOUTS[rooms.HOME_LAYOUT[k]] for k in range(13)]
+    L = [rooms.LAYOUTS[rooms.HOME_LAYOUT[k]] for k in range(rooms.NUM_HOMES)]
     out = [f"#define ROOM_BANK {ROOM_BANK}\n#define ROOM_BANKS {rooms.ROOM_BANKS}"]
     out.append(c_array("unsigned int", "room_tiles", tiles))
     out.append(c_array("unsigned short", "room_tile_off", off, fmt="{}"))

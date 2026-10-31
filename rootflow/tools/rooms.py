@@ -33,7 +33,8 @@ LAYOUT_COLORS = [
 VOID = (14, 12, 16)
 
 # each home's layout (from its look in the village: main.c's village_home styles) and its Leafen's look
-HOME_LAYOUT = [0, 0, 2, 1, 1, 0, 0, 0, 2, 2, 1, 1, 0]
+HOME_LAYOUT = [0, 0, 2, 1, 1, 0, 0, 0, 2, 2, 1, 1, 0, 2, 0]   # v0.21.5: Silver's (tent: cottage), Dusk's (dew hut)
+NUM_HOMES = len(HOME_LAYOUT)
 LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]   # main.c LOOK_* order
 # the rooms (cells: floor x 2-12, y 3-7; the door at (7, 8)). B: a big piece (2x2), M: a tall one (1x2),
 # T: the stool, S: the Leafen's own piece (2x2), a/b: decoration spots, O: where the owner stands.
@@ -47,7 +48,8 @@ RUG = (6, 5)
 BIG = ["leaf_bed", "acorn_table", "pebble_shelf"]          # turned round by the Leafen's number
 TALL = ["dew_lamp", "sprout_pot"]
 SPECIALS = ["sp_lilypool", "sp_fruitbowl", "sp_twigs", "sp_vase", "sp_rocks", "sp_shiny", "sp_mudbath",
-            "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar"]
+            "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar",
+            "sp_mirror", "sp_moonlamp"]   # v0.21.5 the Mirror Meadow's Silver and Dusk
 DECOR = ["dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle"]
 
 img = None
@@ -315,6 +317,27 @@ def sp_buttonjar(x, y):        # Button: a big glass jar of buttons
         put(x + 9, b, F['white'])
 
 
+def sp_mirror(x, y):           # Silver: a tall standing mirror in a silver frame, on little feet
+    shape_draw(rrect(x + 7, y + 1, x + 25, y + 29), *STONE, shadow=True)
+    for (a, b) in rrect(x + 10, y + 4, x + 22, y + 26):
+        put(a, b, F['sky'] if (a - b) % 7 else F['skyl'])
+    for k in range(6):                         # a shine across the glass
+        put(x + 12 + k, y + 8 + k, F['white']); put(x + 13 + k, y + 8 + k, F['skyl'])
+    shape_draw(rect(x + 8, y + 28, x + 12, y + 31), *STONE)
+    shape_draw(rect(x + 20, y + 28, x + 24, y + 31), *STONE)
+
+
+def sp_moonlamp(x, y):         # Dusk: a round moon lamp on a low stand, glowing softly
+    for (a, b) in ell(x + 16, y + 28, 13, 4):
+        if get(a, b) in R['floor'] and (a + b) % 2 == 0:
+            put(a, b, R['sun'])
+    shape_draw(rect(x + 13, y + 22, x + 19, y + 30), *DARKWOOD, shadow=True)
+    shape_draw(ell(x + 16, y + 28, 7, 2.6), *DARKWOOD)
+    shape_draw(ell(x + 16, y + 13, 10, 10), F['cream'], F['creaml'], F['creamd'])
+    for (cx, cy, r) in ((12, 10, 2.2), (19, 15, 1.6), (15, 18, 1.2)):   # its craters
+        shape_draw(ell(x + cx, y + cy, r, r), F['creamd'], F['cream'], F['creamd'], out=F['creamd'])
+
+
 # ---- decorations (16x16, on a spot) ----
 def dc_spot(x, y):             # an empty spot: a faint dashed square
     for k in range(3, 13, 2):
@@ -498,7 +521,7 @@ def logic(k, ids):
             m[yy][xx] = ids["rug"]
     for (name, cx, cy) in home_plan(k):
         w, h = SIZE[name]
-        tid = ids["sp_first"] + k if name in SPECIALS else ids[name]
+        tid = ids["sp_first"] + min(k, 12) if name in SPECIALS else ids[name]   # the later ones share the last id (solid)
         for yy in range(cy, cy + h):
             for xx in range(cx, cx + w):
                 m[yy][xx] = tid
@@ -617,6 +640,6 @@ def pack(k, tile_base, bank0):
 if __name__ == "__main__":                         # a look at all 13 (scratch)
     import sys
     sheet = Image.new('RGB', (W * 4, H * 4))
-    for k in range(13):
+    for k in range(NUM_HOMES):
         sheet.paste(render(k)[0], ((k % 4) * W, (k // 4) * H))
     sheet.save(sys.argv[1])
