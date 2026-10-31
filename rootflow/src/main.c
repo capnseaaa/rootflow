@@ -701,7 +701,7 @@ static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(O
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
-enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE, RS_ROOM };
+enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE, RS_ROOM, RS_MEADOW };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
     if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank,
@@ -711,7 +711,7 @@ static void load_region_sprites(s32 a) {
             PAL_OBJ[PAL_GLIMMER * 16 + i] = obj_pal_glimmer[i];   // v0.21
         }
     s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : a == GROVE ? RS_GROVE :
-             a == INTERIOR ? RS_ROOM : RS_NONE;
+             a == INTERIOR ? RS_ROOM : a == MEADOW || a == MIRROR ? RS_MEADOW : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
     if (rs == RS_TREE) {
@@ -720,6 +720,9 @@ static void load_region_sprites(s32 a) {
     } else if (rs == RS_ORCH) {                        // v0.19 the orchard: its smoke creatures
         copy32(OBJ_TILES + TILE_REGION * 8, region_orch_tiles, sizeof(region_orch_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_orch[i];
+    } else if (rs == RS_MEADOW) {                      // v0.21.6 the meadow and its reflection: drones and wisps
+        copy32(OBJ_TILES + TILE_REGION * 8, region_meadow_tiles, sizeof(region_meadow_tiles) / 4);
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_meadow[i];
     } else if (rs == RS_ROOM) {                        // v0.20.5 a Leafen home: its owner, bigger (the Leafen's colors)
         copy32(OBJ_TILES + TILE_REGION * 8, region_room_tiles, sizeof(region_room_tiles) / 4);
     } else {                                           // v0.20 the grove: its poison puffs and their clouds
@@ -2145,7 +2148,7 @@ enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, 
 static s32 orb_cell(s32 i) { return i < 6 ? C_ORB + i : i >= KIND_GLIMMER ? C_FAIRY + 1 + (i - KIND_GLIMMER) * 2 : C_MINI + 6 + (i - 6) * 2; }
 static s32 mini_cell(s32 i) { return i < 6 ? C_MINI + i : i >= KIND_GLIMMER ? C_FAIRY + 2 + (i - KIND_GLIMMER) * 2 : C_MINI + 7 + (i - 6) * 2; }   // C_FAIRY: the village's fairy ring   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH ||
-                                         cur_area == ORCHARD || cur_area == GROVE; }
+                                         cur_area == ORCHARD || cur_area == GROVE || cur_area == MEADOW || cur_area == MIRROR; }
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS + 1; i++)        // the sixth only while a stew lasts (v0.19)
@@ -2153,7 +2156,9 @@ static void draw_hearts_hud(void) {
 }
 
 // Enemies: blobs creep after you, drones dart at you through the air.
-enum { E_BLOB, E_DRONE, E_SMOKE, E_PUFF };   // E_SMOKE (v0.19): the orchard's smoke creatures; E_PUFF (v0.20): the grove's
+enum { E_BLOB, E_DRONE, E_SMOKE, E_PUFF, E_EYE, E_WISP };   // E_SMOKE (v0.19): the orchard's smoke creatures; E_PUFF
+                                                            // (v0.20): the grove's; v0.21.6 the meadow's Vael survey
+                                                            // drones (E_EYE) and its reflection's mirror wisps (E_WISP)
 typedef struct { s32 type, x, y, hp, timer, dx, dy, flash, knock, alive; } Enemy;
 #define MAX_ENEMIES 8
 static Enemy enemies[MAX_ENEMIES];
@@ -2231,18 +2236,24 @@ static const u8 orchard_spawn[][3] = { { E_SMOKE, 8, 19 }, { E_SMOKE, 22, 14 }, 
 // v0.20 poison spore puffs drifting in the grove (Caleb: avoidable), three of them round Button
 static const u8 grove_spawn[][3] = { { E_PUFF, 4, 18 }, { E_PUFF, 9, 22 }, { E_PUFF, 5, 23 }, { E_PUFF, 20, 12 },
                                      { E_PUFF, 12, 13 }, { E_PUFF, 27, 17 } };
+// v0.21.6 Vael's survey drones over the real meadow; mirror wisps in its reflection (away from the way in)
+static const u8 meadow_spawn[][3] = { { E_EYE, 7, 13 }, { E_EYE, 8, 22 }, { E_EYE, 26, 18 } };
+static const u8 mirror_spawn[][3] = { { E_WISP, 8, 10 }, { E_WISP, 22, 24 }, { E_WISP, 18, 6 }, { E_WISP, 25, 18 } };
 static void spawn_enemies(void) {
     for (s32 i = 0; i < MAX_ENEMIES; i++) enemies[i].alive = 0;
     const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : cur_area == ORCHARD ? orchard_spawn :
-                        cur_area == GROVE ? grove_spawn : enemy_spawn;
+                        cur_area == GROVE ? grove_spawn : cur_area == MEADOW ? meadow_spawn :
+                        cur_area == MIRROR ? mirror_spawn : enemy_spawn;
     u32 count = cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) :
                 cur_area == ORCHARD ? sizeof(orchard_spawn) / sizeof(orchard_spawn[0]) :
-                cur_area == GROVE ? sizeof(grove_spawn) / sizeof(grove_spawn[0]) : NUM_SPAWNS;
+                cur_area == GROVE ? sizeof(grove_spawn) / sizeof(grove_spawn[0]) :
+                cur_area == MEADOW ? sizeof(meadow_spawn) / sizeof(meadow_spawn[0]) :
+                cur_area == MIRROR ? sizeof(mirror_spawn) / sizeof(mirror_spawn[0]) : NUM_SPAWNS;
     for (u32 i = 0; i < count && i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
         e->type = sp[i][0];
         e->x = sp[i][1] * 16; e->y = sp[i][2] * 16;
-        e->hp = e->type == E_DRONE || e->type == E_PUFF ? 2 : 3;
+        e->hp = e->type == E_BLOB || e->type == E_SMOKE ? 3 : 2;
         e->timer = i * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
         e->alive = 1;
         if (e->type == E_SMOKE && stack_dark(e->x + 8, e->y + 8) == 0) e->alive = 0;   // not in the clear air
@@ -2515,6 +2526,10 @@ static u32 dx_flip(s32 dx) { return dx < 0; }
 static void update_enemies(void) {
     if (!in_combat_area()) return;
     s32 pcx = px + 8, pcy = py + 8;
+    static s32 last_px, last_py;                         // v0.21.6: how you moved this frame (the wisps mirror it)
+    s32 mdx = px - last_px, mdy = py - last_py;
+    last_px = px; last_py = py;
+    if (mdx > 3 || mdx < -3 || mdy > 3 || mdy < -3) mdx = mdy = 0;   // a jump (a new area, a flip): not a step
     for (s32 i = 0; i < MAX_ENEMIES; i++) {
         Enemy *e = &enemies[i];
         if (!e->alive) continue;
@@ -2523,7 +2538,11 @@ static void update_enemies(void) {
         if (e->knock) { e->knock--; move_enemy(e, e->dx * 2, e->dy * 2, e->type != E_BLOB); continue; }
         s32 dx = pcx - (e->x + 8), dy = pcy - (e->y + 8);
         s32 near = dx * dx + dy * dy < 100 * 100;
-        if (e->type == E_PUFF) {                             // v0.20: drifts slowly; every few seconds it lets out a
+        if (e->type == E_WISP) {                             // v0.21.6: within sight it copies your steps, mirrored
+            if (dx * dx + dy * dy < 120 * 120) move_enemy(e, -mdx, mdy, 0);   // left for right: walk at it, it comes
+            else if ((e->timer & 7) == 0) move_enemy(e, (s32)(rng() % 3) - 1, (s32)(rng() % 3) - 1, 0);
+            e->dx = -mdx ? -mdx : e->dx;
+        } else if (e->type == E_PUFF) {                      // v0.20: drifts slowly; every few seconds it lets out a
             if ((e->timer & 255) == 0) { e->dx = (s32)(rng() % 3) - 1; e->dy = (s32)(rng() % 3) - 1; }   // poison cloud
             if ((e->timer & 3) == 0) move_enemy(e, e->dx, e->dy, 0);
             u32 t = e->timer % 200;
@@ -2884,6 +2903,12 @@ static void draw_combat(void) {
             if (e->timer % 200 >= 140)                   // the shared slots after the enemies' (only the grove uses them)
                 sprite_set(OAM_ENEMY + 8 + i, e->x - cam_x, e->y - cam_y, TILE_PUFF / 4 + 2 + ((frame >> 3) & 1), 0, PAL_BOSS);
             else sprite_hide(OAM_ENEMY + 8 + i);
+            continue;
+        }
+        if (e->type == E_EYE || e->type == E_WISP) {     // v0.21.6 the meadow's own (its region set, bank PAL_BOSS)
+            s32 f = e->type == E_EYE ? ((e->timer >> 5) & 1) : 2 + ((e->timer >> 3) & 1);
+            s32 b = e->type == E_WISP ? bob[(e->timer >> 2) & 15] : 0;
+            sprite_set(OAM_ENEMY + i, e->x - cam_x, e->y - cam_y + b, TILE_MEADOWE / 4 + f, e->dx < 0, e->flash ? PAL_FLASH : PAL_BOSS);
             continue;
         }
         if (e->type == E_SMOKE) {                        // the orchard's own sprite (its region set, bank PAL_BOSS)

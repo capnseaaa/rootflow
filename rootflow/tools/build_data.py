@@ -1383,6 +1383,7 @@ def main():
     glimmer = Image.open(os.path.join(ART, "glimmer_sprite.png"))   # v0.21: Glimmer (flying x2, its glint)
     nox = Image.open(os.path.join(ART, "nox_sprite.png"))       # v0.21.4: Nox (flying x2, its starlight, asleep; Glimmer's colors)
     grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
+    meadow_spr = Image.open(os.path.join(ART, "meadow_sprite.png"))   # v0.21.6: the meadow's set (survey drones, mirror wisps)
     tiny = Image.open(os.path.join(ART, "tiny_sprite.png"))     # v0.20: the wizard shrunk (12 frames, 8x16)
     for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove, tiny):
         assert im.mode == "P", "PNGs must be indexed color"
@@ -1421,7 +1422,8 @@ def main():
     region_sets = [("TREE", [("CLAMP", clamp, 32), ("BOSS", boss, 32)]),   # the Great Tree and its hollow
                    ("ORCH", [("SMOKE", orch, 16)]),                           # v0.19 the burnt orchard
                    ("GROVE", [("PUFF", grove, 16)]),                          # v0.20 the mushroom grove
-                   ("ROOM", [("LFBIG", leafen_big_sheet(), 32)])]             # v0.20.5 the Leafen at home
+                   ("ROOM", [("LFBIG", leafen_big_sheet(), 32)]),             # v0.20.5 the Leafen at home
+                   ("MEADOW", [("MEADOWE", meadow_spr, 16)])]                  # v0.21.6 the meadow and its reflection
     region_words = {}
     for set_name, set_sheets in region_sets:
         words = []
@@ -1502,6 +1504,7 @@ def main():
     out.append(c_array("unsigned char", "meadow_pool_x", [round(p[0]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned char", "meadow_pool_y", [round(p[1]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned short", "obj_pal_grove", palette_of(grove), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_meadow", palette_of(meadow_spr), fmt="0x{:04X}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
     out.append(c_array("unsigned int", "pouch_tiles", pouch_all))

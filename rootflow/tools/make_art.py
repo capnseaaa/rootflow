@@ -4111,6 +4111,61 @@ def make_glimmer():
     return img
 
 
+MEADOW_SPR_PAL = [                 # v0.21.6 the meadow's enemies (its region set; OBJ bank 13 while you are there)
+    (255, 0, 255), (30, 28, 40), (84, 90, 106), (134, 142, 158), (192, 200, 212), (226, 58, 58), (255, 150, 128),
+    (44, 20, 30), (120, 160, 230), (182, 220, 255), (232, 246, 255), (255, 255, 255), (60, 70, 120),
+] + [(0, 0, 0)] * 3
+
+
+def meadow_spr_cell(name, frame):
+    """v0.21.6 the meadow's enemies. "eye": a Vael survey drone, a small round metal shell with a red lens and two
+    stubby fins (frame 1: the lens looks the other way). "wisp": a mirror wisp, a pale ghost flame with two dark
+    eyes (frames: its flame flickers)."""
+    px = _canvas()
+    def outline(shape):
+        for (x, y) in shape:
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < 16 and 0 <= ny < 16 and (nx, ny) not in shape and px[ny][nx] == 0:
+                    px[ny][nx] = 1
+    if name == "eye":
+        fins = {(2, 7), (3, 7), (2, 8), (12, 7), (13, 7), (13, 8)}
+        shell = _ellset(7.5, 8.0, 4.8, 4.6)
+        for (x, y) in shell | fins:
+            px[y][x] = 4 if y < 6 else 2 if y > 10 or x > 10 else 3
+        lx = 6 if frame == 0 else 9
+        for (x, y) in _ellset(lx + 0.5, 8.0, 2.2, 2.2):
+            px[y][x] = 7
+        px[7][lx] = px[8][lx] = 5
+        px[7][lx - 1 if frame == 0 else lx + 1] = 6
+        px[3][7] = px[2][7] = 2; px[1][7] = 5            # an antenna with a red light
+        outline(shell | fins | {(7, 2), (7, 3), (7, 1)})
+        return px
+    sway = (-0.6, 0.6)[frame]
+    flame = _ellset(7.5, 9.6, 4.0, 4.2) | _rell(7.5 + sway, 5.0, 1.8, 4.2, sway * 12) | _rell(5.0 - sway, 6.6, 1.2, 2.6, -20)
+    for (x, y) in flame:
+        px[y][x] = 10 if y < 7 else 9 if y < 11 else 8
+    for (x, y) in ((7, 4), (8, 5), (6, 7)):
+        if (x, y) in flame:
+            px[y][x] = 11
+    outline(flame)
+    for (x, y) in flame:
+        if px[y][x] == 1:
+            px[y][x] = 12                                 # a soft blue edge, not a hard outline
+    px[9][6] = px[9][9] = px[10][6] = px[10][9] = 1       # eyes
+    return px
+
+
+def make_meadow_sprites():
+    img = Image.new("P", (64, 16), 0)
+    img.putpalette([c for rgb in MEADOW_SPR_PAL for c in rgb])
+    for i, (n, f) in enumerate((("eye", 0), ("eye", 1), ("wisp", 0), ("wisp", 1))):
+        for y, row in enumerate(meadow_spr_cell(n, f)):
+            for x, c in enumerate(row):
+                img.putpixel((16 * i + x, y), c)
+    return img
+
+
 GROVE_PAL = [                      # v0.20 the grove's own sprites (its region set; OBJ bank 13 while you are there)
     (255, 0, 255), (30, 20, 36), (96, 60, 120), (146, 98, 168), (196, 156, 210), (120, 176, 70), (176, 220, 110),
     (236, 220, 240),
@@ -4315,7 +4370,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("glimmer_sprite.png", make_glimmer), ("nox_sprite.png", make_nox), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("glimmer_sprite.png", make_glimmer), ("nox_sprite.png", make_nox), ("meadow_sprite.png", make_meadow_sprites), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):
