@@ -1,0 +1,135 @@
+# v0.23.0 the Works (first half): from the dev jump THE WORKS, in at the bottom of the entry hall
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=17
+1 1
+1 0
+200 0
+0 0 @$cur_area,$px,$py,$party_count,$active
+0 0 @$party,$party+4,$party+8,$party+12,$party+16
+40 0 wk0.ppm
+0 0 @$party+20,$party+24,$party+28,$party+32,$party+36
+0 0 !$dev_charge=1,$enemies+36=0,$enemies+76=0,$enemies+116=0
+# Flick out of the pouch in Glimmer's place (slot 7)
+0 0 !$party+28=6,$spirits+176=2,$spirits+232=5
+# Flick (slot 7) lights the hall's lamp at (10,24), from below
+0 0 !$px=160,$py=396,$pdir=1,$active=7
+5 0
+1 1
+1 0
+30 0 wk1.ppm
+0 0 @$maps+13064
+# Pebble (slot 2) smashes the pipe at (8,24) that feeds the west wing's sludge
+0 0 !$msg_timer=0,$msgq_len=0,$px=128,$py=396,$pdir=1,$active=2
+5 0
+1 1
+1 0
+30 0
+0 0 @$maps+13064
+# Lily (slot 5) cleans the band at (5,23) and floats pads across it
+0 0 !$msg_timer=0,$msgq_len=0,$px=80,$py=380,$pdir=1,$active=5
+5 0
+1 1
+1 0
+20 0 wk2.ppm
+0 0 @$maps+13028,$maps+12996
+1 1
+1 0
+20 0
+12 64
+1 1
+1 0
+20 0
+24 64
+20 0 wk3.ppm
+0 0 @$px,$py,$maps+13028,$maps+12996
+# Clover's vat: clean the ring round her cage
+1 64
+1 1
+1 0
+20 0
+0 0 !$msg_timer=0,$msgq_len=0,$px=32,$py=332,$pdir=3
+5 0
+1 1
+1 0
+20 0
+0 0 !$msg_timer=0,$msgq_len=0,$px=32,$py=300,$pdir=3
+5 0
+1 1
+1 0
+20 0
+0 0 !$msg_timer=0,$msgq_len=0,$px=64,$py=268,$pdir=0
+5 0
+1 1
+1 0
+20 0 wk4.ppm
+0 0 @$leafen_state+12,$leafen_state+16,$maps+12864,$maps+12868,$maps+12896,$maps+12928
+900 0 wk5.ppm
+0 0 @$leafen_state+12,$leafen_state+16,$stone,$seeds
+# Fern's cage is shut: talk to her
+0 0 !$msg_timer=0,$msgq_len=0,$px=432,$py=340,$pdir=1
+5 0
+1 1
+1 0
+20 0 wk6.ppm
+0 0 @$leafen_state+12,$leafen_state+16
+# Cap (slot 7) shrinks in the mushroom ring (24,29); through the vent (26,27) into the control room; pull the lever
+0 0 !$msg_timer=0,$msgq_len=0,$px=384,$py=460,$pdir=0,$active=6
+5 0
+1 1
+1 0
+60 0
+0 0 @$shrunk
+0 0 !$msg_timer=0,$msgq_len=0,$px=400,$py=420,$pdir=3
+60 16
+0 0 @$px,$py
+20 0 wk7.ppm
+1 1
+1 0
+30 0 wk8.ppm
+0 0 @$maps+13180
+# back out through the vent, grow back in the ring, and to Fern: her cage is open
+0 0 !$msg_timer=0,$msgq_len=0,$px=384,$py=460
+5 0
+1 1
+1 0
+60 0
+0 0 @$shrunk
+0 0 !$msg_timer=0,$msgq_len=0,$px=432,$py=340,$pdir=1
+900 0 wk9.ppm
+0 0 @$leafen_state+12,$leafen_state+16
+# Whirr's door is shut
+0 0 !$msg_timer=0,$msgq_len=0,$px=240,$py=264,$pdir=1
+5 0
+1 1
+1 0
+20 0 wk10.ppm
+# save in the Works, power cycle, CONTINUE
+0 0 !$msg_timer=0,$msgq_len=0
+2 8
+5 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 1
+5 0
+2 0
+2 1
+10 0
+2 0
+2 8
+5 0
+^
+10 0
+1 8
+60 0 wk11.ppm
+0 0 @$cur_area,$maps+13180,$maps+13064,$leafen_state+12,$leafen_state+16

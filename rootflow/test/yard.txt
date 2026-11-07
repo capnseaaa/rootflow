@@ -25,12 +25,15 @@
 1 0
 30 0 yd2.ppm
 0 0 @$maps+11395,$maps+11343
-# up against the open door: "THE WORKS. NOT YET..."
+# up through the open door: into the Works (v0.23.0), then down and back out to the yard
 0 0 !$msg_timer=0,$msgq_len=0
 0 0 !$px=240,$py=38,$pdir=1
 10 64
 1 0
 5 0 yd3.ppm
+0 0 @$cur_area,$px,$py
+16 128
+0 0 @$cur_area,$px,$py
 # Nox by the middle tower (15,22): A lulls it to sleep
 0 0 !$msg_timer=0,$msgq_len=0,$yard_alarm=600
 0 0 !$px=208,$py=340,$pdir=2

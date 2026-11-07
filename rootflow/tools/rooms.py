@@ -33,7 +33,8 @@ LAYOUT_COLORS = [
 VOID = (14, 12, 16)
 
 # each home's layout (from its look in the village: main.c's village_home styles) and its Leafen's look
-HOME_LAYOUT = [0, 0, 2, 1, 1, 0, 0, 0, 2, 2, 1, 1, 0, 2, 0]   # v0.21.5: Silver's (tent: cottage), Dusk's (dew hut)
+HOME_LAYOUT = [0, 0, 2, 1, 1, 0, 0, 0, 2, 2, 1, 1, 0, 2, 0, 1, 2]   # v0.21.5: Silver's (tent: cottage), Dusk's (dew hut)
+# v0.23.0: Clover's (burrow), Fern's (cottage)
 NUM_HOMES = len(HOME_LAYOUT)
 LEAFEN_LOOKS = ["sprout", "leaf", "bud", "acorn", "dew"]   # main.c LOOK_* order
 # the rooms (cells: floor x 2-12, y 3-7; the door at (7, 8)). B: a big piece (2x2), M: a tall one (1x2),
@@ -49,7 +50,8 @@ BIG = ["leaf_bed", "acorn_table", "pebble_shelf"]          # turned round by the
 TALL = ["dew_lamp", "sprout_pot"]
 SPECIALS = ["sp_lilypool", "sp_fruitbowl", "sp_twigs", "sp_vase", "sp_rocks", "sp_shiny", "sp_mudbath",
             "sp_reedbasket", "sp_waterbowl", "sp_lantern", "sp_kettle", "sp_mossbed", "sp_buttonjar",
-            "sp_mirror", "sp_moonlamp"]   # v0.21.5 the Mirror Meadow's Silver and Dusk
+            "sp_mirror", "sp_moonlamp",   # v0.21.5 the Mirror Meadow's Silver and Dusk
+            "sp_gearclock", "sp_ferncage"]   # v0.23.0 the Works' Clover and Fern
 DECOR = ["dc_flowerpot", "dc_painting", "dc_bunting", "dc_candle"]
 
 img = None
@@ -336,6 +338,37 @@ def sp_moonlamp(x, y):         # Dusk: a round moon lamp on a low stand, glowing
     shape_draw(ell(x + 16, y + 13, 10, 10), F['cream'], F['creaml'], F['creamd'])
     for (cx, cy, r) in ((12, 10, 2.2), (19, 15, 1.6), (15, 18, 1.2)):   # its craters
         shape_draw(ell(x + cx, y + cy, r, r), F['creamd'], F['cream'], F['creamd'], out=F['creamd'])
+
+
+def sp_gearclock(x, y):        # Clover: a big gear from the Works, stood up as a clock on a little stand
+    import math
+    shape_draw(rect(x + 13, y + 24, x + 19, y + 31), *DARKWOOD, shadow=True)
+    teeth = set()
+    for k in range(10):
+        a = k * math.pi / 5
+        cx, cy = x + 16 + 12 * math.cos(a), y + 13 + 12 * math.sin(a)
+        teeth |= rect(int(cx) - 1, int(cy) - 1, int(cx) + 1, int(cy) + 1)
+    shape_draw(teeth | ell(x + 16, y + 13, 11, 11), *STONE)
+    shape_draw(ell(x + 16, y + 13, 7.5, 7.5), F['cream'], F['creaml'], F['creamd'])
+    for k in range(6):                          # the hands: twelve and about four
+        put(x + 16, y + 7 + k, F['out'])
+    for k in range(4):
+        put(x + 17 + k, y + 13 + k // 2, F['out'])
+    put(x + 16, y + 13, F['red'])
+
+
+def sp_ferncage(x, y):         # Fern: its old Vael cage, door off, full of ferns
+    shape_draw(rect(x + 6, y + 27, x + 26, y + 31), *STONE, shadow=True)
+    for (a, b) in ell(x + 16, y + 7, 10, 5):
+        if b <= y + 7:
+            put(a, b, F['stl'] if b < y + 5 else F['st'])
+    for bx in range(6, 27, 4):                  # the bars
+        for b in range(y + 7, y + 27):
+            put(x + bx, b, F['std'])
+    for (cx, cy, r) in ((11, 20, 6), (21, 19, 6), (16, 14, 6), (14, 24, 4), (19, 24, 4)):
+        for k in range(-r, r + 1):              # fern fronds, fanning out
+            put(x + cx + k, y + cy - abs(k) // 2, F['lfl'] if k % 2 else F['lfd'])
+            put(x + cx + k // 2, y + cy - abs(k) // 3 + 1, F['lfll'])
 
 
 # ---- decorations (16x16, on a spot) ----

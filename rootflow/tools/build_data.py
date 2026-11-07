@@ -39,6 +39,7 @@ MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove re
 MOON_PATH, MENHIR_LIT = 206, 207                    # v0.21.4 Nox's night: moonlight over the dry river, a lit stone
 (CONCRETE, CONCRETE_CRACK, YARD_LANE, DAM_WALL, DAM_BASE, DOOR_L, DOOR_R, DOOR_OPEN_L, DOOR_OPEN_R, FENCE_H, FENCE_V,
  CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD, DAM_LAMP, BEAM_GLOW) = range(208, 230)   # v0.22.1 the Dam Yard
+(WORKS_WALL, WALL_FACE, WORKS_FLOOR, GRATE, VENT, CAGE_LEVER, CAGE_LEVER_ON) = range(230, 237)   # v0.23.0 the Works
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -61,7 +62,7 @@ THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
 VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE, INTERIOR = 0, 1, 2, 3, 4, 5, 6, 7, 8
 MEADOW, MIRROR = 9, 10             # v0.21 the Mirror Meadow (north of the steppe) and its reflection
-NUM_AREAS = 12                     # 11: Vael's Dam Yard (v0.22.1); 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+NUM_AREAS = 13                     # 12: the Works (v0.23.0); 11: Vael's Dam Yard (v0.22.1); 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
                                    # 6: the burnt orchard (v0.19), north of the Great Tree
 # v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
@@ -1333,11 +1334,73 @@ def make_yard():
     return m
 
 
+# v0.23.0 the Works (inside the dam, north of the yard's door). Step 3 builds its first half (rows 16-31); the
+# north half is solid until step 5, behind a shut door (Whirr's room, step 4). In at the bottom middle, from the
+# yard's door. The entry hall has a wing each side: the west wing is cut off by a band of sludge fed by a Vael pipe
+# (Pebble smashes the pipe, Lily cleans the sludge and floats pads across), with Clover caged in a sludge vat
+# beyond; the east wing has Fern caged in the open, and the cage's lever is in a control room whose only way in is
+# an air vent (Cap: shrink in the mushroom ring that grew where a pipe leaks). Lamps along the halls for Flick.
+WORKS = 12
+WORKS_DOOR_X = 15                                  # the shut door to Whirr's room (row 16)
+WORKS_LEVER = (30, 27)
+WORKS_VENT = (26, 27)
+WORKS_CLOVER = (4, 19)
+WORKS_FERN = (27, 20)
+
+
+def make_works():
+    rng = random.Random(1212)
+    m = [[WORKS_WALL] * MAP_W for _ in range(MAP_H)]
+    def put(x, y, t):
+        m[y][x] = t
+    def room(x0, y0, x1, y1):
+        for y in range(y0, y1 + 1):
+            for x in range(x0, x1 + 1):
+                put(x, y, GRATE if rng.random() < 0.08 else WORKS_FLOOR)
+    room(13, 17, 18, 23)                            # the corridor up to Whirr's door
+    room(10, 24, 21, 31)                            # the entry hall (open to the south edge)
+    room(1, 17, 8, 30)                              # the west wing
+    room(23, 17, 30, 30)                            # the east wing
+    for y in (27, 28):                              # doorways from the hall to the wings
+        put(9, y, WORKS_FLOOR); put(22, y, WORKS_FLOOR)
+    for x in (10, 11, 20, 21):                      # the hall's south edge narrows to the way out
+        put(x, 31, WORKS_WALL)
+    for x in range(27, 31):                         # the control room in the east wing's south-east corner
+        put(x, 24, WORKS_WALL)
+    for y in range(24, 31):
+        put(26, y, WORKS_WALL)
+    put(*WORKS_VENT, VENT)
+    put(*WORKS_LEVER, CAGE_LEVER)
+    put(24, 29, FAIRY_RING)                         # mushrooms grew where a pipe leaks
+    put(23, 30, GLOWCAPS); put(25, 30, GLOWCAPS)
+    for x in range(1, 9):                           # the west wing's band of sludge, fed by a pipe
+        put(x, 22, SLUDGE); put(x, 23, SLUDGE)
+    put(8, 24, VAEL_PIPE)
+    cx, cy = WORKS_CLOVER                           # Clover's vat: a ring of sludge, joined to the band
+    for dy in (-1, 0, 1):
+        for dx in (-1, 0, 1):
+            if dx or dy:
+                put(cx + dx, cy + dy, SLUDGE)
+    put(cx - 1, cy + 2, SLUDGE)
+    for (x, y) in ((26, 19), (28, 19), (26, 21), (28, 21), (27, 22)):   # stripes round Fern's cage
+        put(x, y, HAZARD)
+    for (x, y) in ((13, 17), (18, 17), (10, 24), (21, 24), (1, 25), (8, 17), (23, 17), (30, 22)):
+        put(x, y, LANTERN_COLD)                     # Flick lights them
+    for (x, y) in ((1, 30), (2, 30), (7, 30), (12, 24), (19, 24), (30, 17), (29, 17), (23, 23)):
+        put(x, y, CRATE if (x + y) % 2 else BARREL)
+    put(WORKS_DOOR_X, 16, DOOR_L); put(WORKS_DOOR_X + 1, 16, DOOR_R)
+    for y in range(MAP_H):                          # a wall with floor below shows its face
+        for x in range(MAP_W):
+            if m[y][x] == WORKS_WALL and y + 1 < MAP_H and m[y + 1][x] not in (WORKS_WALL, WALL_FACE, VENT):
+                m[y][x] = WALL_FACE
+    return m
+
+
 def make_maps():
     meadow, mirror = make_meadow()
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
             make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)],   # 8: inside a Leafen home (built in-game)
-            meadow, mirror, make_yard()]
+            meadow, mirror, make_yard(), make_works()]
     add_campfires(maps)
     add_nooks(maps)
     return [v for m in maps for row in m for v in row]
@@ -1573,6 +1636,9 @@ def main():
     out.append(c_array("unsigned short", "obj_pal_yard", palette_of(yard_spr), fmt="0x{:04X}"))   # v0.22.1
     out.append(f"#define YARD {YARD}\n#define YARD_SWITCH_X {YARD_SWITCH[0]}\n#define YARD_SWITCH_Y {YARD_SWITCH[1]}\n"
                f"#define YARD_DOOR_X {YARD_DOOR_X}\n#define NUM_YARD_LIGHTS {len(YARD_TOWERS)}")
+    out.append(f"#define WORKS {WORKS}\n#define WORKS_DOOR_X {WORKS_DOOR_X}\n#define WORKS_LEVER_X {WORKS_LEVER[0]}\n"
+               f"#define WORKS_LEVER_Y {WORKS_LEVER[1]}\n#define WORKS_CLOVER_X {WORKS_CLOVER[0]}\n"
+               f"#define WORKS_CLOVER_Y {WORKS_CLOVER[1]}\n#define WORKS_FERN_X {WORKS_FERN[0]}\n#define WORKS_FERN_Y {WORKS_FERN[1]}")
     out.append(c_array("unsigned char", "yard_tower_x", [p[0] for p in YARD_TOWERS], fmt="{}"))
     out.append(c_array("unsigned char", "yard_tower_y", [p[1] for p in YARD_TOWERS], fmt="{}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))

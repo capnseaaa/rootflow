@@ -128,6 +128,11 @@ YARD_META = ["concrete", "concrete_crack", "yard_lane", "dam_wall", "dam_base", 
              "door_open_r", "fence_h", "fence_v", "crate", "barrel", "pipe_h", "pipe_v", "light_tower", "gate_switch",
              "gate_switch_on", "dry_weeds", "hazard", "dam_lamp", "beam_glow"]
 META += YARD_META
+# v0.23.0 the Works (inside the dam): a wall's top and its face, steel floor plate, a floor grate, an air vent in a
+# wall (a tiny wizard crawls through), and the lever of a Leafen's cage (off, pulled). Main colors: 1-3 the floor
+# (the Works tints them), 9-11 steel, 4/5 rust, 13 warning orange, 15 the darkest.
+WORKS_META = ["works_wall", "wall_face", "works_floor", "grate", "vent", "cage_lever", "cage_lever_on"]
+META += WORKS_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -1358,6 +1363,54 @@ def darkness():
     return px
 
 
+def works_tile(rng, name):
+    """v0.23.0 the Works' pieces (WORKS_META)."""
+    px = blank(2)
+    if name == "works_wall":                          # the top of a thick wall: dark riveted plates
+        for y in range(16):
+            for x in range(16):
+                px[y][x] = 15 if x % 8 == 0 or y % 8 == 0 else 9 if (x + y) % 7 else 15
+        for (x, y) in ((2, 2), (13, 2), (2, 13), (13, 13), (6, 10), (10, 5)):
+            px[y][x] = 10
+    elif name in ("wall_face", "vent"):               # the wall's face: a lit lip, steel panels, a dark foot
+        for y in range(16):
+            for x in range(16):
+                px[y][x] = 11 if y == 0 else 10 if y == 1 else 15 if y == 2 else 1 if y >= 14 else \
+                    15 if x in (0, 8) else 9 if y in (3, 13) else 10
+        for x in (3, 5, 11, 13):
+            px[4][x] = px[12][x] = 11
+        if name == "wall_face" and rng.random() < 0.35:   # a rusty pipe along it
+            for x in range(16):
+                px[7][x] = 15; px[8][x] = 5; px[9][x] = 4; px[10][x] = 15
+        if name == "vent":                            # a square grille near the floor
+            for y in range(6, 15):
+                for x in range(3, 13):
+                    edge = y in (6, 14) or x in (3, 12)
+                    px[y][x] = 11 if edge and y == 6 else 9 if edge else 1 if y % 2 else 15
+    elif name == "works_floor":                       # steel floor plate: little raised diamonds
+        speckle(px, rng, [1, 3], 6)
+        for y in range(1, 16, 4):
+            for x in range((y // 4 % 2) * 2 + 1, 16, 4):
+                px[y][x] = 3
+                if x + 1 < 16 and y + 1 < 16:
+                    px[y + 1][x + 1] = 1
+        if rng.random() < 0.3:
+            for i in range(0, 16, 2):
+                px[15][i] = 1
+    elif name == "grate":                             # a floor grate over the dark below
+        for y in range(16):
+            for x in range(16):
+                edge = x in (0, 15) or y in (0, 15)
+                px[y][x] = 3 if edge and (x == 0 or y == 0) else 1 if edge else 15 if x % 3 == 1 else 9
+    elif name in ("cage_lever", "cage_lever_on"):     # the cage's lever: a control box (like the yard's switch)
+        px = yard_tile(rng, "gate_switch_on" if name.endswith("_on") else "gate_switch")
+        for y in range(16):
+            for x in range(16):
+                if px[y][x] in (1, 3) and not (4 <= y <= 14 and 2 <= x <= 13):
+                    px[y][x] = 2
+    return px
+
+
 def beam_glow():
     """v0.22.2 a searchlight's light in the yard's dusk (never on the map; BG2 draws its quarters like the dark): all
     glow (the pool), glow and clear (its rim), glow and dark (the beam), a little glow in the dark (the beam's
@@ -2126,6 +2179,7 @@ def make_terrain():
             tiles.append([row[cx:cx + 16] for row in caps[blue][cy:cy + 16]])
     tiles += [meadow_tile(rng, n) for n in MEADOW_META]
     tiles += [beam_glow() if n == "beam_glow" else yard_tile(rng, n) for n in YARD_META]
+    tiles += [works_tile(rng, n) for n in WORKS_META]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -4404,16 +4458,49 @@ def make_yard_sprites():
                 if c:
                     img.putpixel((64 + 32 * k + x, y), c)
     img.putpalette([c for rgb in YARD_SPR_PAL for c in rgb])
-    for f in range(2):
-        for y in range(32):
-            for x in range(32):
-                d = ((x + .5 - 16) / 14.5) ** 2 + ((y + .5 - 16) / 10.5) ** 2
-                if d >= 1:
-                    continue
-                rim = d > .78
-                if rim or (x % 2 == 0 and y % 2 == 0 and (x + y) % 4 == 0):   # v0.22.2: a rim and a light sparkle
-                    img.putpixel((f * 32 + x, y), 15 if f else (14 if rim else 13))
+    for y in range(32):
+        for x in range(32):
+            d = ((x + .5 - 16) / 14.5) ** 2 + ((y + .5 - 16) / 10.5) ** 2
+            if d >= 1:
+                continue
+            rim = d > .78
+            if rim or (x % 2 == 0 and y % 2 == 0 and (x + y) % 4 == 0):   # v0.22.2: a rim and a light sparkle
+                img.putpixel((x, y), 14 if rim else 13)
+    for y, row in enumerate(works_cage()):             # v0.23.0 frame 1 (was the red spot): a Leafen's cage
+        for x, c in enumerate(row):
+            if c:
+                img.putpixel((32 + x, y), c)
     return img
+
+
+def works_cage():
+    """v0.23.0 a Vael cage over a caught Leafen (32x32; the Leafen's 16x16 sits at (8, 12) under it): a domed top
+    with a hook, bars in front, a base plate, a red padlock."""
+    px = [[0] * 32 for _ in range(32)]
+    for x in range(6, 26):                             # the base plate
+        px[28][x] = 1; px[29][x] = 3 if 7 <= x <= 24 else 1; px[30][x] = 1
+    for y in range(6, 12):                             # the dome
+        hw = int(10 * (1 - ((11.5 - y) / 6.5) ** 2) ** .5) if y < 12 else 10
+        for x in range(16 - hw, 16 + hw):
+            edge = x in (16 - hw, 16 + hw - 1) or y == 6
+            px[y][x] = 1 if edge else 4 if y < 8 else 3
+    for x in range(6, 26):
+        px[11][x] = 1; px[12][x] = 2
+    for y in range(2, 6):                              # the hook
+        px[y][15] = px[y][16] = 2
+    px[2][14] = px[2][17] = 2; px[1][15] = px[1][16] = 1
+    for y in range(13, 28):                            # the bars (gaps let the Leafen show)
+        for x in (6, 10, 14, 18, 22, 25):
+            px[y][x] = 3
+            if x + 1 < 32 and x != 25:
+                px[y][x + 1] = 1
+    for x in range(6, 26):
+        px[20][x] = 2 if x % 4 else 3
+    for y in range(18, 24):                            # the padlock
+        for x in range(14, 19):
+            px[y][x] = 5 if 1 < y - 18 < 5 else 1
+    px[17][15] = px[17][17] = 1; px[16][16] = 1
+    return px
 
 
 GROVE_PAL = [                      # v0.20 the grove's own sprites (its region set; OBJ bank 13 while you are there)

@@ -1,0 +1,39 @@
+# v0.23.0 the Works' Leafen at home: from the dev jump LILY AND CAP (in the village, by the way south), Clover and
+# Fern home (test setup): their homes at the village's west and east edges; shrink and walk into Clover's
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=12
+1 1
+1 0
+200 0
+0 0 @$cur_area,$party_count,$active,$party,$party+4,$party+8,$party+12,$party+16,$party+20
+0 0 @$leafen_state+12,$leafen_state+16
+0 0 !$leafen_state+12=67174657,$leafen_state+16=4
+0 0 !$px=440,$py=120
+30 0 wh0.ppm
+0 0 !$px=40,$py=120
+30 0 wh1.ppm
+# shrink in the village's ring (Cap, slot 6), then walk up into Clover's door (its home at 24,100)
+0 0 !$px=240,$py=460,$pdir=0
+2 0
+1 1
+1 0
+40 0
+0 0 @$shrunk
+0 0 !$px=24,$py=134
+40 64
+40 0 wh2.ppm
+0 0 @$cur_area,$home_k,$shrunk
+0 0 !$px=112,$py=106
+30 128
+40 0
+0 0 @$cur_area,$home_k
+# and Fern's (472,100)
+0 0 !$px=472,$py=134
+40 64
+40 0 wh3.ppm
+0 0 @$cur_area,$home_k,$shrunk
