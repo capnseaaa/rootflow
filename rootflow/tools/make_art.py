@@ -126,7 +126,7 @@ META += MEADOW_META
 # concrete, 4/5 rust, 6-8 weeds, 9-11 steel, 13 warning orange, 14 paint.
 YARD_META = ["concrete", "concrete_crack", "yard_lane", "dam_wall", "dam_base", "door_l", "door_r", "door_open_l",
              "door_open_r", "fence_h", "fence_v", "crate", "barrel", "pipe_h", "pipe_v", "light_tower", "gate_switch",
-             "gate_switch_on", "dry_weeds", "hazard"]
+             "gate_switch_on", "dry_weeds", "hazard", "dam_lamp", "beam_glow"]
 META += YARD_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
@@ -1132,18 +1132,17 @@ def yard_tile(rng, name):
             for x in range(16): px[13][x] = 1
         else:
             for y in range(16): px[y][13] = 1
-    elif name == "light_tower":                       # a searchlight's mast: a steel foot, its lamp on top
-        for y in range(6, 15):
-            for x in range(5, 11):
-                px[y][x] = 15 if x in (5, 10) else 9 if (x + y) % 3 == 0 else 2
-        for x in range(4, 12):
-            px[14][x] = 15; px[15][x] = 1
-        for y in range(0, 6):
+    elif name == "light_tower":                       # a searchlight's lattice mast on a steel foot (v0.22.2: its
+        for y in range(0, 14):                        # lamp head is a sprite on top, turned toward its light)
+            w = 2 + y // 5
+            for x in range(8 - w, 8 + w):
+                edge = x in (8 - w, 8 + w - 1)
+                px[y][x] = 15 if edge else 11 if (x - y) % 4 == 0 or (x + y) % 4 == 0 else 1
+        for y in range(12, 15):
             for x in range(3, 13):
-                d = ((x + .5 - 8) / 5) ** 2 + ((y + .5 - 3) / 3) ** 2
-                if d < 1:
-                    px[y][x] = 15 if d > .6 else 14 if x < 8 else 11
-        px[2][6] = 14
+                px[y][x] = 15 if y == 12 or x in (3, 12) else 10 if y == 13 else 9
+        for x in range(3, 13):
+            px[15][x] = 1
     elif name in ("gate_switch", "gate_switch_on"):   # a control box with a big lever and a light
         on = name == "gate_switch_on"
         for y in range(4, 15):
@@ -1163,6 +1162,17 @@ def yard_tile(rng, name):
         for y in range(1, 15):
             for x in range(1, 15):
                 px[y][x] = 13 if ((x + y) // 3) % 2 else 15
+    elif name == "dam_lamp":                          # v0.22.2 the dam's foot with a caged lamp on it
+        px = yard_tile(rng, "dam_base")
+        for y in range(3, 11):
+            for x in range(4, 12):
+                edge = y in (3, 10) or x in (4, 11)
+                px[y][x] = 15 if edge else 14 if (x + y) % 2 else 13
+        for x in range(4, 12, 2):
+            for y in range(4, 10):
+                px[y][x] = 15 if y % 3 == 0 else px[y][x]
+        for x in range(5, 11):
+            px[2][x] = 10
     elif name == "dry_weeds":                         # weeds pushing up through the cracks (walkable)
         for _ in range(3):
             x, y = rng.randrange(2, 14), rng.randrange(4, 14)
@@ -1345,6 +1355,20 @@ def darkness():
             px[y][x] = 1                               # full
             px[y][8 + x] = 1 if (x + y) % 2 == 0 else 0   # half
             px[8 + y][x] = 1 if (x % 2 == 0 and y % 2 == 0) or (x % 2 == 1 and y % 2 == 1 and (x + y) % 4 == 0) else 0
+    return px
+
+
+def beam_glow():
+    """v0.22.2 a searchlight's light in the yard's dusk (never on the map; BG2 draws its quarters like the dark): all
+    glow (the pool), glow and clear (its rim), glow and dark (the beam), a little glow in the dark (the beam's
+    faint end). Color 2 is the glow (the yard sets it pale, red in an alarm), 1 the dark."""
+    px = [[0] * 16 for _ in range(16)]
+    for y in range(8):
+        for x in range(8):
+            px[y][x] = 2
+            px[y][8 + x] = 2 if (x + y) % 2 == 0 else 0
+            px[8 + y][x] = 2 if (x + y) % 2 == 0 else 1
+            px[8 + y][8 + x] = 2 if (x % 2 == 0 and y % 2 == 0) else 1
     return px
 
 
@@ -2101,7 +2125,7 @@ def make_terrain():
             cx, cy = (k % 3) * 16, (k // 3) * 16
             tiles.append([row[cx:cx + 16] for row in caps[blue][cy:cy + 16]])
     tiles += [meadow_tile(rng, n) for n in MEADOW_META]
-    tiles += [yard_tile(rng, n) for n in YARD_META]
+    tiles += [beam_glow() if n == "beam_glow" else yard_tile(rng, n) for n in YARD_META]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -4338,10 +4362,47 @@ def make_meadow_sprites():
 YARD_SPR_PAL = MEADOW_SPR_PAL[:13] + [(255, 232, 140), (255, 248, 214), (255, 92, 76)]   # v0.22.1 + the lights
 
 
+def yard_lamp(k):
+    """v0.22.2 a searchlight's head (32x32), sitting on its mast: a big steel drum on a yoke with its lens turned one
+    of 8 ways (k: 0 east, 1 south-east, 2 south ... 7 north-east), the glass bright; k 8: switched off (dozing)."""
+    import math
+    px = [[0] * 32 for _ in range(32)]
+    cx, cy = 16, 13
+    for y in range(20, 32):                            # the pole down into the mast, and the yoke
+        for x in (14, 15, 16, 17):
+            px[y][x] = 1 if x in (14, 17) else 3
+    for x in range(9, 24):
+        px[21][x] = 1; px[22][x] = 2 if 10 < x < 22 else 1
+    for y in range(13, 22):
+        px[y][9] = px[y][23] = 1
+    a = math.pi / 4 * (k if k < 8 else 2)
+    ux, uy = math.cos(a), math.sin(a)
+    for y in range(32):
+        for x in range(32):
+            d = ((x + .5 - cx) / 8.5) ** 2 + ((y + .5 - cy) / 7.5) ** 2
+            if d < 1:                                  # the drum, lit from above
+                px[y][x] = 1 if d > .78 else 4 if y < cy - 3 else 3 if y < cy + 3 else 2
+    lx, ly = cx + ux * 4.5, cy + uy * 3.8              # the lens on the side it faces
+    for y in range(32):
+        for x in range(32):
+            d = ((x + .5 - lx) / 5.2) ** 2 + ((y + .5 - ly) / 4.4) ** 2
+            if d < 1:
+                px[y][x] = (1 if d > .72 else 12 if d > .4 else 2) if k == 8 else (13 if d > .72 else 14)
+    if k < 8:
+        px[int(ly) - 1][int(lx) - 1] = 11              # a glint on the glass
+    return px
+
+
 def make_yard_sprites():
     """v0.22.1 a searchlight's spot on the ground (32x32): a dithered oval of light with a bright rim; frame 1 is the
-    same in red (the alarm). The yard's set also holds the meadow's survey drones (build_data)."""
-    img = Image.new("P", (64, 32), 0)
+    same in red (the alarm). v0.22.2: then its lamp head turned 8 ways, and switched off. The yard's set also holds
+    the meadow's survey drones (build_data)."""
+    img = Image.new("P", (32 * 11, 32), 0)
+    for k in range(9):
+        for y, row in enumerate(yard_lamp(k)):
+            for x, c in enumerate(row):
+                if c:
+                    img.putpixel((64 + 32 * k + x, y), c)
     img.putpalette([c for rgb in YARD_SPR_PAL for c in rgb])
     for f in range(2):
         for y in range(32):
@@ -4350,7 +4411,7 @@ def make_yard_sprites():
                 if d >= 1:
                     continue
                 rim = d > .78
-                if rim or (x + y) % 2 == 0:
+                if rim or (x % 2 == 0 and y % 2 == 0 and (x + y) % 4 == 0):   # v0.22.2: a rim and a light sparkle
                     img.putpixel((f * 32 + x, y), 15 if f else (14 if rim else 13))
     return img
 

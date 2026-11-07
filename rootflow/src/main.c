@@ -127,7 +127,8 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // v0.22.1 Vael's Dam Yard: concrete, the dam (its wall, its foot), the Works door's halves (shut, open), fences,
        // crates, drums, the big dry pipes, a searchlight's tower, the gate switch (off, pulled), weeds, warning stripes
        CONCRETE, CONCRETE_CRACK, YARD_LANE, DAM_WALL, DAM_BASE, DOOR_L, DOOR_R, DOOR_OPEN_L, DOOR_OPEN_R, FENCE_H,
-       FENCE_V, CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD };
+       FENCE_V, CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD,
+       DAM_LAMP, BEAM_GLOW };   // v0.22.2 a lamp on the dam's foot; a searchlight's glow (never on a map: BG2 draws it)
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -143,7 +144,7 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define MIRROR 10     // its reflection: the same place at night, before Vael (v0.21); a pool flips you between them
 static int is_meadow_piece(u8 t) { return t >= MENHIR_GRASS && t <= MENHIR_LIT; }
 static int meadow_walkable(u8 t) { return t == ARCH_OPEN || t == CRATER || t == BUD_OPEN || t == MOON_PATH; }
-static int is_yard_piece(u8 t) { return t >= CONCRETE && t <= HAZARD; }   // v0.22.1
+static int is_yard_piece(u8 t) { return t >= CONCRETE && t <= BEAM_GLOW; }   // v0.22.1
 static int yard_walkable(u8 t) { return t == CONCRETE || t == CONCRETE_CRACK || t == YARD_LANE || t == DRY_WEEDS || t == HAZARD; }
 // v0.20 the fairy ring by Bark's village: a sprite (the Great Tree's tiles leave no room for ring tiles there),
 // in the way south that is always kept clear
@@ -1460,6 +1461,11 @@ static void grove_lights(s32 a) {                 // v0.21: the reflection's nig
             else if (t == BUD_OPEN) grove_light(x, y, 34);
             continue;
         }
+        if (a == YARD) {                             // v0.22.2 the yard's dusk: the lamp heads, the dam's lamps
+            if (t == LIGHT_TOWER) grove_light(x, y - 20, 18);
+            else if (t == DAM_LAMP) grove_light(x, y + 10, 44);
+            continue;
+        }
         if (t == GLOWCAPS) grove_light(x, y, 30);
         else if (t == GIANT_STEM_BLUE) grove_light(x, y - 18, 46);   // its cap, above the stem
         else if (t == FAIRY_RING) grove_light(x, y, 38);
@@ -1468,28 +1474,31 @@ static void grove_lights(s32 a) {                 // v0.21: the reflection's nig
 }
 static s32 dark_cell(s32 cx, s32 cy) {
     s32 wx = cx * 8 + 4, wy = cy * 8 + 4, y0 = ORCHARD_WALL_ROW * 16;
-    if (cur_area == GROVE || cur_area == MIRROR || cur_area == MEADOW) return MIN(grove_lv(cy * 64 + cx), dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
+    if (cur_area == GROVE || cur_area == MIRROR || cur_area == MEADOW || cur_area == YARD) return MIN(grove_lv(cy * 64 + cx), dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));
     s32 lv = wy >= y0 + 10 ? 1 : wy >= y0 + 4 ? 2 : 3;   // past the trunk: daylight, with a smoky haze (Caleb)
     if (lv) { s32 sd = stack_dark(wx, wy); lv = MIN(lv, sd ? sd : 1); }   // Caleb (option B): a light fog always stays
     if (lv) lv = MIN(lv, dark_lv(wx - (px + 8), wy - (py + 4), dark_r()));   // your own light clears the haze too
     for (s32 i = 0; i < light_n && lv; i++) lv = MIN(lv, dark_lv(wx - light_x[i], wy - light_y[i], FIRE_R));
     return lv;
 }
+EWRAM static u8 yard_dyn[64 * 64];   // v0.22.2 each cell's searchlight glow now: 0 the pool .. 3 faint, 255 none
 static void dark_put(s32 cx, s32 cy) {
     if (cx < 0 || cy < 0 || cx >= 64 || cy >= 64) return;
+    u8 g = cur_area == YARD ? yard_dyn[cy * 64 + cx] : 255;
     SCREENBLOCK(CANOPY_SB)[((cx >> 5) + ((cy >> 5) << 1)) * 1024 + (cy & 31) * 32 + (cx & 31)] =
-        (meta_vram(DARKNESS) * 4 + 3 - dark_cell(cx, cy)) | (TREE_BANK << 12);
+        (g < 4 ? meta_vram(BEAM_GLOW) * 4 + g : meta_vram(DARKNESS) * 4 + 3 - dark_cell(cx, cy)) | (TREE_BANK << 12);
 }
 static void dark_enter(s32 a) {
-    dark_on = a == ORCHARD || a == GROVE || a == MIRROR || (a == MEADOW && meadow_night);
+    dark_on = a == ORCHARD || a == GROVE || a == MIRROR || (a == MEADOW && meadow_night) || a == YARD;
     if (dark_on && !(flick_flags & 1) && spirits[KIND_FLICK].state == SP_ASLEEP)   // v0.19.7: the trunk was cut
         for (s32 x = 0; x < MAP_W; x++)                                          // before the ember existed
             if (maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_LOG && maps[ORCHARD][ORCHARD_WALL_ROW * MAP_W + x] != BURNT_TREE) {
                 flick_flags |= 1; break;                 // (v0.19.0 saves): you have it anyway
             }
-    REG_BLDALPHA = a == GROVE ? 16 | (9 << 8) : a == MIRROR || a == MEADOW ? 16 | (11 << 8) : dark_on ? 16 | (2 << 8) : 12 | (4 << 8);
+    REG_BLDALPHA = a == GROVE ? 16 | (9 << 8) : a == YARD ? 16 | (5 << 8) : a == MIRROR || a == MEADOW ? 16 | (11 << 8) : dark_on ? 16 | (2 << 8) : 12 | (4 << 8);
     if (!dark_on) return;                                          // through, the grove's dim 9/16; branches 12/4
-    if (a == GROVE || a == MIRROR || a == MEADOW) {
+    if (a == YARD) for (s32 i = 0; i < 64 * 64; i++) yard_dyn[i] = 255;   // v0.22.2 (update_yard lights them)
+    if (a == GROVE || a == MIRROR || a == MEADOW || a == YARD) {
         grove_lights(a);
         PAL_BG[TREE_BANK * 16 + 1] = a == GROVE ? RGB5(8, 8, 24) : RGB5(10, 12, 44);   // a cool blue dusk / night
         for (s32 cy = 0; cy < 64; cy++)
@@ -3160,8 +3169,63 @@ static void yard_raise_alarm(void) {
         n++;
     }
 }
+// v0.22.2 (Caleb: the lights looked meek): the yard is at dusk; each light shines a beam from its lamp to a pool on the
+// ground, drawn in the dark layer with the glow's quarters (cells lit last frame and this frame are redrawn). Its
+// color is one palette slot: pale, red in an alarm, with the dusk, the lamps' glass and the spots.
+static u16 yard_cells[2][720];
+static s32 yard_ncells[2], yard_side;
+static void yard_glow(s32 cx, s32 cy, s32 lv) {
+    if (cx < 0 || cy < 0 || cx >= 64 || cy >= 64) return;
+    s32 i = cy * 64 + cx;
+    if (yard_dyn[i] == 255) {
+        if (yard_ncells[yard_side] >= 720) return;
+        yard_cells[yard_side][yard_ncells[yard_side]++] = i;
+        yard_dyn[i] = lv;
+    } else if (lv < yard_dyn[i]) yard_dyn[i] = lv;
+}
+static void yard_lamp_at(s32 i, s32 *x, s32 *y) { *x = yard_tower_x[i] * 16 + 8; *y = yard_tower_y[i] * 16 - 13; }
+static void yard_glow_update(void) {
+    s32 old = yard_side;
+    yard_side ^= 1; yard_ncells[yard_side] = 0;
+    for (s32 k = 0; k < yard_ncells[old]; k++) yard_dyn[yard_cells[old][k]] = 255;
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
+        if (yard_doze[i]) continue;
+        s32 sx, sy, lx, ly;
+        yard_light_at(i, &sx, &sy);
+        yard_lamp_at(i, &lx, &ly);
+        if (sx < cam_x - 80 && lx < cam_x - 80) continue;      // nowhere near the screen
+        if (sx > cam_x + SCREEN_W + 80 && lx > cam_x + SCREEN_W + 80) continue;
+        if (sy < cam_y - 80 && ly < cam_y - 80) continue;
+        if (sy > cam_y + SCREEN_H + 80 && ly > cam_y + SCREEN_H + 80) continue;
+        s32 ddx = sx - lx, ddy = sy - ly, len = (ddx < 0 ? -ddx : ddx) > (ddy < 0 ? -ddy : ddy) ? (ddx < 0 ? -ddx : ddx) : (ddy < 0 ? -ddy : ddy);
+        s32 n = len / 6 + 1;
+        for (s32 k = 0; k <= n; k++) {                   // the beam, widening as it goes
+            s32 x = lx + ddx * k / n, y = ly + ddy * k / n, r = 3 + 11 * k / n, lv = k * 100 / n > 70 ? 1 : 2;
+            for (s32 cy = (y - r - 4) >> 3; cy <= (y + r + 4) >> 3; cy++)
+                for (s32 cx = (x - r - 4) >> 3; cx <= (x + r + 4) >> 3; cx++) {
+                    s32 dx = cx * 8 + 4 - x, dy = cy * 8 + 4 - y;
+                    if (dx * dx + dy * dy < (r + 3) * (r + 3)) yard_glow(cx, cy, lv);
+                }
+        }
+        for (s32 cy = (sy - 18) >> 3; cy <= (sy + 18) >> 3; cy++)   // the pool (an oval, rx 18, ry 13; a softer rim)
+            for (s32 cx = (sx - 24) >> 3; cx <= (sx + 24) >> 3; cx++) {
+                s32 dx = cx * 8 + 4 - sx, dy = cy * 8 + 4 - sy, e = dx * dx * 169 + dy * dy * 324;
+                if (e < 54756) yard_glow(cx, cy, 0); else if (e < 93085) yard_glow(cx, cy, 1);
+            }
+    }
+    for (s32 k = 0; k < yard_ncells[old]; k++) dark_put(yard_cells[old][k] & 63, yard_cells[old][k] >> 6);
+    for (s32 k = 0; k < yard_ncells[yard_side]; k++) dark_put(yard_cells[yard_side][k] & 63, yard_cells[yard_side][k] >> 6);
+}
+static void yard_colors(void) {                     // pale light in a blue dusk; in an alarm all of it red, pulsing
+    int red = yard_alarm > 0, hi = (frame >> 4) & 1;
+    PAL_BG[TREE_BANK * 16 + 1] = red ? (hi ? RGB5(70, 8, 18) : RGB5(46, 4, 12)) : RGB5(10, 12, 38);
+    PAL_BG[TREE_BANK * 16 + 2] = red ? (hi ? RGB5(200, 34, 26) : RGB5(160, 22, 20)) : RGB5(150, 142, 100);
+    PAL_OBJ[PAL_BOSS * 16 + 13] = red ? RGB5(255, 70, 56) : RGB5(255, 232, 140);
+    PAL_OBJ[PAL_BOSS * 16 + 14] = red ? (hi ? RGB5(255, 170, 150) : RGB5(255, 110, 90)) : RGB5(255, 248, 214);
+}
 static void update_yard(void) {
     if (cur_area != YARD) return;
+    if (yard_alarm == YARD_ALARM_FRAMES - 45 || yard_alarm == YARD_ALARM_FRAMES - 90) sfx_play(SFX_PUMP_ON);   // the siren
     if (yard_alarm) yard_alarm--;
     for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) if (yard_doze[i]) yard_doze[i]--;
     if (yard_alarm || scene_on) return;
@@ -3174,10 +3238,28 @@ static void update_yard(void) {
         if (dx * dx * 64 + dy * dy * 144 < 9216) { yard_raise_alarm(); return; }
     }
 }
-static void draw_yard(void) {                      // the spots (shared slots +8..11), a sleeping light's zzz (+12..15)
+static void draw_yard(void) {   // the lamp heads (shared slots +8..11), the spots (+12..15), a sleeping light's zzz (+16..19)
     if (cur_area != YARD) return;
+    yard_colors();
+    if (dark_on) yard_glow_update();
     for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
-        s32 x, y, slot = OAM_POOL + 8 + i;
+        s32 sx, sy, lx, ly;
+        yard_light_at(i, &sx, &sy);
+        yard_lamp_at(i, &lx, &ly);
+        s32 dx = sx - lx, dy = sy - ly, ax = dx < 0 ? -dx : dx, ay = dy < 0 ? -dy : dy;   // the lamp turns to its light:
+        s32 dir = ay * 5 < ax * 2 ? (dx > 0 ? 0 : 4) : ax * 5 < ay * 2 ? (dy > 0 ? 2 : 6)   // 0 east, 2 south, 4 west,
+                : dx > 0 ? (dy > 0 ? 1 : 7) : (dy > 0 ? 3 : 5);                          // 6 north, and between
+        s32 hx = lx - 16 - cam_x, hy = ly - 13 - cam_y;
+        u16 *h = &oam_shadow[(OAM_POOL + 8 + i) * 4];
+        if (hx <= -32 || hx >= SCREEN_W || hy <= -32 || hy >= SCREEN_H) sprite_hide(OAM_POOL + 8 + i);
+        else {
+            h[0] = hy & 0xFF;
+            h[1] = (hx & 0x1FF) | (2 << 14);
+            h[2] = (TILE_BEAM + (2 + (yard_doze[i] ? 8 : dir)) * 16) | (1 << 10) | (PAL_BOSS << 12);
+        }
+    }
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
+        s32 x, y, slot = OAM_POOL + 12 + i;
         yard_light_at(i, &x, &y);
         x -= 16 + cam_x; y -= 16 + cam_y;
         u16 *o = &oam_shadow[slot * 4];
@@ -3185,11 +3267,11 @@ static void draw_yard(void) {                      // the spots (shared slots +8
         else {
             o[0] = y & 0xFF;
             o[1] = (x & 0x1FF) | (2 << 14);
-            o[2] = (TILE_BEAM + (yard_alarm ? 16 : 0)) | (1 << 10) | (PAL_BOSS << 12);
+            o[2] = TILE_BEAM | (1 << 10) | (PAL_BOSS << 12);   // its color follows the palette (yard_colors)
         }
-        if (yard_doze[i]) sprite_set(OAM_POOL + 12 + i, yard_tower_x[i] * 16 + 6 - cam_x,
-                                     yard_tower_y[i] * 16 - 14 - ((frame >> 3) & 3) - cam_y, SPR_ZZZ, 0, PAL_RIPPLE);
-        else sprite_hide(OAM_POOL + 12 + i);
+        if (yard_doze[i]) sprite_set(OAM_POOL + 16 + i, yard_tower_x[i] * 16 + 10 - cam_x,
+                                     yard_tower_y[i] * 16 - 36 - ((frame >> 3) & 3) - cam_y, SPR_ZZZ, 0, PAL_RIPPLE);
+        else sprite_hide(OAM_POOL + 16 + i);
     }
 }
 static void yard_lull(void) {                      // Nox: the nearest light within reach dozes off

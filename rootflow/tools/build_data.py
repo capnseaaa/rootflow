@@ -38,7 +38,7 @@ MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove re
  BUD_OPEN) = range(195, 206)                        # v0.21 the Mirror Meadow's own
 MOON_PATH, MENHIR_LIT = 206, 207                    # v0.21.4 Nox's night: moonlight over the dry river, a lit stone
 (CONCRETE, CONCRETE_CRACK, YARD_LANE, DAM_WALL, DAM_BASE, DOOR_L, DOOR_R, DOOR_OPEN_L, DOOR_OPEN_R, FENCE_H, FENCE_V,
- CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD) = range(208, 228)   # v0.22.1 the Dam Yard
+ CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD, DAM_LAMP, BEAM_GLOW) = range(208, 230)   # v0.22.1 the Dam Yard
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -1296,6 +1296,7 @@ def make_yard():
     for x in range(MAP_W):
         put(x, 0, DAM_WALL); put(x, 1, DAM_WALL); put(x, 2, DAM_BASE); put(x, 31, FENCE_H)
     put(YARD_DOOR_X, 2, DOOR_L); put(YARD_DOOR_X + 1, 2, DOOR_R)
+    put(YARD_DOOR_X - 3, 2, DAM_LAMP); put(YARD_DOOR_X + 4, 2, DAM_LAMP)   # v0.22.2 lamps either side of the door
     for y in range(3, 31):
         put(0, y, FENCE_V)
         if not 13 <= y <= 19: put(31, y, FENCE_V)
