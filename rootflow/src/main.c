@@ -123,7 +123,11 @@ enum { SPRING1_RING1 = HOME_FIRST + NUM_HOME_TILES, SPRING1_RING2, SPRING2_RING1
        // rune stone (sealed; glowing in the reflection), where the star fell, night flowers (shut, open)
        MENHIR_GRASS = CAP_BLUE + 6, ARCH_L, ARCH_R, ARCH_OPEN, ARCH_RUBBLE, SEAL_STONE, SEAL_GLOW, CRATER, FALLEN_STAR,
        BUD_CLOSED, BUD_OPEN,
-       MOON_PATH, MENHIR_LIT };   // v0.21.4 Nox's night: moonlight over the dry river (walkable), a stone with its star lit
+       MOON_PATH, MENHIR_LIT,   // v0.21.4 Nox's night: moonlight over the dry river (walkable), a stone with its star lit
+       // v0.22.1 Vael's Dam Yard: concrete, the dam (its wall, its foot), the Works door's halves (shut, open), fences,
+       // crates, drums, the big dry pipes, a searchlight's tower, the gate switch (off, pulled), weeds, warning stripes
+       CONCRETE, CONCRETE_CRACK, YARD_LANE, DAM_WALL, DAM_BASE, DOOR_L, DOOR_R, DOOR_OPEN_L, DOOR_OPEN_R, FENCE_H,
+       FENCE_V, CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD };
 static int is_pad(u8 t) { return t == LILY_PAD || t == BOG_PAD; }
 static int is_bog(u8 t) { return t == BOG_WATER || t == BOG_WATER_B; }
 static int is_rock(u8 t) { return t == ROCK || t == ROCK_GRASS; }
@@ -139,6 +143,8 @@ static int is_tree_part(u8 t) { return (t >= TRUNK_BLOCK && t <= DRY_POOL) || t 
 #define MIRROR 10     // its reflection: the same place at night, before Vael (v0.21); a pool flips you between them
 static int is_meadow_piece(u8 t) { return t >= MENHIR_GRASS && t <= MENHIR_LIT; }
 static int meadow_walkable(u8 t) { return t == ARCH_OPEN || t == CRATER || t == BUD_OPEN || t == MOON_PATH; }
+static int is_yard_piece(u8 t) { return t >= CONCRETE && t <= HAZARD; }   // v0.22.1
+static int yard_walkable(u8 t) { return t == CONCRETE || t == CONCRETE_CRACK || t == YARD_LANE || t == DRY_WEEDS || t == HAZARD; }
 // v0.20 the fairy ring by Bark's village: a sprite (the Great Tree's tiles leave no room for ring tiles there),
 // in the way south that is always kept clear
 #define WEST_RING_X (15 * 16 + 8)
@@ -381,7 +387,7 @@ static int is_solid(u8 t) {
            t == SLUDGE || t == REEDS || t == VAEL_PIPE ||   // lily pads can be walked on
            is_bog(t) || t == SWAMP_TREE || t == SWAMP_TREE_ALIVE || t == LOG || t == SWAMP_TOP || t == SWAMP_TOP_ALIVE ||
            is_orchard_piece(t) || is_grove_piece(t) || (is_room_piece(t) && !room_walkable(t)) ||
-           (is_meadow_piece(t) && !meadow_walkable(t));
+           (is_meadow_piece(t) && !meadow_walkable(t)) || (is_yard_piece(t) && !yard_walkable(t));
 }
 // Built things stand on living land, so they count as living (LIFE %, resting, waking).
 static int is_built(u8 t) {
@@ -401,7 +407,7 @@ static int is_restorable(u8 t) {
              t == SLUDGE || t == LILY_PAD || t == REEDS || t == VAEL_PIPE ||   // cleared reeds and pipes add ground
              is_bog(t) || t == BOG_PAD || t == LOG || (is_orchard_piece(t) && !is_burnt_tree(t)) || t == ASH_LANE ||
              is_grove_piece(t) || t == FAIRY_RING || t == GLOWCAPS || t == MOSS_TRAIL || is_room_piece(t) ||
-             is_meadow_piece(t));
+             is_meadow_piece(t) || is_yard_piece(t));
 }
 
 static void draw_area(void) {
@@ -452,6 +458,7 @@ static const u16 ground_pal[NUM_AREAS][3] = {
     { RGB5(120, 82, 52), RGB5(160, 112, 72), RGB5(196, 148, 100) },   // inside a home: wood (each layout sets its own)
     { RGB5(118, 112, 100), RGB5(146, 140, 124), RGB5(176, 170, 150) },   // the meadow: pale, cut ground (v0.21)
     { RGB5(34, 40, 66), RGB5(50, 58, 90), RGB5(72, 82, 116) },          // the reflection: night ground
+    { RGB5(78, 80, 86), RGB5(116, 118, 122), RGB5(156, 156, 152) },     // the Dam Yard: concrete (v0.22.1)
 };
 // And its grass (BG colors 6-8, also trees and moss): the valley's own green, a warm light green
 // in the steppe, a deep blue-green in the hollow (Caleb, v0.13).
@@ -467,6 +474,7 @@ static const u16 grass_pal[NUM_AREAS][3] = {
     { RGB5(60, 120, 60), RGB5(100, 170, 80), RGB5(160, 210, 110) },   // inside a home: leaves and plants
     { RGB5(96, 124, 100), RGB5(146, 170, 138), RGB5(200, 216, 182) },   // the meadow: silvery sage (v0.21)
     { RGB5(30, 74, 78), RGB5(44, 108, 96), RGB5(86, 156, 124) },        // the reflection: lush night green
+    { RGB5(84, 116, 56), RGB5(124, 156, 72), RGB5(176, 196, 100) },     // the Dam Yard: weeds in the cracks
 };
 // The Great Tree's tile sets share the slots after the map's tiles (TREE_TILE_BASE) and the layer
 // maps in screenblocks 16-23; each area that needs one loads it (v0.16): the dead tree, the
@@ -516,18 +524,21 @@ static void set_ground_palette(s32 a) {
                       : a == GROVE ? (i == 0 ? RGB5(40, 120, 130) : i == 1 ? RGB5(80, 180, 180) : RGB5(170, 240, 230))
                       : a == MEADOW ? (i == 0 ? RGB5(118, 138, 160) : i == 1 ? RGB5(176, 196, 214) : RGB5(232, 240, 248))
                       : a == MIRROR ? (i == 0 ? RGB5(22, 38, 90) : i == 1 ? RGB5(44, 72, 146) : RGB5(150, 194, 244))
-                                   : bg_pal[9 + i];   // v0.20.4: in the grove its pools glow; v0.21: the meadow's are
+                      : a == YARD ? (i == 0 ? RGB5(58, 70, 90) : i == 1 ? RGB5(94, 108, 130) : RGB5(148, 162, 182))
+                                   : bg_pal[9 + i];   // v0.22.1: the yard has no water: steel   // v0.20.4: in the grove its pools glow; v0.21: the meadow's are
                                                       // still silver mirrors, the reflection's starry night water
-    static const u16 dirt_of[3][2] = { { RGB5(62, 54, 40), RGB5(96, 84, 60) }, { RGB5(138, 122, 98), RGB5(172, 156, 124) },
-                                       { RGB5(58, 54, 84), RGB5(84, 80, 110) } };   // the grove's, meadow's, reflection's
-    s32 dk = a == GROVE ? 0 : a == MEADOW ? 1 : a == MIRROR ? 2 : -1;
+    static const u16 dirt_of[4][2] = { { RGB5(62, 54, 40), RGB5(96, 84, 60) }, { RGB5(138, 122, 98), RGB5(172, 156, 124) },
+                                       { RGB5(58, 54, 84), RGB5(84, 80, 110) },     // the grove's, meadow's, reflection's,
+                                       { RGB5(122, 72, 46), RGB5(168, 104, 60) } }; // the yard's rust
+    s32 dk = a == GROVE ? 0 : a == MEADOW ? 1 : a == MIRROR ? 2 : a == YARD ? 3 : -1;
     for (s32 i = 0; i < 2; i++) PAL_BG[4 + i] = dk >= 0 ? dirt_of[dk][i] : bg_pal[4 + i];
     for (s32 i = 0; i < 3; i++)                   // v0.21: at night the flowers are lilac and the cream glows pale
         PAL_BG[12 + i] = a == MIRROR ? (i == 0 ? RGB5(70, 52, 60) : i == 1 ? RGB5(214, 160, 230) : RGB5(232, 236, 255))
                                      : bg_pal[12 + i];
-    static const u16 mud[2][3] = { { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh's
-                                   { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) } };  // the orchard's
-    for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == ORCHARD][i];   // under pipes and stacks
+    static const u16 mud[3][3] = { { RGB5(34, 40, 28), RGB5(52, 60, 40), RGB5(78, 86, 56) },     // the marsh's
+                                   { RGB5(46, 44, 48), RGB5(74, 70, 72), RGB5(108, 102, 100) },   // the orchard's
+                                   { RGB5(78, 80, 86), RGB5(116, 118, 122), RGB5(156, 156, 152) } };   // the yard's
+    for (s32 i = 0; i < 3; i++) PAL_BG[SLUDGE_BANK * 16 + 9 + i] = mud[a == YARD ? 2 : a == ORCHARD][i];   // under pipes and stacks
     // v0.20.4: in the grove BG3 holds the giant mushrooms' caps, over you (priority 0); elsewhere the tree's trunk
     REG_BG3CNT = (a == GROVE ? 0 : 2) | (0 << 2) | (TRUNK_SB << 8) | (3 << 14);
     if (a == GROVE) { grove_caps(); REG_DISPCNT |= 1 << 11; }
@@ -591,7 +602,7 @@ static void update_message(void) {
 }
 
 static void draw_life(void) {
-    if (cur_area == INTERIOR || cur_area == MIRROR) { for (s32 c = 0; c < 11; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' '); return; }   // v0.20
+    if (cur_area == INTERIOR || cur_area == MIRROR || cur_area == YARD) { for (s32 c = 0; c < 11; c++) SCREENBLOCK(TEXT_SB)[c] = glyph_entry(' '); return; }   // v0.20
     char buf[12] = "LIFE    % ";
     u32 p = life_percent();
     buf[5] = p >= 100 ? '1' : ' ';
@@ -701,7 +712,7 @@ static void pool_clear(void) { for (s32 i = 0; i < POOL_SIZE; i++) oam_shadow[(O
 #define PAL_SHIELD  15
 // v0.18.3: each region's own sprites load at TILE_REGION as you walk in (bosses, region enemies, a corner's
 // spirit attack), with its colors in OBJ bank PAL_BOSS; areas without a set keep whatever is there.
-enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE, RS_ROOM, RS_MEADOW };
+enum { RS_NONE, RS_TREE, RS_ORCH, RS_GROVE, RS_ROOM, RS_MEADOW, RS_YARD };
 static s32 region_set_now = -1;
 static void load_region_sprites(s32 a) {
     if (tree_alive)                                    // v0.19: Flick's colors take Breeze's sleeping bank,
@@ -711,7 +722,7 @@ static void load_region_sprites(s32 a) {
             PAL_OBJ[PAL_GLIMMER * 16 + i] = obj_pal_glimmer[i];   // v0.21
         }
     s32 rs = a == WEST || a == HOLLOW_IN ? RS_TREE : a == ORCHARD ? RS_ORCH : a == GROVE ? RS_GROVE :
-             a == INTERIOR ? RS_ROOM : a == MEADOW || a == MIRROR ? RS_MEADOW : RS_NONE;
+             a == INTERIOR ? RS_ROOM : a == MEADOW || a == MIRROR ? RS_MEADOW : a == YARD ? RS_YARD : RS_NONE;
     if (rs == region_set_now || rs == RS_NONE) return;
     region_set_now = rs;
     if (rs == RS_TREE) {
@@ -723,6 +734,9 @@ static void load_region_sprites(s32 a) {
     } else if (rs == RS_MEADOW) {                      // v0.21.6 the meadow and its reflection: drones and wisps
         copy32(OBJ_TILES + TILE_REGION * 8, region_meadow_tiles, sizeof(region_meadow_tiles) / 4);
         for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_meadow[i];
+    } else if (rs == RS_YARD) {                        // v0.22.1 the Dam Yard: its searchlights' spots and the drones
+        copy32(OBJ_TILES + TILE_REGION * 8, region_yard_tiles, sizeof(region_yard_tiles) / 4);
+        for (s32 i = 0; i < 16; i++) PAL_OBJ[PAL_BOSS * 16 + i] = obj_pal_yard[i];
     } else if (rs == RS_ROOM) {                        // v0.20.5 a Leafen home: its owner, bigger (the Leafen's colors)
         copy32(OBJ_TILES + TILE_REGION * 8, region_room_tiles, sizeof(region_room_tiles) / 4);
     } else {                                           // v0.20 the grove: its poison puffs and their clouds
@@ -996,6 +1010,8 @@ enum { LF_PIP, LF_MOSSY, LF_TWIG, LF_POSY, LF_NUB, LF_DEW, LF_BOG, LF_REEDY, LF_
 #define FIRST_GROVE_LEAFEN 11   // v0.20: two in the mushroom grove (one only a tiny wizard can reach)
 #define FIRST_MEADOW_LEAFEN 13  // v0.21.5: two in the Mirror Meadow (one behind the broken arch, one in a night flower)
 _Static_assert(sizeof(home_decor) == NUM_LEAFEN, "home_decor needs one byte per Leafen");
+static s32 yard_alarm, yard_doze[NUM_YARD_LIGHTS], yard_told;   // v0.22.1 the Dam Yard (update_yard; not saved)
+_Static_assert(TILE_YARDE == TILE_MEADOWE, "the yard's drones draw with the meadow's tiles");
 // v0.18 Bark summons Lily once the first six are home; then the marsh opens (lily_step past the scene).
 static u32 lily_step;
 #define LILY_SCENE_LEN 10
@@ -1151,6 +1167,8 @@ static void reset_game(void) {
     spirit_init(KIND_FLICK, ORCHARD_NEST_X, ORCHARD_NEST_Y, SP_ASLEEP);   // v0.19: cold in its nest in the orchard
     spirits[KIND_FLICK].area = ORCHARD;
     flick_step = flick_flags = 0;
+    yard_alarm = yard_told = 0;
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) yard_doze[i] = 0;
     spirit_init(KIND_CAP, GROVE_CAP_X, GROVE_CAP_Y, SP_HIDDEN);   // v0.20: squashed under the fallen cap
     spirits[KIND_CAP].area = GROVE;
     spirit_init(KIND_GLIMMER, meadow_pool_x[0], meadow_pool_y[0], SP_HIDDEN);   // v0.21: skimming the meadow's pools
@@ -1497,13 +1515,14 @@ static void dark_update(void) {                    // each frame: the cells roun
 }
 
 // ---------- areas ----------
-static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1, -1, -1, -1 },
-                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2, -1, -1, -1 };
-static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1, -1, 1, -1 };
-static const signed char area_north[NUM_AREAS] = { -1, MEADOW, 0, ORCHARD, -1, WEST, -1, 1, -1, -1, -1 };
+static const signed char area_east[NUM_AREAS] = { 1, -1, GROVE, 0, -1, 2, -1, -1, -1, -1, -1, MEADOW },
+                         area_west[NUM_AREAS] = { 3, 0, MARSH, -1, -1, -1, -1, 2, -1, YARD, -1, -1 };   // v0.22.1
+static const signed char area_south[NUM_AREAS] = { 2, GROVE, -1, MARSH, -1, -1, WEST, -1, -1, 1, -1, -1 };
+static const signed char area_north[NUM_AREAS] = { -1, MEADOW, 0, ORCHARD, -1, WEST, -1, 1, -1, -1, -1, -1 };
 static const char *area_name[NUM_AREAS] = { "THE VALLEY", "THE WINDY STEPPE", "STONE HOLLOW", "THE GREAT TREE",
                                             "INSIDE THE GREAT TREE", "THE DROWNED MARSH", "THE BURNT ORCHARD",
-                                            "THE MUSHROOM GROVE", "", "THE MIRROR MEADOW", "THE REFLECTION" };
+                                            "THE MUSHROOM GROVE", "", "THE MIRROR MEADOW", "THE REFLECTION",
+                                            "THE DAM YARD" };
 // Each area's tune; the Great Tree's two follow its story (area_song, after the Gloomheart's code).
 // A scene may set its own (scene_song; -1 = silence).
 #define NO_SCENE_SONG (-2)
@@ -1586,7 +1605,8 @@ static void check_exits(void) {
         cross_to(area_east[cur_area], SIDE_WEST, py + 8);
     else if (HELD(KEY_LEFT) && px <= 0 && area_west[cur_area] >= 0 &&
              (cur_area != 0 || spirits[KIND_BARK].state == SP_JOINED || tree_alive) &&
-             (cur_area != 2 || open))                         // the west opens with Bark
+             (cur_area != 2 || open) && (cur_area != MEADOW || seal_open))   // the west opens with Bark; the meadow's
+                                                                                 // road with the rune stone (v0.22.1)
         cross_to(area_west[cur_area], SIDE_EAST, py + 8);
     else if (HELD(KEY_DOWN) && py >= WORLD_PX - 16 && area_south[cur_area] >= 0 &&
              ((area_south[cur_area] != MARSH && area_south[cur_area] != GROVE) || open))
@@ -1595,8 +1615,9 @@ static void check_exits(void) {
         cross_to(area_north[cur_area], SIDE_SOUTH, px + 8);
     else if (cur_area == 0 && ((HELD(KEY_UP) && py <= 0) || (HELD(KEY_LEFT) && px <= 0)))
         region_hint();
-    else if (cur_area == MEADOW && seal_open && HELD(KEY_LEFT) && px <= 0 && !msg_timer)   // v0.21.4: later, the HQ
-        show_message("THE ROAD TO VAEL'S. NOT YET...");
+    else if (cur_area == YARD && HELD(KEY_UP) && !msg_timer && maps[YARD][2 * MAP_W + YARD_DOOR_X] == DOOR_OPEN_L &&
+             (py + 12) >> 4 == 3 && ((px + 8) >> 4) >= YARD_DOOR_X && ((px + 8) >> 4) <= YARD_DOOR_X + 1)
+        show_message("THE WORKS. NOT YET...");        // v0.22.1: the open door (the Works come next)
     else if (cur_area == HOLLOW_IN && HELD(KEY_DOWN) && py >= WORLD_PX - 18)
         enter_area(WEST, DOOR_X * 16 + 8, (DOOR_Y + 2) * 16 - 6);   // out, below the opening
     else if (cur_area == WEST && maps[WEST][DOOR_Y * MAP_W + DOOR_X] == DRY_BRIDGE &&
@@ -2046,6 +2067,23 @@ static int interact(s32 mx, s32 my) {
         if (pumps_stopped++ == 0) queue_message("VAEL STILL WANTS OUR WATER.");
         return 1;
     }
+    if (t == GATE_SWITCH) {                         // v0.22.1 the Dam Yard's switch: the Works door opens
+        set_tile(mx, my, GATE_SWITCH_ON);
+        set_tile(YARD_DOOR_X, 2, DOOR_OPEN_L); set_tile(YARD_DOOR_X + 1, 2, DOOR_OPEN_R);
+        sparkle_at(YARD_DOOR_X, 2);
+        sfx_play(SFX_QUEST);
+        show_message("CLUNK! FAR OFF, STEEL GRINDS.");
+        queue_message("THE DAM DOOR IS OPEN!");
+        return 1;
+    }
+    if (t == GATE_SWITCH_ON) { show_message("THE SWITCH IS PULLED."); return 1; }
+    if (t == DOOR_L || t == DOOR_R) { show_message("A HUGE STEEL DOOR, SHUT."); queue_message("A SWITCH MUST OPEN IT."); return 1; }
+    if (t == DOOR_OPEN_L || t == DOOR_OPEN_R) { show_message("THE WORKS. NOT YET..."); return 1; }
+    if (t == LIGHT_TOWER && !(party_count && spirits[party[active]].kind == KIND_NOX)) {   // Nox: its power (yard_lull)
+        show_message("A VAEL SEARCHLIGHT.");
+        queue_message(in_party(KIND_NOX) ? "NOX COULD LULL IT TO SLEEP." : "KEEP OUT OF ITS LIGHT.");
+        return 1;
+    }
     if (t == LEVER) {
         if (quest[KIND_RIPPLE] != 1) { show_message("A RUSTED VAEL LEVER."); queue_message("IT IS STUCK FAST."); return 1; }
         if (!in_party(KIND_RIPPLE)) { show_message("IT WON'T MOVE. RIPPLE"); queue_message("SHOULD BE HERE TO HELP."); return 1; }
@@ -2148,7 +2186,8 @@ enum { C_LEAFEN = 0, C_LHOME = 5 * 4, C_SHINY = C_LHOME + 6, C_PEEK, C_FIREFLY, 
 static s32 orb_cell(s32 i) { return i < 6 ? C_ORB + i : i >= KIND_GLIMMER ? C_FAIRY + 1 + (i - KIND_GLIMMER) * 2 : C_MINI + 6 + (i - 6) * 2; }
 static s32 mini_cell(s32 i) { return i < 6 ? C_MINI + i : i >= KIND_GLIMMER ? C_FAIRY + 2 + (i - KIND_GLIMMER) * 2 : C_MINI + 7 + (i - 6) * 2; }   // C_FAIRY: the village's fairy ring   // C_WAKE: sideways, moving down, moving up; C_MINI: pouch orbs
 static int in_combat_area(void) { return ((cur_area == WEST || cur_area == HOLLOW_IN) && !tree_alive) || cur_area == MARSH ||
-                                         cur_area == ORCHARD || cur_area == GROVE || cur_area == MEADOW || cur_area == MIRROR; }
+                                         cur_area == ORCHARD || cur_area == GROVE || cur_area == MEADOW || cur_area == MIRROR ||
+                                         cur_area == YARD; }   // v0.22.1: the yard's drones come only with the alarm
 
 static void draw_hearts_hud(void) {
     for (s32 i = 0; i < MAX_HEARTS + 1; i++)        // the sixth only while a stew lasts (v0.19)
@@ -2244,7 +2283,7 @@ static void spawn_enemies(void) {
     const u8 (*sp)[3] = cur_area == MARSH ? marsh_spawn : cur_area == ORCHARD ? orchard_spawn :
                         cur_area == GROVE ? grove_spawn : cur_area == MEADOW ? meadow_spawn :
                         cur_area == MIRROR ? mirror_spawn : enemy_spawn;
-    u32 count = cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) :
+    u32 count = cur_area == YARD ? 0 : cur_area == MARSH ? sizeof(marsh_spawn) / sizeof(marsh_spawn[0]) :
                 cur_area == ORCHARD ? sizeof(orchard_spawn) / sizeof(orchard_spawn[0]) :
                 cur_area == GROVE ? sizeof(grove_spawn) / sizeof(grove_spawn[0]) :
                 cur_area == MEADOW ? sizeof(meadow_spawn) / sizeof(meadow_spawn[0]) :
@@ -3073,7 +3112,103 @@ static void open_seal(void) {                     // all five stars lit: the run
     queue_message("FAR WEST, ROCKS ROLL ASIDE.");
     queue_message("A ROAD TOWARD VAEL'S WORKS...");
 }
+// ---------- v0.22.1 Vael's Dam Yard: the searchlights, the alarm ----------
+// Each light's spot sweeps the ground, along a line and back or round its tower. Your feet in a spot sound the
+// alarm: the lights go red and survey drones come for you (one alarm at a time). Nox lulls the nearest light to
+// sleep for a while. The gate switch (interact) opens the Works door in the dam.
+enum { YL_LINE, YL_CIRCLE };
+static const short yard_path[NUM_YARD_LIGHTS][5] = {      // kind, x0, y0, x1 (a circle: its radius), y1; in pixels
+    { YL_LINE, 24 * 16 + 8, 11 * 16, 24 * 16 + 8, 22 * 16 + 8 },     // by the way in: slow, to learn on
+    { YL_CIRCLE, 15 * 16 + 8, 22 * 16 + 8, 72, 0 },                  // round its tower in the middle
+    { YL_LINE, 1 * 16 + 8, 10 * 16 + 8, 8 * 16 + 8, 10 * 16 + 8 },   // across the gap to the switch
+    { YL_LINE, 10 * 16 + 8, 5 * 16 + 8, 21 * 16 + 8, 5 * 16 + 8 },   // the plaza: fast
+};
+static const u16 yard_period[NUM_YARD_LIGHTS] = { 300, 420, 180, 130 };
+static const signed char cos32[32] = { 127, 125, 117, 106, 90, 71, 49, 25, 0, -25, -49, -71, -90, -106, -117, -125,
+                                       -127, -125, -117, -106, -90, -71, -49, -25, 0, 25, 49, 71, 90, 106, 117, 125 };
+#define YARD_ALARM_FRAMES 600
+#define YARD_DOZE_FRAMES 720
+static void yard_light_at(s32 i, s32 *x, s32 *y) {
+    const short *p = yard_path[i];
+    u32 per = yard_period[i], t = (frame + i * 97) % per;
+    if (p[0] == YL_CIRCLE) {                      // round and round, smoothly between the table's steps
+        u32 pos = t * 32 * 256 / per, k = pos >> 8, f = pos & 255;
+        s32 c = cos32[k] + (cos32[(k + 1) & 31] - cos32[k]) * (s32)f / 256;
+        s32 sn = cos32[(k + 24) & 31] + (cos32[(k + 25) & 31] - cos32[(k + 24) & 31]) * (s32)f / 256;
+        *x = p[1] + p[3] * c / 127; *y = p[2] + p[3] * sn / 127;
+        return;
+    }
+    u32 half = per / 2, u = t < half ? t * 256 / half : (per - t) * 256 / half;   // there and back, easing at the ends
+    s32 e = (s32)(u * u * (768 - 2 * u) >> 16);
+    *x = p[1] + (p[3] - p[1]) * e / 256; *y = p[2] + (p[4] - p[2]) * e / 256;
+}
+static void yard_raise_alarm(void) {
+    static const signed char off[3][2] = { { -6, -4 }, { 6, -4 }, { 0, 5 } };   // drones come in round you (tiles)
+    yard_alarm = YARD_ALARM_FRAMES;
+    sfx_play(SFX_PUMP_ON);
+    show_message("ALARM! VAEL'S DRONES!");
+    if (!yard_told) { yard_told = 1; queue_message("KEEP OUT OF THE LIGHTS."); }
+    for (s32 i = 0, n = 0; i < MAX_ENEMIES && n < 3; i++) {
+        Enemy *e = &enemies[i];
+        if (e->alive) continue;
+        e->type = E_EYE;
+        e->x = MIN(WORLD_PX - 32, px + off[n][0] * 16); e->y = MIN(WORLD_PX - 32, py + off[n][1] * 16);
+        if (e->x < 16) e->x = 16;
+        if (e->y < 48) e->y = 48;                    // not up on the dam
+        e->hp = 2; e->timer = n * 37; e->dx = e->dy = 0; e->flash = e->knock = 0;
+        e->alive = 1;
+        n++;
+    }
+}
+static void update_yard(void) {
+    if (cur_area != YARD) return;
+    if (yard_alarm) yard_alarm--;
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) if (yard_doze[i]) yard_doze[i]--;
+    if (yard_alarm || scene_on) return;
+    s32 fx = px + 8, fy = py + 12;                // your feet in a spot's oval (a bit inside its rim)
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
+        if (yard_doze[i]) continue;
+        s32 x, y;
+        yard_light_at(i, &x, &y);
+        s32 dx = fx - x, dy = fy - y;
+        if (dx * dx * 64 + dy * dy * 144 < 9216) { yard_raise_alarm(); return; }
+    }
+}
+static void draw_yard(void) {                      // the spots (shared slots +8..11), a sleeping light's zzz (+12..15)
+    if (cur_area != YARD) return;
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
+        s32 x, y, slot = OAM_POOL + 8 + i;
+        yard_light_at(i, &x, &y);
+        x -= 16 + cam_x; y -= 16 + cam_y;
+        u16 *o = &oam_shadow[slot * 4];
+        if (yard_doze[i] || x <= -32 || x >= SCREEN_W || y <= -32 || y >= SCREEN_H) sprite_hide(slot);
+        else {
+            o[0] = y & 0xFF;
+            o[1] = (x & 0x1FF) | (2 << 14);
+            o[2] = (TILE_BEAM + (yard_alarm ? 16 : 0)) | (1 << 10) | (PAL_BOSS << 12);
+        }
+        if (yard_doze[i]) sprite_set(OAM_POOL + 12 + i, yard_tower_x[i] * 16 + 6 - cam_x,
+                                     yard_tower_y[i] * 16 - 14 - ((frame >> 3) & 3) - cam_y, SPR_ZZZ, 0, PAL_RIPPLE);
+        else sprite_hide(OAM_POOL + 12 + i);
+    }
+}
+static void yard_lull(void) {                      // Nox: the nearest light within reach dozes off
+    s32 best = -1, bd = 96 * 96;
+    for (s32 i = 0; i < NUM_YARD_LIGHTS; i++) {
+        s32 dx = yard_tower_x[i] * 16 + 8 - (px + 8), dy = yard_tower_y[i] * 16 + 8 - (py + 8), d = dx * dx + dy * dy;
+        if (d < bd) { bd = d; best = i; }
+    }
+    if (best < 0) { sfx_play(SFX_FAIL); show_message("NOX: GET CLOSER TO A LIGHT."); return; }
+    if (yard_doze[best]) { show_message("NOX: IT'S FAST ASLEEP."); return; }
+    yard_doze[best] = YARD_DOZE_FRAMES;
+    for (s32 i = 0; i < 8; i++)
+        add_mote_c(yard_tower_x[best] * 16 + 4, yard_tower_y[best] * 16, dir16[i * 2] >> 1, DIR16_Y(i * 2) >> 1, 24, C_GLINT);
+    sfx_play(SFX_WAKE);
+    show_message("NOX: SLEEP, LITTLE LIGHT...");
+    add_fp(KIND_NOX, 1);
+}
 static void nox_power(s32 mx, s32 my) {
+    if (cur_area == YARD) { yard_lull(); return; }   // v0.22.1
     if (cur_area == MIRROR) { show_message("NOX: IT'S ALWAYS NIGHT HERE."); return; }
     if (cur_area != MEADOW) { sfx_play(SFX_FAIL); show_message("NOX: MY NIGHT IS THE MEADOW'S."); return; }
     s32 k = -1;
@@ -3444,7 +3579,7 @@ static int home_protects(s32 a, s32 x, s32 y) {
 static int is_grassy(u8 t) { return t == GRASS || t == GRASS_TUFT || t == FLOWERS || t == TREE || t == STUMP_GRASS; }
 
 static int spawn_pump(s32 a) {
-    if (a == MEADOW || a == MIRROR) return 0;      // v0.21: not yet (the meadow's own trouble is Vael's survey)
+    if (a == MEADOW || a == MIRROR || a == YARD) return 0;   // v0.21: not yet (the meadow's own trouble is Vael's survey)
     if ((a == WEST || a == HOLLOW_IN) && tree_alive) return 0;   // v0.19.7 (Caleb): the healed Great Tree is left in peace
     use_area(a);
     for (s32 tries = 0; tries < 80; tries++) {
@@ -3858,7 +3993,7 @@ static void update_gloom_intro(void) {
 static s32 area_song(s32 a) {
     static const u8 song_of[NUM_AREAS] = { SONG_VALLEY, SONG_STEPPE, SONG_HOLLOW, SONG_UNEASY, SONG_UNEASY,
                                            SONG_MARSH, SONG_ORCHARD, SONG_GROVE, SONG_HEARTWOOD,
-                                           SONG_MEADOW, SONG_MEADOW };   // v0.21 Caleb's picks for the corners (the
+                                           SONG_MEADOW, SONG_MEADOW, SONG_UNEASY };   // v0.22.1 the yard: for now   // v0.21 Caleb's picks for the corners (the
                                                                     // reflection shares the meadow's); a home: the tree's
     if (scene_song != NO_SCENE_SONG) return scene_song;
     if (a == WEST)
@@ -4846,7 +4981,7 @@ static void update_music(void) {
 static const char *area_full[NUM_AREAS] = { "THE VALLEY IS FULLY ALIVE!", "THE STEPPE IS FULLY ALIVE!",
                                             "STONE HOLLOW IS FULLY ALIVE!", "THE GREAT WOOD IS ALIVE!", "",
                                             "THE MARSH IS FULLY ALIVE!", "THE ORCHARD IS FULLY ALIVE!",
-                                            "THE GROVE IS FULLY ALIVE!", "", "THE MEADOW IS FULLY ALIVE!", "" };
+                                            "THE GROVE IS FULLY ALIVE!", "", "THE MEADOW IS FULLY ALIVE!", "", "" };
 static void check_milestones(void) {
     if (frame % 30 || scene_on) return;                     // not in the middle of a scene
     for (s32 a = 0; a < NUM_AREAS; a++)
@@ -5337,7 +5472,8 @@ static int paused;   // the START menu is open
 #define SRAM ((volatile u8*)0x0E000000)
 #define REG_WAITCNT REG16(0x04000204)
 __attribute__((used, aligned(4))) static const char save_tag[] = "SRAM_V113";
-#define SAVE_MAGIC 0x4C534652u   // "RFSL" (v0.21.5: the meadow's Leafen)
+#define SAVE_MAGIC 0x4D534652u   // "RFSM" (v0.22.1: the Dam Yard)
+#define SAVE_MAGIC_V215 0x4C534652u   // "RFSL": v0.21.5-v0.22.0 saves still load
 #define SAVE_MAGIC_V214 0x4B534652u   // "RFSK": v0.21.4 saves still load
 #define SAVE_MAGIC_V213 0x4A534652u   // "RFSJ": v0.21.3 saves still load
 #define SAVE_MAGIC_V210 0x49534652u   // "RFSI": v0.21.0-2 saves still load
@@ -5421,9 +5557,12 @@ static const struct { void *p; u32 n; } save_fields[] = {
     // v0.21.5 (step 4): the meadow's Leafen and their homes' decorations
     { &leafen_state[FIRST_MEADOW_LEAFEN], NUM_LEAFEN - FIRST_MEADOW_LEAFEN },
     { &home_decor[FIRST_MEADOW_LEAFEN], NUM_LEAFEN - FIRST_MEADOW_LEAFEN },
+    // v0.22.1 Vael's Dam Yard (its gate switch and door are in its map)
+    { maps[YARD], sizeof(maps[0]) },
 };
 #define NUM_SAVE_FIELDS (sizeof(save_fields) / sizeof(save_fields[0]))
-#define NUM_V214_FIELDS (NUM_SAVE_FIELDS - 2)
+#define NUM_V215_FIELDS (NUM_SAVE_FIELDS - 1)
+#define NUM_V214_FIELDS (NUM_V215_FIELDS - 2)
 #define NUM_V213_FIELDS (NUM_V214_FIELDS - 9)
 #define NUM_V210_FIELDS (NUM_V213_FIELDS - 7)
 #define NUM_V206_FIELDS (NUM_V210_FIELDS - 5)
@@ -5493,6 +5632,7 @@ static int load_game(void) {
     else if (magic == SAVE_MAGIC_V210) nf = NUM_V210_FIELDS;
     else if (magic == SAVE_MAGIC_V213) nf = NUM_V213_FIELDS;
     else if (magic == SAVE_MAGIC_V214) nf = NUM_V214_FIELDS;
+    else if (magic == SAVE_MAGIC_V215) nf = NUM_V215_FIELDS;
     else if (magic != SAVE_MAGIC) return 0;
     u32 at = 4, sum = 0x5A5A;
     for (u32 f = 0; f < nf; f++)
@@ -5517,6 +5657,8 @@ static int load_game(void) {
     if (nf < NUM_SAVE_FIELDS) {                          // before v0.21.5: the meadow's Leafen wait
         for (s32 k = FIRST_MEADOW_LEAFEN; k < NUM_LEAFEN; k++) { leafen_state[k] = leafen_init ? LS_WAIT : LS_NONE; home_decor[k] = 0; }
     }
+    if (nf < NUM_V215_FIELDS)                            // before v0.22.1: a fresh Dam Yard
+        for (s32 i = 0; i < MAP_W * MAP_H; i++) maps[YARD][i] = start_maps[YARD * MAP_W * MAP_H + i];
     if (nf < NUM_V214_FIELDS) {                          // before v0.21.4: Nox asleep in its star, the meadow by day
         spirit_init(KIND_NOX, MEADOW_STAR_X, MEADOW_STAR_Y, SP_HIDDEN);
         spirits[KIND_NOX].area = MIRROR;
@@ -6165,12 +6307,12 @@ static void update_menu(void) {
 // line, Left/Right change it, A starts a fresh game at that point with those options, B closes.
 enum { DEV_JUMP, DEV_STUFF, DEV_CHARGE, DEV_PUMPS, DEV_HEARTS, DEV_GOD, DEV_ITEMS };
 enum { J_NEW, J_SPIRITS, J_HOMES, J_GROWN, J_BARK, J_TREE, J_TASKS, J_BOSSES, J_GLOOM, J_HEALED, J_LILY, J_CAP, J_BOTH,
-       J_MEADOW, J_GLIMMER, J_NOX, NUM_JUMPS };
+       J_MEADOW, J_GLIMMER, J_NOX, J_YARD, NUM_JUMPS };
 static const char *dev_jump_name[NUM_JUMPS] = { "NEW GAME", "ALL 4 SPIRITS", "4 HOMES LV1", "4 HOMES LV2",
                                                "BARK JOINED", "AT THE TREE", "TREE TASKS DONE",
                                                "4 BOSSES BEATEN", "GLOOMHEART BEATEN", "TREE HEALED", "LILY JOINED",
                                                "CAP JOINED", "LILY AND CAP", "MIRROR MEADOW",
-                                               "GLIMMER JOINED", "NOX JOINED" };
+                                               "GLIMMER JOINED", "NOX JOINED", "DAM YARD" };
 static const s32 dev_max[DEV_ITEMS] = { NUM_JUMPS - 1, 1, 1, 1, 1, 1 };
 static s32 dev_open, dev_cursor, dev_val[DEV_ITEMS];
 static u32 dev_stuff, dev_charge;   // keep materials at 99; charges never run out
@@ -6315,7 +6457,7 @@ static void dev_start(void) {
             active = party_count - 1;
             glimmer_step = GLIMMER_SCENE_LEN + 1; glimmer_pool = NUM_MEADOW_POOLS - 1;
         }
-        if (j == J_NOX) {                    // v0.21.4 Nox joined and chosen too (its star left a crater)
+        if (j >= J_NOX) {                    // v0.21.4 Nox joined and chosen too (its star left a crater)
             Spirit *s = &spirits[KIND_NOX];
             s->energy = 3; s->state = SP_JOINED; s->area = MEADOW;
             party[party_count++] = KIND_NOX;
@@ -6331,6 +6473,15 @@ static void dev_start(void) {
             msg_timer = 0; msgq_len = 0; clear_row(19);
             revive_step = 1;
             revive_wait = 30;
+        }
+        else if (j == J_YARD) {              // v0.22.1 the rune stone open: in the Dam Yard, at the way in
+            seal_open = 1;
+            use_area(MEADOW);
+            world[MEADOW_SEAL_Y * MAP_W + MEADOW_SEAL_X] = SEAL_GLOW;
+            for (s32 y = 13; y < 20; y++) if (world[y * MAP_W] == ROCK) world[y * MAP_W] = GRASS;
+            use_area(MIRROR);
+            for (s32 y = 13; y < 20; y++) if (world[y * MAP_W] == TREE) world[y * MAP_W] = GRASS;
+            enter_area(YARD, 29 * 16, 16 * 16 - 6);
         }
         else if (j >= J_MEADOW) enter_area(MEADOW, 15 * 16, 29 * 16 - 6);   // v0.21: the meadow's way in
         else if (j >= J_LILY) enter_area(WEST, 15 * 16, 29 * 16 - 6);   // at the way south (and the village's ring)
@@ -6435,6 +6586,7 @@ static void title_screen(int has_save) {
         music_play(area_song(cur_area));
         draw_life();
         draw_active();
+        draw_hearts_hud();                // v0.22.1: in a fighting area the hearts were left blank
         show_message("WELCOME BACK!");
     }
     update_camera();
@@ -6566,6 +6718,7 @@ int main(void) {
         if (!scene_on) update_pumps();
         update_blooms();
         if (!scene_on) { update_attack(); update_enemies(); update_boss(); }
+        update_yard();
         if (hurt_timer) hurt_timer--;
         update_meal();
         update_shrink();
@@ -6574,6 +6727,7 @@ int main(void) {
         draw_sprites();
         draw_combat();
         draw_leafen();
+        draw_yard();
         draw_picker();
         draw_boss_bar();
 

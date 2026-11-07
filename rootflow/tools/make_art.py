@@ -120,6 +120,14 @@ MEADOW_META = ["menhir_grass", "arch_l", "arch_r", "arch_open", "arch_rubble", "
                "fallen_star", "bud_closed", "bud_open",
                "moon_path", "menhir_lit"]   # v0.21.4 Nox's night: moonlight across the dry river; a stone with its star lit
 META += MEADOW_META
+# v0.22.1 Vael's Dam Yard (the HQ's first map, north of the valley): concrete, the dam's wall and its foot, the
+# Works door (two halves, shut or open), chain-link fences, crates, barrels, big dry pipes, a searchlight tower,
+# the gate switch (off, pulled) and weeds in the cracks. Drawn in the main colors, which the yard tints: 1-3
+# concrete, 4/5 rust, 6-8 weeds, 9-11 steel, 13 warning orange, 14 paint.
+YARD_META = ["concrete", "concrete_crack", "yard_lane", "dam_wall", "dam_base", "door_l", "door_r", "door_open_l",
+             "door_open_r", "fence_h", "fence_v", "crate", "barrel", "pipe_h", "pipe_v", "light_tower", "gate_switch",
+             "gate_switch_on", "dry_weeds", "hazard"]
+META += YARD_META
 
 # ---- water spirit palette (OBJ bank 1). The game builds a gray copy for sleep. ----
 RIPPLE_PAL = [
@@ -1003,6 +1011,166 @@ def _stone_disc(px, cx, cy, rx, ry):
         edge = any((x + a, y + b) not in pts for a, b in ((1, 0), (-1, 0), (0, 1), (0, -1)))
         px[y][x] = 15 if edge else 3 if (x, y - 1) not in pts or (x - 1, y) not in pts else 1 if y > cy + ry * .3 else 2
     return pts
+
+
+def concrete(rng):
+    """v0.22.1 the yard's poured concrete: slabs with seams, a few pits and stains."""
+    px = blank(2)
+    speckle(px, rng, [1, 3], 18)
+    if rng.random() < 0.3:                             # now and then a slab's seam
+        for i in range(0, 16, 2):
+            px[0][i] = 1
+    if rng.random() < 0.25:                            # an old stain
+        cx, cy = rng.randrange(3, 13), rng.randrange(3, 13)
+        for (dx, dy) in ((0, 0), (1, 0), (0, 1), (-1, 0), (1, 1), (2, 1)):
+            if 0 <= cx + dx < 16 and 0 <= cy + dy < 16:
+                px[cy + dy][cx + dx] = 1
+    return px
+
+
+def yard_tile(rng, name):
+    """v0.22.1 the Dam Yard's pieces (YARD_META)."""
+    px = concrete(rng)
+    if name == "concrete_crack":
+        x, y = rng.randrange(4, 12), 1
+        while y < 16:
+            px[y][x] = 1
+            y += 1
+            x = max(1, min(15, x + rng.choice([-1, 0, 1])))
+    elif name == "yard_lane":                         # a painted lane line down the middle (it leads to the door)
+        for y in range(16):
+            if y % 8 < 5:
+                px[y][7] = px[y][8] = 14
+    elif name in ("dam_wall", "dam_base"):            # huge poured blocks, damp streaks down from the joints
+        for y in range(16):
+            for x in range(16):
+                px[y][x] = 3 if y % 8 == 1 else 2
+        for y in (0, 8):
+            for x in range(16):
+                px[y][x] = 1
+        for y in range(16):
+            px[y][(3 if y < 8 else 11)] = 1
+        for (x, y0) in ((6, 1), (13, 9), (9, 2)):
+            for y in range(y0, min(16, y0 + 5)):
+                px[y][x] = 9
+        if name == "dam_base":                        # its foot: a dark lip and a shadow on the ground
+            for x in range(16):
+                px[12][x] = 15; px[13][x] = 1; px[14][x] = 1; px[15][x] = 2 if x % 3 else 1
+    elif name in ("door_l", "door_r", "door_open_l", "door_open_r"):   # the Works door: steel, Vael's mark
+        left = name.endswith("_l")
+        for y in range(16):
+            for x in range(16):
+                px[y][x] = 2 if y % 8 != 1 else 3
+        for x in range(16):
+            px[0][x] = 1
+        x0, x1 = (3, 16) if left else (0, 13)         # the frame, the opening between the halves
+        for y in range(2, 16):
+            for x in range(x0, x1):
+                edge = y == 2 or x == x0 or x == x1 - 1
+                px[y][x] = 15 if edge and (left and x == x0 or not left and x == x1 - 1 or y == 2) else 10
+        if name.startswith("door_open"):
+            for y in range(3, 16):
+                for x in range(x0 + 1, x1 - 1) if left else range(x0, x1 - 1):
+                    px[y][x] = 15 if y < 6 else 1 if (x + y) % 5 else 15
+        else:
+            for y in range(3, 16):                     # panels and rivets
+                for x in range(x0 + 1, x1 - 1) if left else range(x0, x1 - 1):
+                    px[y][x] = 9 if y in (8, 9) else 11 if (y == 4 and x % 3 == 0) else 10
+            mid = 15 if left else 0                    # the halves meet: half of the V on each
+            for k in range(6):
+                vx = mid - 1 - k // 2 if left else mid + k // 2
+                if 0 <= vx < 16:
+                    px[10 + k][vx] = 13
+            px[3][x1 - 3 if left else x0 + 2] = 13     # a warning light
+    elif name == "fence_h":                           # chain link across: posts, a top rail, the mesh
+        for x in range(16):
+            px[3][x] = 15; px[4][x] = 11
+            for y in range(5, 13):
+                if (x + y) % 4 == 0 or (x - y) % 4 == 0:
+                    px[y][x] = 9
+            px[13][x] = 1
+        for x in (1, 14):
+            for y in range(2, 14):
+                px[y][x] = 15 if y in (2, 13) else 10
+    elif name == "fence_v":                           # chain link seen end on, running down
+        for y in range(16):
+            for x in range(6, 10):
+                px[y][x] = 9 if (x + y) % 2 else 2
+            px[y][5] = 15; px[y][10] = 1
+        for y in (1, 14):
+            for x in range(5, 11):
+                px[y][x] = 10
+            px[y][5] = px[y][10] = 15
+    elif name == "crate":                             # a Vael crate: steel, banded, an orange stripe
+        for y in range(2, 15):
+            for x in range(1, 15):
+                edge = y in (2, 14) or x in (1, 14)
+                px[y][x] = 15 if edge else 11 if y == 3 else 9 if y == 13 else 10
+        for y in range(3, 14):
+            px[y][5] = px[y][10] = 9
+        for x in range(2, 14):
+            px[8][x] = 13
+        px[15] = [1 if 1 < x < 15 else px[15][x] for x in range(16)]
+    elif name == "barrel":                            # a rusty drum with a warning band
+        for y in range(2, 15):
+            for x in range(3, 13):
+                edge = x in (3, 12) or y == 14
+                px[y][x] = 15 if edge else 5 if x < 6 else 4
+        for x in range(4, 12):
+            px[2][x] = 15; px[3][x] = 1 if 5 < x < 10 else 5; px[4][x] = 15
+            px[9][x] = 13; px[10][x] = 13
+        px[15] = [1 if 3 < x < 13 else px[15][x] for x in range(16)]
+    elif name in ("pipe_h", "pipe_v"):                # a big dry pipe from the dam, with a rusty collar
+        for a in range(16):
+            for b in range(3, 13):
+                c = 15 if b in (3, 12) else 11 if b == 4 else 9 if b >= 10 else 10
+                if a in (7, 8):
+                    c = 15 if b in (3, 12) else 5 if b < 8 else 4
+                if name == "pipe_h": px[b][a] = c
+                else: px[a][b] = c
+        if name == "pipe_h":
+            for x in range(16): px[13][x] = 1
+        else:
+            for y in range(16): px[y][13] = 1
+    elif name == "light_tower":                       # a searchlight's mast: a steel foot, its lamp on top
+        for y in range(6, 15):
+            for x in range(5, 11):
+                px[y][x] = 15 if x in (5, 10) else 9 if (x + y) % 3 == 0 else 2
+        for x in range(4, 12):
+            px[14][x] = 15; px[15][x] = 1
+        for y in range(0, 6):
+            for x in range(3, 13):
+                d = ((x + .5 - 8) / 5) ** 2 + ((y + .5 - 3) / 3) ** 2
+                if d < 1:
+                    px[y][x] = 15 if d > .6 else 14 if x < 8 else 11
+        px[2][6] = 14
+    elif name in ("gate_switch", "gate_switch_on"):   # a control box with a big lever and a light
+        on = name == "gate_switch_on"
+        for y in range(4, 15):
+            for x in range(2, 14):
+                edge = y in (4, 14) or x in (2, 13)
+                px[y][x] = 15 if edge else 11 if y == 5 else 9 if y == 13 else 10
+        for x in range(3, 13):
+            px[15][x] = 1
+        px[7][4] = px[7][5] = 7 if on else 13         # the light: green once pulled
+        for k in range(5):                            # the lever: up, or pulled down
+            lx, ly = 9, (6 - k if not on else 8 + k)
+            px[ly][lx] = 15; px[ly][lx + 1] = 3
+        hx, hy = 9, (1 if not on else 12)
+        for x in (hx - 1, hx, hx + 1, hx + 2):
+            px[hy][x] = 13; px[hy + 1][x] = 15
+    elif name == "hazard":                            # painted warning stripes (walkable)
+        for y in range(1, 15):
+            for x in range(1, 15):
+                px[y][x] = 13 if ((x + y) // 3) % 2 else 15
+    elif name == "dry_weeds":                         # weeds pushing up through the cracks (walkable)
+        for _ in range(3):
+            x, y = rng.randrange(2, 14), rng.randrange(4, 14)
+            px[y][x] = 1
+            for (dx, dy, c) in ((0, -1, 7), (-1, -2, 6), (1, -2, 8), (0, -3, 7), (2, -1, 6)):
+                if 0 <= x + dx < 16 and 0 <= y + dy < 16:
+                    px[y + dy][x + dx] = c
+    return px
 
 
 def meadow_tile(rng, name):
@@ -1933,6 +2101,7 @@ def make_terrain():
             cx, cy = (k % 3) * 16, (k // 3) * 16
             tiles.append([row[cx:cx + 16] for row in caps[blue][cy:cy + 16]])
     tiles += [meadow_tile(rng, n) for n in MEADOW_META]
+    tiles += [yard_tile(rng, n) for n in YARD_META]
     assert len(tiles) == len(META)
     img = Image.new("P", (16 * len(tiles), 16))
     img.putpalette([c for rgb in BG_PAL for c in rgb])
@@ -4166,6 +4335,26 @@ def make_meadow_sprites():
     return img
 
 
+YARD_SPR_PAL = MEADOW_SPR_PAL[:13] + [(255, 232, 140), (255, 248, 214), (255, 92, 76)]   # v0.22.1 + the lights
+
+
+def make_yard_sprites():
+    """v0.22.1 a searchlight's spot on the ground (32x32): a dithered oval of light with a bright rim; frame 1 is the
+    same in red (the alarm). The yard's set also holds the meadow's survey drones (build_data)."""
+    img = Image.new("P", (64, 32), 0)
+    img.putpalette([c for rgb in YARD_SPR_PAL for c in rgb])
+    for f in range(2):
+        for y in range(32):
+            for x in range(32):
+                d = ((x + .5 - 16) / 14.5) ** 2 + ((y + .5 - 16) / 10.5) ** 2
+                if d >= 1:
+                    continue
+                rim = d > .78
+                if rim or (x + y) % 2 == 0:
+                    img.putpixel((f * 32 + x, y), 15 if f else (14 if rim else 13))
+    return img
+
+
 GROVE_PAL = [                      # v0.20 the grove's own sprites (its region set; OBJ bank 13 while you are there)
     (255, 0, 255), (30, 20, 36), (96, 60, 120), (146, 98, 168), (196, 156, 210), (120, 176, 70), (176, 220, 110),
     (236, 220, 240),
@@ -4370,7 +4559,7 @@ def main():
                      ("clamp_sprite.png", make_clamp), ("combat_sprite.png", make_combat),
                      ("boss_sprite.png", make_boss), ("hollow.png", make_hollow),
                      ("tree_alive.png", make_tree_alive), ("leaves.png", make_leaves),
-                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("glimmer_sprite.png", make_glimmer), ("nox_sprite.png", make_nox), ("meadow_sprite.png", make_meadow_sprites), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
+                     ("leafen_sprite.png", make_leafen), ("lily_sprite.png", make_lily), ("pouch_sprite.png", make_pouch), ("ball_sprite.png", make_balls), ("flick_sprite.png", make_flick), ("orch_sprite.png", make_orch), ("cap_sprite.png", make_cap), ("glimmer_sprite.png", make_glimmer), ("nox_sprite.png", make_nox), ("meadow_sprite.png", make_meadow_sprites), ("yard_sprite.png", make_yard_sprites), ("grove_sprite.png", make_grove), ("tiny_sprite.png", make_tiny),
                      ("swim_sprite.png", make_swim_hands)):
         path = os.path.join(ART, name)
         if force or not os.path.exists(path):

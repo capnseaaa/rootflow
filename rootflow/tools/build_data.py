@@ -37,6 +37,8 @@ MOSS_TRAIL, GIANT_STEM, GIANT_STEM_BLUE = 180, 181, 182   # v0.20.4 the grove re
 (MENHIR_GRASS, ARCH_L, ARCH_R, ARCH_OPEN, ARCH_RUBBLE, SEAL_STONE, SEAL_GLOW, CRATER, FALLEN_STAR, BUD_CLOSED,
  BUD_OPEN) = range(195, 206)                        # v0.21 the Mirror Meadow's own
 MOON_PATH, MENHIR_LIT = 206, 207                    # v0.21.4 Nox's night: moonlight over the dry river, a lit stone
+(CONCRETE, CONCRETE_CRACK, YARD_LANE, DAM_WALL, DAM_BASE, DOOR_L, DOOR_R, DOOR_OPEN_L, DOOR_OPEN_R, FENCE_H, FENCE_V,
+ CRATE, BARREL, PIPE_H, PIPE_V, LIGHT_TOWER, GATE_SWITCH, GATE_SWITCH_ON, DRY_WEEDS, HAZARD) = range(208, 228)   # v0.22.1 the Dam Yard
 
 MAP_W = MAP_H = 32
 PLAYER_START = (6, 18)
@@ -59,7 +61,7 @@ THORN_GROVE = (0, 26, 6, 31)
 # Areas: 0 = the valley, 1 = Windy Steppe (east of the valley), 2 = Stone Hollow (south).
 VALLEY, EAST, SOUTH, WEST, HOLLOW_IN, MARSH, ORCHARD, GROVE, INTERIOR = 0, 1, 2, 3, 4, 5, 6, 7, 8
 MEADOW, MIRROR = 9, 10             # v0.21 the Mirror Meadow (north of the steppe) and its reflection
-NUM_AREAS = 11                     # 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
+NUM_AREAS = 12                     # 11: Vael's Dam Yard (v0.22.1); 4: the hollow inside the Great Tree (v0.16); 5: the drowned marsh (v0.18);
                                    # 6: the burnt orchard (v0.19), north of the Great Tree
 # v0.19 the burnt orchard: in from the Great Tree region's north edge into a small pocket at its south edge,
 # walled off by fallen burnt trees (only YOU clears them); everything past them is dark.
@@ -1271,11 +1273,70 @@ MEADOW_RING = []                       # the ten standing stones (make_meadow fi
 MEADOW_MOON = []                       # dry river cells the moonlight crosses at night (make_meadow fills it)
 
 
+# v0.22.1 Vael's Dam Yard (north of the valley; in from the meadow's west road). The way through: in at the east edge
+# (rows 13-19), west across the south yard, north through the gap at the pipe wall's west end to the gate switch,
+# east into the plaza and up to the Works door. Searchlights sweep the way (main.c yard_light): one to learn on by
+# the way in, one circling the middle, one at the gap, a fast one in the plaza.
+YARD = 11
+YARD_SWITCH = (3, 4)
+YARD_DOOR_X = 15                                   # the door's left half (row 2)
+YARD_TOWERS = [(28, 11), (15, 22), (7, 12), (20, 4)]
+
+
+def make_yard():
+    rng = random.Random(1111)
+    m = [[CONCRETE] * MAP_W for _ in range(MAP_H)]
+    def put(x, y, t):
+        m[y][x] = t
+    for y in range(MAP_H):
+        for x in range(MAP_W):
+            r = rng.random()
+            if r < 0.06: m[y][x] = CONCRETE_CRACK
+            elif r < 0.09: m[y][x] = DRY_WEEDS
+    for x in range(MAP_W):
+        put(x, 0, DAM_WALL); put(x, 1, DAM_WALL); put(x, 2, DAM_BASE); put(x, 31, FENCE_H)
+    put(YARD_DOOR_X, 2, DOOR_L); put(YARD_DOOR_X + 1, 2, DOOR_R)
+    for y in range(3, 31):
+        put(0, y, FENCE_V)
+        if not 13 <= y <= 19: put(31, y, FENCE_V)
+    for y in range(3, 9):                           # the lane from the plaza to the door
+        put(YARD_DOOR_X, y, YARD_LANE)
+    for x in range(4, 31):                          # the pipe wall (its west end open: the gap)
+        put(x, 9, PIPE_H)
+    for y in range(3, 7):                           # pipes down from the dam, framing the plaza
+        put(9, y, PIPE_V); put(22, y, PIPE_V)
+    for (x, y) in ((4, 13), (5, 13), (4, 14), (5, 14), (11, 12), (12, 12), (11, 13), (12, 13), (25, 4), (26, 4),
+                   (25, 5), (11, 25), (12, 25), (11, 26), (19, 26), (20, 26), (2, 7), (2, 8)):
+        put(x, y, CRATE)
+    for (x, y) in ((19, 12), (20, 12), (8, 18), (9, 18), (16, 15), (17, 15), (6, 24), (6, 25), (29, 7), (29, 6),
+                   (12, 7), (19, 7)):
+        put(x, y, BARREL)
+    for y in range(23, 31):                         # crates and drums wall off the south: the way west is past
+        put(23, y, CRATE if y % 3 else BARREL)      # the first light
+        put(24, y, BARREL if y % 2 else CRATE)
+    for x in range(25, 31):                         # weeds where the meadow road comes in
+        for y in range(12, 21):
+            if rng.random() < 0.35: put(x, y, DRY_WEEDS)
+    for y in range(3, 31):                          # weeds along the fences
+        for x in (1, 30):
+            if rng.random() < 0.3: put(x, y, DRY_WEEDS)
+    for (x, y) in ((7, 21), (8, 21), (7, 22), (18, 18), (19, 18), (19, 19), (27, 27), (28, 27), (28, 28), (27, 5)):
+        put(x, y, SLUDGE)                           # Vael's sludge, puddled where it leaked
+    for x in range(YARD_DOOR_X - 1, YARD_DOOR_X + 3):   # stripes in front of the door and round the switch
+        put(x, 3, HAZARD)
+    for (x, y) in ((2, 4), (4, 4), (2, 5), (3, 5), (4, 5)):
+        put(x, y, HAZARD)
+    for (x, y) in YARD_TOWERS:
+        put(x, y, LIGHT_TOWER)
+    put(*YARD_SWITCH, GATE_SWITCH)
+    return m
+
+
 def make_maps():
     meadow, mirror = make_meadow()
     maps = [make_valley(), make_east(), make_south(), make_west(), make_hollow_in(), make_marsh(), make_orchard(),
             make_grove(), [[ROOM_VOID] * MAP_W for _ in range(MAP_H)],   # 8: inside a Leafen home (built in-game)
-            meadow, mirror]
+            meadow, mirror, make_yard()]
     add_campfires(maps)
     add_nooks(maps)
     return [v for m in maps for row in m for v in row]
@@ -1384,6 +1445,7 @@ def main():
     nox = Image.open(os.path.join(ART, "nox_sprite.png"))       # v0.21.4: Nox (flying x2, its starlight, asleep; Glimmer's colors)
     grove = Image.open(os.path.join(ART, "grove_sprite.png"))   # v0.20: the grove's region set (poison puffs, their cloud)
     meadow_spr = Image.open(os.path.join(ART, "meadow_sprite.png"))   # v0.21.6: the meadow's set (survey drones, mirror wisps)
+    yard_spr = Image.open(os.path.join(ART, "yard_sprite.png"))   # v0.22.1: the Dam Yard's searchlight spots
     tiny = Image.open(os.path.join(ART, "tiny_sprite.png"))     # v0.20: the wizard shrunk (12 frames, 8x16)
     for im in (terrain, player, sprout, fx, ripple, pebble, breeze, bark, clamp, combat, boss, leafen, lily, swim, pouch, ball, flick, orch, cap, grove, tiny):
         assert im.mode == "P", "PNGs must be indexed color"
@@ -1423,7 +1485,9 @@ def main():
                    ("ORCH", [("SMOKE", orch, 16)]),                           # v0.19 the burnt orchard
                    ("GROVE", [("PUFF", grove, 16)]),                          # v0.20 the mushroom grove
                    ("ROOM", [("LFBIG", leafen_big_sheet(), 32)]),             # v0.20.5 the Leafen at home
-                   ("MEADOW", [("MEADOWE", meadow_spr, 16)])]                  # v0.21.6 the meadow and its reflection
+                   ("MEADOW", [("MEADOWE", meadow_spr, 16)]),                 # v0.21.6 the meadow and its reflection
+                   ("YARD", [("YARDE", meadow_spr, 16), ("BEAM", yard_spr, 32)])]   # v0.22.1 the Dam Yard (drones first:
+                                                                              # TILE_YARDE == TILE_MEADOWE)
     region_words = {}
     for set_name, set_sheets in region_sets:
         words = []
@@ -1505,6 +1569,11 @@ def main():
     out.append(c_array("unsigned char", "meadow_pool_y", [round(p[1]) for p in MEADOW_POOLS], fmt="{}"))
     out.append(c_array("unsigned short", "obj_pal_grove", palette_of(grove), fmt="0x{:04X}"))
     out.append(c_array("unsigned short", "obj_pal_meadow", palette_of(meadow_spr), fmt="0x{:04X}"))
+    out.append(c_array("unsigned short", "obj_pal_yard", palette_of(yard_spr), fmt="0x{:04X}"))   # v0.22.1
+    out.append(f"#define YARD {YARD}\n#define YARD_SWITCH_X {YARD_SWITCH[0]}\n#define YARD_SWITCH_Y {YARD_SWITCH[1]}\n"
+               f"#define YARD_DOOR_X {YARD_DOOR_X}\n#define NUM_YARD_LIGHTS {len(YARD_TOWERS)}")
+    out.append(c_array("unsigned char", "yard_tower_x", [p[0] for p in YARD_TOWERS], fmt="{}"))
+    out.append(c_array("unsigned char", "yard_tower_y", [p[1] for p in YARD_TOWERS], fmt="{}"))
     out.append(c_array("unsigned int", "sprite_tiles", sprite_words))
     out.append(f"#define POUCH_STATES {pouch.width // 64}\n#define POUCH_FRONT_Y {_art.POUCH_FRONT_Y}")
     out.append(c_array("unsigned int", "pouch_tiles", pouch_all))

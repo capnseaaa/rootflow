@@ -1,0 +1,78 @@
+# v0.22.1 Vael's Dam Yard: from the dev jump DAM YARD (Nox chosen), in at the east edge
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=16
+1 1
+1 0
+200 0
+0 0 @$cur_area,$yard_alarm,$party_count
+40 0 yd0.ppm
+# walk west into the first light's line (x 24): caught, the alarm sounds and drones come
+0 0 !$px=376,$py=250
+240 0
+0 0 @$yard_alarm
+20 0 yd1.ppm
+0 0 @$enemies+36,$enemies+76,$enemies+116
+# to the switch (3,4), from below, facing up: A opens the Works door
+0 0 !$yard_alarm=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+0 0 !$px=48,$py=72,$pdir=1
+1 0
+1 1
+1 0
+30 0 yd2.ppm
+0 0 @$maps+11395,$maps+11343
+# up against the open door: "THE WORKS. NOT YET..."
+0 0 !$msg_timer=0,$msgq_len=0
+0 0 !$px=240,$py=38,$pdir=1
+10 64
+1 0
+5 0 yd3.ppm
+# Nox by the middle tower (15,22): A lulls it to sleep
+0 0 !$msg_timer=0,$msgq_len=0,$yard_alarm=600
+0 0 !$px=208,$py=340,$pdir=2
+1 0
+1 1
+1 0
+30 0 yd4.ppm
+0 0 @$yard_doze+4,$cur_area
+# out at the east edge to the meadow's road, and back in
+0 0 @$cur_area
+0 0 !$yard_alarm=600,$msg_timer=0,$msgq_len=0
+0 0 @$cur_area
+0 0 !$px=494,$py=250,$pdir=3
+0 0 @$cur_area
+3 16
+0 0 @$cur_area,$px,$py
+27 16
+0 0 @$cur_area,$px
+30 32
+0 0 @$cur_area,$px
+# save in the yard (START, down to SAVE, A, A, START), power cycle, CONTINUE: the open door and pulled switch stay
+0 0 !$msg_timer=0,$msgq_len=0,$enemies+36=0,$enemies+76=0,$enemies+116=0
+2 8
+5 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 128
+2 0
+2 1
+5 0
+2 0
+2 1
+10 0 yd5.ppm
+2 0
+2 8
+5 0
+^
+10 0
+1 8
+60 0 yd6.ppm
+0 0 @$cur_area,$maps+11395,$maps+11343
