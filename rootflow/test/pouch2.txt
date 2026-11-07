@@ -1,0 +1,54 @@
+# v0.22.0 the pouch's second row: from the dev jump NOX JOINED (4 carried, 5 in the pouch), A puts
+# carried spirits in one by one; past five they sit in a second row behind the first
+10 0
+1 8
+30 0
+1 770
+1 0
+5 0
+0 0 !$dev_val=15
+1 1
+1 0
+200 0
+0 0 !$enemies+36=0,$enemies+76=0,$enemies+116=0,$enemies+156=0,$enemies+196=0
+# START, down to POUCH, A: the page
+1 8
+1 0
+1 128
+1 0
+1 1
+1 0
+5 0 pq0.ppm
+0 0 @$party_count,$pouch_cursor
+1 1
+1 0
+5 0 pq1.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq2.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq3.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq4.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq5.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq6.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq7.ppm
+0 0 @$party_count
+1 1
+1 0
+5 0 pq8.ppm
+0 0 @$party_count

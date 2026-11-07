@@ -675,7 +675,7 @@ static void oam_flush(void) {
 #define OAM_SHIELD  24  // Gloomheart's shield ring
 #define OAM_LEAF    25  // 25..30: leaves swirling round the wizard as Bark gives his power
 #define OAM_SPORE   31  // 31..38: Gloomheart's spores (the picker and the pouch page reuse them)
-#define OAM_MOTE    39  // 39..54: rot motes (warnings, dust, shards); the pouch page reuses 39..45
+#define OAM_MOTE    39  // 39..54: rot motes (warnings, dust, shards); the pouch page reuses all of them
 #define OAM_SHADOW  55  // where it will land
 #define OAM_STARS   56  // dazed
 #define OAM_LEAFEN  57  // 57..62: Leafen waiting in this area, or the three of a rescue
@@ -5755,7 +5755,8 @@ static s32 pouch_list(s32 *out) {
 }
 // The page's sprites, every frame it is open: the carried spirits in a row, and the pouch below with
 // the ones in it peeking out of its mouth (Caleb: icons, a real pouch, not pasted on its front). The
-// pouch is two sprites: its front rim (OAM_MOTE) over the spirits (51-55), its back (56) behind them.
+// pouch is two sprites: its front rim (OAM_MOTE) over the spirits (40-49), its back (54) behind them.
+// Past five, the rest sit in a second row behind the first, peeking out higher (room for Whirr).
 #define POUCH_X 44
 #define POUCH_Y 46
 static void draw_pouch_page(void) {
@@ -5767,15 +5768,20 @@ static void draw_pouch_page(void) {
         copy32(OBJ_TILES + TILE_POUCH * 8, pouch_tiles + st * 96 * 8, 96 * 8);
     }
     for (s32 i = 0; i < 8; i++) sprite_hide(OAM_SPORE + i);
-    for (s32 i = 0; i < 5; i++) sprite_hide(OAM_MOTE + 1 + i);
+    for (s32 i = 1; i < 15; i++) sprite_hide(OAM_MOTE + i);
     sprite_hide(OAM_CURSOR);
+    s32 back = m > 5 ? m - 5 : 0, front = m - back;
     for (s32 i = 0; i < n; i++) {
         s32 k = list[i], x, y, slot;
         if (i < c) { x = 76 - c * 12 + i * 24 + 4; y = 34; slot = OAM_SPORE + i; }
         else {
-            s32 j = i - c, gap = m <= 4 ? 12 : 10;     // balls sitting in its mouth (Caleb's reference)
-            if (j >= 5) continue;
-            x = POUCH_X + 24 + (2 * j - (m - 1)) * gap / 2; y = POUCH_Y + pouch_mouth_y[st] - 10; slot = OAM_MOTE + 1 + j;
+            s32 j = i - c, gap = front <= 4 ? 12 : 10, row = front, up = 0;   // balls in its mouth (Caleb's reference)
+            if (j >= 10) continue;
+            if (j >= 5) j -= 5, row = back, up = 7;     // the back row: higher, behind the front one,
+            x = POUCH_X + 24 + (2 * j - (row - 1)) * gap / 2;   // in the gaps between its balls
+            if (up && (back & 1) && back < 5) x += gap / 2;
+            y = POUCH_Y + pouch_mouth_y[st] - 10 - up;
+            slot = OAM_MOTE + 1 + i - c;
         }
         if (k == pouch_pick || i == pouch_cursor) y -= i < c ? 2 + bob : 3 + bob;   // the chosen one pops up
         if (i < c) sprite_set(slot, x, y, spirit_tile[k] + (i == pouch_cursor ? bob : 0), 0, spirit_pal[k]);
@@ -5790,7 +5796,7 @@ static void draw_pouch_page(void) {
     o[0] = ((POUCH_Y + POUCH_FRONT_Y) & 0xFF) | (1 << 14);
     o[1] = (POUCH_X & 0x1FF) | (3 << 14);
     o[2] = TILE_POUCH_FRONT | (PAL_LEAFEN << 12);
-    o = &oam_shadow[(OAM_MOTE + 6) * 4];                                 // the back: 64x64
+    o = &oam_shadow[(OAM_MOTE + 15) * 4];                                // the back: 64x64
     o[0] = POUCH_Y & 0xFF;
     o[1] = (POUCH_X & 0x1FF) | (3 << 14);
     o[2] = TILE_POUCH | (PAL_LEAFEN << 12);
@@ -5800,7 +5806,7 @@ static void hide_pouch_page(void) {
     if (!pouch_drawn) return;
     pouch_drawn = 0;
     for (s32 i = 0; i < 8; i++) sprite_hide(OAM_SPORE + i);
-    for (s32 i = 0; i < 7; i++) sprite_hide(OAM_MOTE + i);
+    for (s32 i = 0; i < 16; i++) sprite_hide(OAM_MOTE + i);
     sprite_hide(OAM_CURSOR);
 }
 static void pouch_take(s32 k) {                  // out of the pouch, into the party
