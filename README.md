@@ -64,6 +64,11 @@ Tests need `libmgba`: `sh rootflow/test/run.sh test/v4.txt` plays a scripted run
 No external GBA libraries. All art is drawn procedurally by `rootflow/tools/make_art.py`.
 
 ## Toybox prototype (web, 3D)
-`web/index.html` is a browser prototype of the valley in a glossy toy-diorama style: real 3D, a tilted camera, clear-coat materials, soft shadows, and a tilt-shift blur. It is a separate codebase from the ROM and covers one slice: walk, wake Sprout, bloom the land, wake Ripple, bridge water. The map is the valley from `tools/build_data.py`; bloom reach, charges, and recharge time follow `src/main.c`.
+`web/index.html` is a browser prototype in a glossy toy-diorama style: real 3D, a tilted camera, clear-coat materials, soft shadows, and a tilt-shift blur. It is a separate codebase from the ROM.
+
+- **Land:** one continuous sheet of clay with rolling ground, sunken rivers, and banks. Each area's own land repeats past its borders, mirrored, hazed, and blurred.
+- **Areas:** the valley and the Windy Steppe (walk east between the signposts). Maps come from `tools/build_data.py`.
+- **Play:** wake Sprout and bloom; wake Ripple and bridge water or the dry river; wake Pebble and break rocks; open chests; read wrecks; build Ripple's spring in the hidden spring, call Ripple back or send it home. Bloom reach, charges, recharge time, home helpers, and the home's life pulse follow `src/main.c`.
+- **Not from the ROM:** no new tree grows within 2.6 tiles of the wizard. Ripple and Pebble join as soon as they wake (the ROM asks for a greeting first).
 
 Open the file in a browser (it loads three.js 0.160.0 from jsDelivr, so it needs a network connection). Arrows or WASD move, Shift runs, Space or Z acts, Q or E swaps spirits. Touch screens get a pad and buttons.
