@@ -62,3 +62,8 @@ sh rootflow/tools/package.sh  # -> rootflow/release/ (ROM + cover for the SD car
 Tests need `libmgba`: `sh rootflow/test/run.sh test/v4.txt` plays a scripted run and saves screenshots.
 
 No external GBA libraries. All art is drawn procedurally by `rootflow/tools/make_art.py`.
+
+## Toybox prototype (web, 3D)
+`web/index.html` is a browser prototype of the valley in a glossy toy-diorama style: real 3D, a tilted camera, clear-coat materials, soft shadows, and a tilt-shift blur. It is a separate codebase from the ROM and covers one slice: walk, wake Sprout, bloom the land, wake Ripple, bridge water. The map is the valley from `tools/build_data.py`; bloom reach, charges, and recharge time follow `src/main.c`.
+
+Open the file in a browser (it loads three.js 0.160.0 from jsDelivr, so it needs a network connection). Arrows or WASD move, Shift runs, Space or Z acts, Q or E swaps spirits. Touch screens get a pad and buttons.
